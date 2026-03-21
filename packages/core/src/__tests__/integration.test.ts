@@ -136,7 +136,7 @@ describe('@spaghetti/core integration', () => {
     console.log(`  Page: ${page.messages.length} messages (total: ${page.total}, offset: ${page.offset}, hasMore: ${page.hasMore})`);
 
     if (page.messages.length > 0) {
-      const first = page.messages[0] as Record<string, unknown>;
+      const first = page.messages[0] as unknown as Record<string, unknown>;
       console.log(`  First message type: ${first.type ?? 'unknown'}`);
     }
   });

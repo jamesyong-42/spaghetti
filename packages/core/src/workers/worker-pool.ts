@@ -75,6 +75,9 @@ class WorkerPoolImpl implements WorkerPool {
     const queue = [...slugs];
     let completedCount = 0;
     const totalCount = slugs.length;
+    // Track workers whose crash has already been counted (by the 'error' handler)
+    // to avoid double-counting when the 'exit' handler also fires.
+    const errorCountedWorkers = new Set<Worker>();
 
     return new Promise<void>((resolve, reject) => {
       let hasRejected = false;
@@ -142,6 +145,7 @@ class WorkerPoolImpl implements WorkerPool {
         worker.on('error', (err) => {
           // Worker process-level error (e.g. uncaught exception)
           console.error(`[worker-pool] Worker error:`, err);
+          errorCountedWorkers.add(worker);
           completedCount++;
 
           // Try to replace the dead worker if there are more slugs to process
@@ -170,10 +174,16 @@ class WorkerPoolImpl implements WorkerPool {
         });
 
         worker.on('exit', (code) => {
-          if (code !== 0 && completedCount < totalCount) {
-            // Worker exited abnormally — already handled by 'error' event or
-            // by worker-error message. Just make sure we don't hang.
-            // (Don't double-count — only count if we haven't already)
+          if (code !== 0 && completedCount < totalCount && !errorCountedWorkers.has(worker)) {
+            // Worker exited abnormally without sending 'project-complete' or
+            // 'worker-error', AND the 'error' event didn't fire (or didn't
+            // account for this worker). This can happen if the worker crashes
+            // hard (e.g., segfault, OOM kill) before it can send a message.
+            // Increment completedCount to prevent the Promise from hanging forever.
+            completedCount++;
+            if (completedCount >= totalCount) {
+              resolve();
+            }
           }
         });
 

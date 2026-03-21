@@ -172,7 +172,11 @@ class QueryServiceImpl implements QueryService {
   }
 
   open(dbPath: string): void {
-    this.db.open({ path: dbPath });
+    // If the underlying SqliteService is already open (shared connection),
+    // skip opening again to avoid "Database already open" errors.
+    if (!this.db.isOpen()) {
+      this.db.open({ path: dbPath });
+    }
     initializeSchema(this.db);
     this.opened = true;
   }

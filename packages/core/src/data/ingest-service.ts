@@ -38,6 +38,7 @@ export interface IngestService extends ProjectParseSink {
   // Transactions
   beginTransaction(): void;
   commitTransaction(): void;
+  rollbackTransaction(): void;
 
   // Maintenance
   vacuum(): void;
@@ -208,7 +209,11 @@ class IngestServiceImpl implements IngestService {
   }
 
   open(dbPath: string): void {
-    this.db.open({ path: dbPath });
+    // If the underlying SqliteService is already open (shared connection),
+    // skip opening again to avoid "Database already open" errors.
+    if (!this.db.isOpen()) {
+      this.db.open({ path: dbPath });
+    }
     initializeSchema(this.db);
     this.prepareStatements();
     this.opened = true;
@@ -217,7 +222,10 @@ class IngestServiceImpl implements IngestService {
   close(): void {
     if (this.opened) {
       if (this.inTransaction) {
-        try { this.commitTransaction(); } catch { /* ignore */ }
+        // Rollback on close rather than commit — if we're closing with an
+        // open transaction, something went wrong and we should not persist
+        // potentially partial/corrupt data.
+        this.rollbackTransaction();
       }
       this.db.close();
       this.opened = false;
@@ -517,6 +525,18 @@ class IngestServiceImpl implements IngestService {
   commitTransaction(): void {
     if (this.inTransaction) {
       this.db.exec('COMMIT');
+      this.inTransaction = false;
+    }
+  }
+
+  rollbackTransaction(): void {
+    if (this.inTransaction) {
+      try {
+        this.db.exec('ROLLBACK');
+      } catch {
+        // Ignore errors during rollback — the transaction may already be
+        // rolled back (e.g., if the DB connection was lost).
+      }
       this.inTransaction = false;
     }
   }

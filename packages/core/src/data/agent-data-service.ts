@@ -210,7 +210,7 @@ export class AgentDataServiceImpl extends EventEmitter implements ClaudeCodeAgen
       });
       this.ingestService.commitTransaction();
     } catch (error) {
-      try { this.ingestService.commitTransaction(); } catch { /* ignore */ }
+      this.ingestService.rollbackTransaction();
       throw error;
     }
   }
@@ -319,7 +319,7 @@ export class AgentDataServiceImpl extends EventEmitter implements ClaudeCodeAgen
 
       this.ingestService.commitTransaction();
     } catch (error) {
-      try { this.ingestService.commitTransaction(); } catch { /* ignore */ }
+      this.ingestService.rollbackTransaction();
       throw error;
     } finally {
       pool.shutdown();
@@ -376,7 +376,7 @@ export class AgentDataServiceImpl extends EventEmitter implements ClaudeCodeAgen
         });
         this.ingestService.commitTransaction();
       } catch (error) {
-        try { this.ingestService.commitTransaction(); } catch { /* ignore */ }
+        this.ingestService.rollbackTransaction();
         throw error;
       }
 
@@ -614,7 +614,7 @@ export class AgentDataServiceImpl extends EventEmitter implements ClaudeCodeAgen
       });
       this.ingestService.commitTransaction();
     } catch (error) {
-      try { this.ingestService.commitTransaction(); } catch { /* ignore */ }
+      this.ingestService.rollbackTransaction();
       throw error;
     }
 

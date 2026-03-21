@@ -40,7 +40,11 @@ export function createSpaghettiService(options?: SpaghettiServiceOptions): Spagh
 
   // Default wiring: create all services from scratch
   const fileService = createFileService();
-  const sqliteFactory = () => createSqliteService();
+  // CRITICAL: Share a single SqliteService instance between query and ingest
+  // services to prevent SQLITE_BUSY errors. Two separate connections to the
+  // same DB can conflict when ingestService holds an open transaction.
+  const sharedSqlite = createSqliteService();
+  const sqliteFactory = () => sharedSqlite;
   const queryService = createQueryService(sqliteFactory);
   const ingestService = createIngestService(sqliteFactory);
   const parser = createClaudeCodeParser(fileService);
