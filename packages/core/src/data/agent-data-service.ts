@@ -382,32 +382,71 @@ export class AgentDataServiceImpl extends EventEmitter implements ClaudeCodeAgen
       }
     }
 
+    // Recovery check: detect projects that have sessions in the DB but 0
+    // messages.  This happens when a previous cold start silently failed
+    // to parse JSONL files (e.g. stale sessions-index.json).  If we find
+    // any, force a full re-parse to recover the lost data.
+    let needsRecovery = false;
     if (changedFiles.length === 0 && removedFiles.length === 0) {
-      this.emitProgress('reconciling', 'No changes detected, using cached data.');
-      return;
+      needsRecovery = this.hasProjectsWithMissingMessages();
+      if (!needsRecovery) {
+        this.emitProgress('reconciling', 'No changes detected, using cached data.');
+        return;
+      }
+      this.emitProgress('reconciling', 'Detected projects with 0 messages — triggering recovery re-parse...');
     }
 
     // For simplicity in this phase, if there are changes, do a full re-parse
     // (Phase 4 will add incremental per-file re-parsing)
-    if (changedFiles.length > 0 || removedFiles.length > 0) {
-      this.emitProgress('parsing', `Re-parsing: ${changedFiles.length} changed, ${removedFiles.length} removed files...`);
+    this.emitProgress('parsing', needsRecovery
+      ? 'Recovery re-parse: fixing projects with missing messages...'
+      : `Re-parsing: ${changedFiles.length} changed, ${removedFiles.length} removed files...`);
 
-      // Clear all data and re-ingest
-      this.ingestService.deleteAllData();
-      this.ingestService.beginTransaction();
-      try {
-        this.parser.parseStreaming(this.ingestService, {
-          claudeDir: this.claudeDir,
-        });
-        this.ingestService.commitTransaction();
-      } catch (error) {
-        this.ingestService.rollbackTransaction();
-        throw error;
-      }
-
-      // Update fingerprints
-      this.saveAllFingerprints();
+    // Clear all data and re-ingest
+    this.ingestService.deleteAllData();
+    this.ingestService.beginTransaction();
+    try {
+      this.parser.parseStreaming(this.ingestService, {
+        claudeDir: this.claudeDir,
+      });
+      this.ingestService.commitTransaction();
+    } catch (error) {
+      this.ingestService.rollbackTransaction();
+      throw error;
     }
+
+    // Update fingerprints
+    this.saveAllFingerprints();
+  }
+
+  /**
+   * Check whether any project in the DB has sessions but zero messages.
+   * This indicates a previous cold start failed to parse JSONL files and
+   * the data needs recovery.  We also verify that the project actually has
+   * JSONL files on disk — projects with no JSONL files are legitimately
+   * empty and don't need re-parsing.
+   */
+  private hasProjectsWithMissingMessages(): boolean {
+    try {
+      const summaries = this.queryService.getProjectSummaries();
+      for (const summary of summaries) {
+        if (summary.sessionCount > 0 && summary.messageCount === 0) {
+          // Verify there are actually JSONL files on disk for this project
+          const projectDir = path.join(this.claudeDir, 'projects', summary.slug);
+          try {
+            const files = this.fileService.scanDirectorySync(projectDir, { pattern: '*.jsonl' });
+            if (files.length > 0) {
+              return true;
+            }
+          } catch {
+            // can't read project dir — skip
+          }
+        }
+      }
+    } catch {
+      // query service not ready — skip
+    }
+    return false;
   }
 
   private saveAllFingerprints(): void {

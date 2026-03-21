@@ -143,8 +143,16 @@ export class ProjectParserImpl implements ProjectParser {
         sink.onSession(slug, entry);
 
         if (!skipMessages) {
-          // Stream messages using the streaming JSONL reader
-          const filePath = path.join(projectDir, `${sessionId}.jsonl`);
+          // Stream messages using the streaming JSONL reader.
+          // Try the canonical path first; fall back to entry.fullPath if
+          // the canonical path doesn't exist (e.g. stale index entries
+          // that reference relocated files).
+          const canonicalPath = path.join(projectDir, `${sessionId}.jsonl`);
+          const filePath = this.fileService.exists(canonicalPath)
+            ? canonicalPath
+            : (entry.fullPath && this.fileService.exists(entry.fullPath))
+              ? entry.fullPath
+              : canonicalPath;
           let messageCount = 0;
           let lastBytePosition = 0;
 
@@ -259,7 +267,7 @@ export class ProjectParserImpl implements ProjectParser {
     const sessionId = entry.sessionId;
     const skipMessages = options?.skipSessionMessages ?? false;
 
-    const messages = skipMessages ? [] : this.parseSessionMessages(projectDir, sessionId);
+    const messages = skipMessages ? [] : this.parseSessionMessages(projectDir, sessionId, entry.fullPath);
 
     const planSlug = messages.length > 0
       ? this.extractPlanSlugFromMessages(messages, planIndex)
@@ -283,7 +291,18 @@ export class ProjectParserImpl implements ProjectParser {
       const index = this.fileService.readJsonSync<SessionsIndex>(
         path.join(projectDir, 'sessions-index.json'),
       );
-      if (index && index.entries.length > 0) return index;
+      if (index && index.entries.length > 0) {
+        // The sessions-index.json may be stale — it can list sessions whose
+        // JSONL files no longer exist, and miss JSONL files that do exist on
+        // disk.  Merge any on-disk JSONL files that the index doesn't know
+        // about so we never silently drop messages.
+        const merged = this.mergeWithDiscoveredEntries(
+          index.entries,
+          projectDir,
+          index.originalPath,
+        );
+        return { ...index, entries: merged };
+      }
       if (index?.originalPath) {
         return { ...index, entries: this.discoverSessionEntries(projectDir, index.originalPath) };
       }
@@ -294,6 +313,26 @@ export class ProjectParserImpl implements ProjectParser {
       version: 1,
       entries: this.discoverSessionEntries(projectDir, undefined),
     };
+  }
+
+  /**
+   * Merge entries from sessions-index.json with JSONL files discovered on
+   * disk.  Any on-disk JSONL file whose session ID is NOT already in the
+   * index gets a freshly-built entry appended.  This handles the common case
+   * where the index is stale (e.g. after a Claude upgrade or migration).
+   */
+  private mergeWithDiscoveredEntries(
+    indexEntries: SessionIndexEntry[],
+    projectDir: string,
+    originalPath: string | undefined,
+  ): SessionIndexEntry[] {
+    const indexedIds = new Set(indexEntries.map((e) => e.sessionId));
+    const discovered = this.discoverSessionEntries(projectDir, originalPath);
+
+    const extra = discovered.filter((e) => !indexedIds.has(e.sessionId));
+    if (extra.length === 0) return indexEntries;
+
+    return [...indexEntries, ...extra];
   }
 
   private discoverSessionEntries(projectDir: string, originalPath: string | undefined): SessionIndexEntry[] {
@@ -359,9 +398,14 @@ export class ProjectParserImpl implements ProjectParser {
     return entries;
   }
 
-  private parseSessionMessages(projectDir: string, sessionId: string): SessionMessage[] {
+  private parseSessionMessages(projectDir: string, sessionId: string, fullPath?: string): SessionMessage[] {
     try {
-      const filePath = path.join(projectDir, `${sessionId}.jsonl`);
+      const canonicalPath = path.join(projectDir, `${sessionId}.jsonl`);
+      const filePath = this.fileService.exists(canonicalPath)
+        ? canonicalPath
+        : (fullPath && this.fileService.exists(fullPath))
+          ? fullPath
+          : canonicalPath;
       const result = this.fileService.readJsonlSync<SessionMessage>(filePath);
       return result.entries;
     } catch {
