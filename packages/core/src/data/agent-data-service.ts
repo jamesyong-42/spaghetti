@@ -187,7 +187,15 @@ export class AgentDataServiceImpl extends EventEmitter implements ClaudeCodeAgen
     const slugs = this.discoverProjectSlugs();
 
     if (slugs.length >= 4 && isWorkerThreadsAvailable()) {
-      await this.coldStartParallel(slugs);
+      try {
+        await this.coldStartParallel(slugs);
+      } catch {
+        // Worker threads may fail in bundled environments (e.g., tsup inlines
+        // the worker script as a data URL which isn't a valid worker path).
+        // Fall back to sequential parsing gracefully.
+        this.emitProgress('parsing', 'Workers unavailable, falling back to sequential...');
+        await this.coldStartSequential();
+      }
     } else {
       await this.coldStartSequential();
     }
@@ -200,12 +208,26 @@ export class AgentDataServiceImpl extends EventEmitter implements ClaudeCodeAgen
   }
 
   private async coldStartSequential(): Promise<void> {
-    this.emitProgress('parsing', 'Cold start: parsing all projects (sequential)...');
+    // Discover slugs to report progress count
+    const slugs = this.discoverProjectSlugs();
+    const totalProjects = slugs.length;
+    let completedProjects = 0;
+
+    this.emitProgress('parsing', `Parsing ${totalProjects} projects...`, 0, totalProjects);
+
+    // Wrap the ingest service with a progress-emitting proxy
+    const self = this;
+    const progressSink: typeof this.ingestService = Object.create(this.ingestService);
+    progressSink.onProjectComplete = function(slug: string) {
+      self.ingestService.onProjectComplete(slug);
+      completedProjects++;
+      self.emitProgress('parsing', `Parsed ${slug}`, completedProjects, totalProjects);
+    };
 
     // Use streaming parser to ingest all data directly into SQLite
     this.ingestService.beginTransaction();
     try {
-      this.parser.parseStreaming(this.ingestService, {
+      this.parser.parseStreaming(progressSink, {
         claudeDir: this.claudeDir,
       });
       this.ingestService.commitTransaction();
@@ -216,7 +238,9 @@ export class AgentDataServiceImpl extends EventEmitter implements ClaudeCodeAgen
   }
 
   private async coldStartParallel(slugs: string[]): Promise<void> {
-    this.emitProgress('parsing', `Cold start: parsing ${slugs.length} projects in parallel...`);
+    let completedProjects = 0;
+    const totalProjects = slugs.length;
+    this.emitProgress('parsing', `Parsing ${totalProjects} projects...`, 0, totalProjects);
 
     const pool = createWorkerPool({ maxWorkers: 4 });
 
@@ -307,7 +331,8 @@ export class AgentDataServiceImpl extends EventEmitter implements ClaudeCodeAgen
           }
           case 'project-complete': {
             this.ingestService.onProjectComplete(msg.slug);
-            this.emitProgress('parsing', `Parsed project "${msg.slug}" in ${msg.durationMs}ms`);
+            completedProjects++;
+            this.emitProgress('parsing', `Parsed ${msg.slug}`, completedProjects, totalProjects);
             break;
           }
           case 'worker-error': {

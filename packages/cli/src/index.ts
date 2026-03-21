@@ -34,11 +34,15 @@ async function withService<T>(fn: (api: Awaited<ReturnType<typeof initService>>)
   let api;
   try {
     api = await initService();
-  } catch (_err) {
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
     process.stderr.write(
-      theme.error('\nFailed to initialize. Is Claude Code installed?\n') +
-      theme.muted('Expected data at ~/.claude\n\n'),
+      theme.error('\nFailed to initialize: ') + msg + '\n' +
+      theme.muted('Is Claude Code installed? Expected data at ~/.claude\n\n'),
     );
+    if (process.argv.includes('--verbose') && err instanceof Error && err.stack) {
+      process.stderr.write(theme.muted(err.stack + '\n'));
+    }
     process.exit(1);
   }
 
