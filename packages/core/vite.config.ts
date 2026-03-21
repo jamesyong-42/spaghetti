@@ -1,0 +1,31 @@
+import { defineConfig } from 'vite';
+import dts from 'vite-plugin-dts';
+import { resolve } from 'path';
+
+export default defineConfig({
+  plugins: [
+    dts({ rollupTypes: true }),
+  ],
+  build: {
+    lib: {
+      entry: resolve(__dirname, 'src/index.ts'),
+      formats: ['es', 'cjs'],
+      fileName: 'index',
+    },
+    rollupOptions: {
+      external: [
+        'better-sqlite3',
+        'chokidar',
+        'events',
+        'fs',
+        'fs/promises',
+        'path',
+        'os',
+        'node:os',
+        'node:path',
+        'node:fs',
+        'node:worker_threads',
+      ],
+    },
+  },
+});

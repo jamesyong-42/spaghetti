@@ -1,0 +1,43 @@
+/**
+ * @spaghetti/core — Standalone library for browsing and analyzing Claude Code agent data
+ */
+
+// Types
+export * from './types/index.js';
+
+// I/O services
+export * from './io/index.js';
+
+// Parsers
+export * from './parser/index.js';
+
+// Data layer (segments, search, summaries)
+export * from './data/segment-types.js';
+export * from './data/summary-types.js';
+export { createSearchIndexer, type SearchIndexer, type SearchIndexEntry } from './data/search-indexer.js';
+export { createSegmentStore, type SegmentStore } from './data/segment-store.js';
+export { type ClaudeCodeAgentDataService, AgentDataServiceImpl, type AgentDataServiceOptions } from './data/agent-data-service.js';
+
+// Schema
+export { SCHEMA_VERSION, initializeSchema } from './data/schema.js';
+
+// Query & Ingest services
+export { createQueryService, type QueryService } from './data/query-service.js';
+export { createIngestService, type IngestService } from './data/ingest-service.js';
+
+// Workers
+export {
+  type WorkerPool,
+  type WorkerPoolOptions,
+  type WorkerToMainMessage,
+  type MainToWorkerMessage,
+  createWorkerPool,
+  isWorkerThreadsAvailable,
+} from './workers/index.js';
+
+// API
+export * from './api.js';
+
+// Factory
+export { createSpaghettiService, type SpaghettiServiceOptions } from './create.js';
+export { createSpaghettiAppService } from './app-service.js';

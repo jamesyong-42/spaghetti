@@ -1,0 +1,14 @@
+{
+  "name": "spaghetti",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Standalone library for browsing and analyzing Claude Code agent local data",
+  "scripts": {
+    "build": "pnpm -r build",
+    "clean": "pnpm -r clean",
+    "typecheck": "pnpm -r typecheck"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
