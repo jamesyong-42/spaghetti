@@ -1,0 +1,32 @@
+{
+  "name": "@spaghetti/cli",
+  "version": "0.1.0",
+  "type": "module",
+  "bin": {
+    "spaghetti": "./dist/bin.js",
+    "spag": "./dist/bin.js"
+  },
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsup",
+    "clean": "rm -rf dist",
+    "typecheck": "tsc --noEmit",
+    "dev": "tsup --watch",
+    "postbuild": "chmod +x dist/bin.js",
+    "test": "node --import tsx --test src/__tests__/*.test.ts"
+  },
+  "dependencies": {
+    "@spaghetti/core": "workspace:*",
+    "commander": "^13.1.0",
+    "picocolors": "^1.1.1",
+    "cli-truncate": "^4.0.0",
+    "string-width": "^7.2.0",
+    "nanospinner": "^1.2.2"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.0",
+    "tsup": "^8.4.0"
+  }
+}
