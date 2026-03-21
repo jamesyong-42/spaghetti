@@ -7,7 +7,7 @@ import { theme } from '../lib/color.js';
 import { formatTokens, formatRelativeTime, formatDuration, formatNumber, totalTokens } from '../lib/format.js';
 import { resolveProject, resolveSession, suggestProjects } from '../lib/resolve.js';
 import { UserError, noProjectMatch, noSessionMatch } from '../lib/error.js';
-import { renderMessages } from '../lib/message-render.js';
+import { renderMessages, filterDisplayableMessages } from '../lib/message-render.js';
 import { outputWithPager } from '../lib/pager.js';
 import { getTerminalWidth } from '../lib/terminal.js';
 
@@ -56,31 +56,59 @@ export async function messagesCommand(
   }
 
   // Calculate offset and limit
-  let limit = opts.limit ?? 50;
+  const requestedLimit = opts.limit ?? 50;
   let offset = opts.offset ?? 0;
 
   if (opts.last) {
-    // Show last N messages: compute offset from total
+    // Show last N messages: over-fetch from the end to account for internal types
     const total = session.messageCount;
-    offset = Math.max(total - opts.last, 0);
-    limit = opts.last;
+    const overfetch = opts.last * 3;
+    offset = Math.max(total - overfetch, 0);
   }
 
-  // Fetch messages
-  const page = api.getSessionMessages(project.slug, session.sessionId, limit, offset);
+  // The effective display limit: --last N overrides --limit
+  const displayLimit = opts.last ?? requestedLimit;
 
-  // JSON output
+  // JSON/raw: fetch with exact limit, no filtering
   if (opts.json) {
+    const page = api.getSessionMessages(project.slug, session.sessionId, displayLimit, offset);
     process.stdout.write(JSON.stringify(page, null, 2) + '\n');
     return;
   }
 
-  // Raw output
   if (opts.raw) {
+    const page = api.getSessionMessages(project.slug, session.sessionId, displayLimit, offset);
     for (const msg of page.messages) {
       process.stdout.write(JSON.stringify(msg) + '\n');
     }
     return;
+  }
+
+  // Over-fetch to account for internal message types (progress, file-history-snapshot,
+  // saved_hook_context, queue-operation, last-prompt) that get filtered during rendering.
+  // Fetch limit*3 initially, filter, and retry up to 2 times if still short.
+  const OVER_FETCH_MULTIPLIER = 3;
+  const MAX_RETRIES = 2;
+
+  let page = api.getSessionMessages(project.slug, session.sessionId, displayLimit * OVER_FETCH_MULTIPLIER, offset);
+  let displayMessages = filterDisplayableMessages(page.messages);
+  let totalRaw = page.total;
+  let lastHasMore = page.hasMore;
+  let fetchOffset = offset + page.messages.length;
+
+  for (let retry = 0; retry < MAX_RETRIES && displayMessages.length < displayLimit && lastHasMore; retry++) {
+    const morePage = api.getSessionMessages(project.slug, session.sessionId, displayLimit * OVER_FETCH_MULTIPLIER, fetchOffset);
+    displayMessages = displayMessages.concat(filterDisplayableMessages(morePage.messages));
+    totalRaw = morePage.total;
+    lastHasMore = morePage.hasMore;
+    fetchOffset += morePage.messages.length;
+  }
+
+  // Trim to the requested limit: for --last, take the tail; otherwise take the head
+  if (opts.last) {
+    displayMessages = displayMessages.slice(-displayLimit);
+  } else {
+    displayMessages = displayMessages.slice(0, displayLimit);
   }
 
   const width = getTerminalWidth();
@@ -114,21 +142,21 @@ export async function messagesCommand(
   headerLines.push(`  ${divider}`);
   headerLines.push('');
 
-  // Render messages
-  const rendered = renderMessages(page.messages, {
+  // Render messages (displayMessages is already filtered, renderMessages will be a no-op filter)
+  const rendered = renderMessages(displayMessages, {
     compact: opts.compact,
     noTools: opts.noTools,
     noThinking: opts.noThinking,
     width,
   });
 
-  // Pagination footer
+  // Pagination footer — reflect filtered count
   const footerParts: string[] = [];
-  if (page.offset > 0) {
-    footerParts.push(`offset ${page.offset}`);
+  if (offset > 0) {
+    footerParts.push(`offset ${offset}`);
   }
-  footerParts.push(`${page.messages.length}/${page.total} messages`);
-  if (page.hasMore) {
+  footerParts.push(`${displayMessages.length}/${totalRaw} messages`);
+  if (lastHasMore || displayMessages.length >= displayLimit) {
     footerParts.push('more available (use --offset or --last)');
   }
   const footer = theme.muted(`  ${footerParts.join(' \u00b7 ')}`);

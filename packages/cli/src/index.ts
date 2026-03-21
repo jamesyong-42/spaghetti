@@ -57,10 +57,76 @@ export function createProgram(): Command {
     .version(VERSION, '-v, --version')
     .description('Claude Code data explorer');
 
-  // Default action: dashboard
-  program.action(async () => {
-    await withService((api) => dashboardCommand(api, VERSION));
-  });
+  // Known commands with their aliases for unknown-command detection
+  const knownCommands: Array<{ name: string; alias: string; description: string }> = [
+    { name: 'projects', alias: 'p', description: 'List all projects' },
+    { name: 'sessions', alias: 's', description: 'Sessions for a project' },
+    { name: 'messages', alias: 'm', description: 'Read messages' },
+    { name: 'search', alias: '', description: 'Full-text search' },
+    { name: 'stats', alias: 'st', description: 'Usage statistics' },
+    { name: 'memory', alias: 'mem', description: 'View project MEMORY.md' },
+    { name: 'todos', alias: 't', description: 'View session todos' },
+    { name: 'subagents', alias: 'sub', description: 'View subagents' },
+    { name: 'plan', alias: 'pl', description: 'View session plan' },
+    { name: 'export', alias: 'x', description: 'Export project data' },
+  ];
+
+  // Default action: dashboard (or catch unknown commands)
+  program
+    .argument('[args...]', '')
+    .action(async (args: string[]) => {
+      // If no arguments, show the dashboard
+      if (!args || args.length === 0) {
+        await withService((api) => dashboardCommand(api, VERSION));
+        return;
+      }
+
+      // If the first arg looks like a command (not starting with '-'), treat it as unknown
+      const attempted = args[0];
+      if (!attempted.startsWith('-')) {
+        // Check for a close match (simple prefix/substring matching)
+        const allNames = knownCommands.flatMap((c) =>
+          c.alias ? [c.name, c.alias] : [c.name],
+        );
+        const suggestion = allNames.find(
+          (name) => name.startsWith(attempted) || attempted.startsWith(name),
+        );
+
+        const lines: string[] = [];
+        lines.push('');
+        lines.push(theme.error(`Unknown command: "${attempted}"`));
+
+        if (suggestion) {
+          const cmd = knownCommands.find(
+            (c) => c.name === suggestion || c.alias === suggestion,
+          );
+          lines.push(
+            theme.warning(`Did you mean "${cmd ? cmd.name : suggestion}"?`),
+          );
+        }
+
+        lines.push('');
+        lines.push(theme.heading('Available commands:'));
+
+        for (const cmd of knownCommands) {
+          const aliasStr = cmd.alias ? ` (${cmd.alias})` : '';
+          const nameCol = `  ${cmd.name}${aliasStr}`;
+          lines.push(
+            `${theme.accent(nameCol.padEnd(20))}${theme.muted(cmd.description)}`,
+          );
+        }
+
+        lines.push('');
+        lines.push(theme.muted("Run 'spaghetti --help' for more info."));
+        lines.push('');
+
+        process.stderr.write(lines.join('\n'));
+        process.exit(1);
+      }
+
+      // Otherwise (e.g. unknown flag), show the dashboard
+      await withService((api) => dashboardCommand(api, VERSION));
+    });
 
   // Projects command
   const projectsCmd = new Command('projects')

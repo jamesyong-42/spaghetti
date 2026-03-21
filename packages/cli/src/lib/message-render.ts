@@ -27,6 +27,10 @@ export function renderMessage(msg: SessionMessage, opts?: RenderOptions): string
 
   switch (msg.type) {
     case 'user':
+      // When noTools is set, skip user messages that are purely tool_result blocks
+      if (opts?.noTools && isToolResultOnly(msg)) {
+        return '';
+      }
       return renderUserMessage(msg, width);
     case 'assistant':
       return renderAssistantMessage(msg, width, opts);
@@ -43,6 +47,10 @@ export function renderMessage(msg: SessionMessage, opts?: RenderOptions): string
 function renderCompact(msg: SessionMessage, width: number, opts?: RenderOptions): string {
   switch (msg.type) {
     case 'user': {
+      // When noTools is set, skip user messages that are purely tool_result blocks
+      if (opts?.noTools && isToolResultOnly(msg)) {
+        return '';
+      }
       const content = extractUserContent(msg);
       const preview = cliTruncate(content.replace(/\n/g, ' '), Math.max(width - 30, 20));
       return `  ${theme.accent('You')}     ${preview}`;
@@ -52,6 +60,15 @@ function renderCompact(msg: SessionMessage, width: number, opts?: RenderOptions)
       const blocks = payload.content || [];
       const textBlocks = blocks.filter((b): b is { type: 'text'; text: string } => b.type === 'text');
       const toolBlocks = blocks.filter((b) => b.type === 'tool_use');
+
+      // When noTools is set, skip assistant messages that contain ONLY tool_use blocks
+      if (opts?.noTools) {
+        const hasNonToolBlock = blocks.some((b) => b.type !== 'tool_use');
+        if (!hasNonToolBlock) {
+          return '';
+        }
+      }
+
       const text = textBlocks.map((b) => b.text).join(' ').replace(/\n/g, ' ');
       const tokens = payload.usage
         ? formatTokens(payload.usage.input_tokens + payload.usage.output_tokens)
@@ -71,6 +88,14 @@ function renderCompact(msg: SessionMessage, width: number, opts?: RenderOptions)
     default:
       return `  ${theme.muted(`[${msg.type}]`)}`;
   }
+}
+
+/** Check if a user message contains only tool_result content blocks. */
+function isToolResultOnly(msg: SessionMessage & { type: 'user' }): boolean {
+  const content = msg.message.content;
+  if (typeof content === 'string') return false;
+  if (!Array.isArray(content) || content.length === 0) return false;
+  return content.every((block) => block.type === 'tool_result');
 }
 
 function extractUserContent(msg: SessionMessage & { type: 'user' }): string {
@@ -118,8 +143,18 @@ function renderAssistantMessage(
   width: number,
   opts?: RenderOptions,
 ): string {
-  const lines: string[] = [];
   const payload = msg.message;
+  const blocks = payload.content || [];
+
+  // When noTools is set, skip assistant messages that contain ONLY tool_use blocks
+  if (opts?.noTools) {
+    const hasNonToolBlock = blocks.some((b) => b.type !== 'tool_use');
+    if (!hasNonToolBlock) {
+      return '';
+    }
+  }
+
+  const lines: string[] = [];
   const timestamp = 'timestamp' in msg && msg.timestamp ? formatRelativeTime(msg.timestamp) : '';
   const tokenInfo = payload.usage
     ? theme.muted(` (${formatTokens(payload.usage.input_tokens + payload.usage.output_tokens)} tokens)`)
@@ -129,7 +164,6 @@ function renderAssistantMessage(
   const headerRight = timestamp ? theme.muted(timestamp) : '';
   lines.push(`  ${headerLeft}${tokenInfo}${headerRight ? '  ' + headerRight : ''}`);
 
-  const blocks = payload.content || [];
   for (const block of blocks) {
     switch (block.type) {
       case 'text':
@@ -226,21 +260,27 @@ function summarizeToolInput(input: Record<string, unknown>): string {
   return `{${keys.join(', ')}}`;
 }
 
+/** Internal message types that are filtered out during rendering. */
+export const INTERNAL_MESSAGE_TYPES: ReadonlySet<string> = new Set([
+  'progress',
+  'file-history-snapshot',
+  'saved_hook_context',
+  'queue-operation',
+  'last-prompt',
+]);
+
+/** Filter out internal message types that produce no visible output. */
+export function filterDisplayableMessages(messages: SessionMessage[]): SessionMessage[] {
+  return messages.filter((msg) => !INTERNAL_MESSAGE_TYPES.has(msg.type));
+}
+
 /**
  * Render a batch of messages for display (session transcript view).
  */
 export function renderMessages(messages: SessionMessage[], opts?: RenderOptions): string {
   const lines: string[] = [];
 
-  for (const msg of messages) {
-    // Skip types that produce empty output
-    if (msg.type === 'file-history-snapshot' || msg.type === 'progress' || msg.type === 'saved_hook_context') {
-      continue;
-    }
-    if (msg.type === 'queue-operation' || msg.type === 'last-prompt') {
-      continue;
-    }
-
+  for (const msg of filterDisplayableMessages(messages)) {
     const rendered = renderMessage(msg, opts);
     if (rendered) {
       lines.push(rendered);
