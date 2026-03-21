@@ -40,20 +40,31 @@ class ProgressDisplay {
     const spinner = pc.cyan(SPINNER[this.frame % SPINNER.length]);
     this.frame++;
 
-    let line = `  ${spinner} ${message}`;
+    // Shorten long slug-style names to just the last meaningful part
+    // e.g., "Parsed -Users-jamesyong-Projects-spaghetti" → "Parsed spaghetti"
+    const shortMessage = message.replace(/(?:Parsed\s+)-[A-Za-z]+-[A-Za-z]+-.*?-([^-\s(]+)/, 'Parsed $1');
 
+    const cols = process.stderr.columns ?? 80;
+
+    let line: string;
     if (total && total > 0) {
-      const pct = Math.round(((current ?? 0) / total) * 100);
       const barWidth = 20;
       const filled = Math.round((barWidth * (current ?? 0)) / total);
       const bar = pc.green('█'.repeat(filled)) + pc.dim('░'.repeat(barWidth - filled));
-      line = `  ${spinner} ${bar} ${pc.dim(`${current}/${total}`)} ${message}`;
+      line = `  ${spinner} ${bar} ${pc.dim(`${current}/${total}`)} ${shortMessage} ${pc.dim(`${elapsed}s`)}`;
+    } else {
+      line = `  ${spinner} ${shortMessage} ${pc.dim(`${elapsed}s`)}`;
     }
 
-    line += pc.dim(` (${elapsed}s)`);
-
-    // Pad to terminal width to clear previous line, then \r to start of line
-    const padding = Math.max(0, (process.stderr.columns ?? 80) - stripAnsi(line).length);
+    // Truncate to terminal width to prevent wrapping, then pad to clear leftovers
+    const plainLen = stripAnsi(line).length;
+    if (plainLen > cols) {
+      // Truncate the visible text to fit terminal width
+      const excess = plainLen - cols + 3; // room for "..."
+      line = `  ${spinner} ${shortMessage.slice(0, shortMessage.length - excess)}${pc.dim('…')} ${pc.dim(`${elapsed}s`)}`;
+    }
+    const finalLen = stripAnsi(line).length;
+    const padding = Math.max(0, cols - finalLen);
     process.stderr.write(`\r${line}${' '.repeat(padding)}`);
   }
 
