@@ -2,7 +2,7 @@
  * Messages command — read messages from a session
  */
 
-import type { SpaghettiAPI } from '@spaghetti/core';
+import type { SpaghettiAPI } from '@vibecook/spaghetti-core';
 import { theme } from '../lib/color.js';
 import { formatTokens, formatRelativeTime, formatDuration, formatNumber, totalTokens } from '../lib/format.js';
 import { resolveProject, resolveSession, suggestProjects } from '../lib/resolve.js';

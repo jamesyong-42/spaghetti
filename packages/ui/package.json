@@ -19,7 +19,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@spaghetti/core": "workspace:*"
+    "@vibecook/spaghetti-core": "workspace:*"
   },
   "peerDependencies": {
     "react": "^19.0.0",

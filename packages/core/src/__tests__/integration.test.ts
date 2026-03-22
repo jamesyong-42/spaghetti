@@ -1,5 +1,5 @@
 /**
- * Integration test for @spaghetti/core
+ * Integration test for @vibecook/spaghetti-core
  *
  * Exercises the full pipeline against real ~/.claude data using the
  * built-in node:test runner. No extra dependencies required.
@@ -27,7 +27,7 @@ let firstSessionId: string;
 // TEST SUITE
 // ═══════════════════════════════════════════════════════════════════════════
 
-describe('@spaghetti/core integration', () => {
+describe('@vibecook/spaghetti-core integration', () => {
   // ── 1. Initialize ──────────────────────────────────────────────────────
 
   test('1. Initialize the service', async () => {

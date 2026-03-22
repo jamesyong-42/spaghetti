@@ -19,7 +19,7 @@ export default defineConfig({
         'react',
         'react-dom',
         'react/jsx-runtime',
-        '@spaghetti/core',
+        '@vibecook/spaghetti-core',
       ],
     },
   },

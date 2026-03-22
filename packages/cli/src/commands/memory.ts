@@ -2,7 +2,7 @@
  * Memory command — view project MEMORY.md content
  */
 
-import type { SpaghettiAPI } from '@spaghetti/core';
+import type { SpaghettiAPI } from '@vibecook/spaghetti-core';
 import { theme } from '../lib/color.js';
 import { resolveProject, suggestProjects } from '../lib/resolve.js';
 import { noProjectMatch } from '../lib/error.js';

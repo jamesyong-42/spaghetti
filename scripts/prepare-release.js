@@ -10,8 +10,8 @@ for (const p of ['package.json', 'packages/core/package.json', 'packages/cli/pac
 
 // Replace workspace:* with actual version in CLI's dependency on core
 const cliPkg = JSON.parse(fs.readFileSync('packages/cli/package.json', 'utf-8'));
-if (cliPkg.dependencies && cliPkg.dependencies['@spaghetti/core'] === 'workspace:*') {
-  cliPkg.dependencies['@spaghetti/core'] = version;
+if (cliPkg.dependencies && cliPkg.dependencies['@vibecook/spaghetti-core'] === 'workspace:*') {
+  cliPkg.dependencies['@vibecook/spaghetti-core'] = version;
   fs.writeFileSync('packages/cli/package.json', JSON.stringify(cliPkg, null, 2) + '\n');
 }
 

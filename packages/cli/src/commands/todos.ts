@@ -2,7 +2,7 @@
  * Todos command — view todo items for a session
  */
 
-import type { SpaghettiAPI } from '@spaghetti/core';
+import type { SpaghettiAPI } from '@vibecook/spaghetti-core';
 import { theme } from '../lib/color.js';
 import { resolveProject, resolveSession, suggestProjects } from '../lib/resolve.js';
 import { UserError, noProjectMatch, noSessionMatch } from '../lib/error.js';

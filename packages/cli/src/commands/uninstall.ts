@@ -6,7 +6,7 @@ export async function uninstallCommand(): Promise<void> {
     `  ${pc.bold('Uninstall Spaghetti')}`,
     '',
     `  ${pc.dim('1.')} Remove the CLI:`,
-    `     ${pc.cyan('npm uninstall -g @spaghetti/cli')}`,
+    `     ${pc.cyan('npm uninstall -g @vibecook/spaghetti')}`,
     '',
     `  ${pc.dim('2.')} Remove cached data ${pc.dim('(optional)')}:`,
     `     ${pc.cyan('rm -rf ~/.spaghetti')}`,

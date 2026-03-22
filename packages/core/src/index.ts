@@ -1,5 +1,5 @@
 /**
- * @spaghetti/core — Standalone library for browsing and analyzing Claude Code agent data
+ * @vibecook/spaghetti-core — Standalone library for browsing and analyzing Claude Code agent data
  */
 
 // Types

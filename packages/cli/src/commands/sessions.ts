@@ -2,7 +2,7 @@
  * Sessions command — list sessions for a project
  */
 
-import type { SpaghettiAPI, SessionListItem } from '@spaghetti/core';
+import type { SpaghettiAPI, SessionListItem } from '@vibecook/spaghetti-core';
 import { theme } from '../lib/color.js';
 import { formatTokens, formatRelativeTime, formatDuration, formatNumber, totalTokens } from '../lib/format.js';
 import { renderTable } from '../lib/table.js';

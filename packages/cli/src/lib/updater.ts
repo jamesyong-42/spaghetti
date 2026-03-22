@@ -113,7 +113,7 @@ function spawnBackgroundUpdater(currentVersion: string): void {
     }
 
     try {
-      const latest = execSync('npm view @spaghetti/cli version', {
+      const latest = execSync('npm view @vibecook/spaghetti version', {
         timeout: 10000, encoding: 'utf-8'
       }).trim();
 
@@ -127,7 +127,7 @@ function spawnBackgroundUpdater(currentVersion: string): void {
 
       if (latest && latest !== CURRENT && isNewer(latest, CURRENT)) {
         try {
-          execSync('npm install -g @spaghetti/cli@latest', {
+          execSync('npm install -g @vibecook/spaghetti@latest', {
             timeout: 60000, stdio: 'ignore'
           });
           data.updateApplied = true;

@@ -1,12 +1,14 @@
 {
-  "name": "@spaghetti/cli",
+  "name": "@vibecook/spaghetti",
   "version": "0.1.0",
   "type": "module",
   "bin": {
     "spaghetti": "./dist/bin.js",
     "spag": "./dist/bin.js"
   },
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "build": "tsup",
     "clean": "rm -rf dist",
@@ -16,16 +18,24 @@
     "test": "node --import tsx --test src/__tests__/*.test.ts"
   },
   "dependencies": {
-    "@spaghetti/core": "workspace:*",
+    "@vibecook/spaghetti-core": "workspace:*",
     "commander": "^13.1.0",
     "picocolors": "^1.1.1",
     "cli-truncate": "^4.0.0",
     "string-width": "^7.2.0",
     "nanospinner": "^1.2.2"
   },
-  "publishConfig": { "access": "public", "provenance": true },
-  "engines": { "node": ">=18" },
-  "repository": { "type": "git", "url": "https://github.com/jamesyong-42/spaghetti.git", "directory": "packages/cli" },
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/jamesyong-42/spaghetti.git",
+    "directory": "packages/cli"
+  },
   "devDependencies": {
     "@types/node": "^22.0.0",
     "tsx": "^4.19.0",

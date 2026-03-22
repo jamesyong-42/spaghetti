@@ -2,7 +2,7 @@
  * Stats command — usage statistics overview
  */
 
-import type { SpaghettiAPI } from '@spaghetti/core';
+import type { SpaghettiAPI } from '@vibecook/spaghetti-core';
 import { theme } from '../lib/color.js';
 import { formatTokens, formatBytes, formatNumber, formatBar, totalTokens } from '../lib/format.js';
 

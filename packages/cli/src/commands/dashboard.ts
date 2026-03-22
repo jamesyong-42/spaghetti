@@ -2,7 +2,7 @@
  * Dashboard command — default view when running `spaghetti` with no args
  */
 
-import type { SpaghettiAPI, ProjectListItem } from '@spaghetti/core';
+import type { SpaghettiAPI, ProjectListItem } from '@vibecook/spaghetti-core';
 import { theme } from '../lib/color.js';
 import { formatTokens, formatBytes, formatRelativeTime, formatNumber, totalTokens } from '../lib/format.js';
 import { getTerminalWidth } from '../lib/terminal.js';

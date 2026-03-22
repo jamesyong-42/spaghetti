@@ -3,7 +3,7 @@
  */
 
 import { writeFileSync } from 'node:fs';
-import type { SpaghettiAPI, SessionListItem, SessionMessage } from '@spaghetti/core';
+import type { SpaghettiAPI, SessionListItem, SessionMessage } from '@vibecook/spaghetti-core';
 import { theme } from '../lib/color.js';
 import { formatRelativeTime, formatDuration, formatTokens, totalTokens } from '../lib/format.js';
 import { resolveProject, suggestProjects } from '../lib/resolve.js';

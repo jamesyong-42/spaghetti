@@ -1,5 +1,5 @@
 /**
- * Benchmark script for @spaghetti/core
+ * Benchmark script for @vibecook/spaghetti-core
  *
  * Measures cold start, warm start, and query performance against real ~/.claude data.
  * Validates against Architecture C targets.
@@ -133,7 +133,7 @@ async function runBenchmarks(): Promise<BenchmarkResults> {
 
   console.log('');
   console.log('╔══════════════════════════════════════════════════════════════╗');
-  console.log('║           @spaghetti/core Performance Benchmark             ║');
+  console.log('║           @vibecook/spaghetti-core Performance Benchmark             ║');
   console.log('╚══════════════════════════════════════════════════════════════╝');
   console.log('');
 

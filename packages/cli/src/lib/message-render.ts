@@ -2,7 +2,7 @@
  * Message renderer — render SessionMessage objects for terminal display
  */
 
-import type { SessionMessage, SystemMessage } from '@spaghetti/core';
+import type { SessionMessage, SystemMessage } from '@vibecook/spaghetti-core';
 import { theme } from './color.js';
 import { formatRelativeTime, formatTokens } from './format.js';
 import { getTerminalWidth } from './terminal.js';

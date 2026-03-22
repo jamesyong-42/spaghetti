@@ -1,5 +1,5 @@
 /**
- * recover-legacy-data.ts — Data recovery script for @spaghetti/core
+ * recover-legacy-data.ts — Data recovery script for @vibecook/spaghetti-core
  *
  * Recovers ~40,308 messages from two legacy databases that were deleted from disk.
  *
