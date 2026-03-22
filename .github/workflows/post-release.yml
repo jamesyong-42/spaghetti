@@ -1,0 +1,20 @@
+name: Post-Release
+on:
+  release:
+    types: [published]
+
+jobs:
+  attach-assets:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Generate checksums
+        run: sha256sum scripts/install.sh > checksums.txt
+      - name: Upload assets to release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            scripts/install.sh
+            checksums.txt

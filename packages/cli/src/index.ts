@@ -26,8 +26,11 @@ import type { PlanOptions } from './commands/plan.js';
 import { exportCommand } from './commands/export.js';
 import type { ExportOptions } from './commands/export.js';
 import { theme } from './lib/color.js';
+import { uninstallCommand } from './commands/uninstall.js';
+import { createRequire } from 'node:module';
 
-const VERSION = '0.1.0';
+const _require = createRequire(import.meta.url);
+const VERSION = (_require('../package.json') as { version: string }).version;
 
 /** Helper to initialize the service with standard error handling */
 async function withService<T>(fn: (api: Awaited<ReturnType<typeof initService>>) => Promise<T>): Promise<T> {
@@ -333,6 +336,12 @@ export function createProgram(): Command {
     });
 
   program.addCommand(exportCmd);
+
+  // Uninstall command
+  program
+    .command('uninstall')
+    .description('Show uninstall instructions')
+    .action(async () => { await uninstallCommand(); });
 
   return program;
 }

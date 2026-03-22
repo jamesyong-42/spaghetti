@@ -23,6 +23,9 @@
     "string-width": "^7.2.0",
     "nanospinner": "^1.2.2"
   },
+  "publishConfig": { "access": "public", "provenance": true },
+  "engines": { "node": ">=18" },
+  "repository": { "type": "git", "url": "https://github.com/jamesyong-42/spaghetti.git", "directory": "packages/cli" },
   "devDependencies": {
     "@types/node": "^22.0.0",
     "tsx": "^4.19.0",

@@ -22,6 +22,9 @@
     "better-sqlite3": "^11.0.0",
     "chokidar": "^4.0.0"
   },
+  "publishConfig": { "access": "public", "provenance": true },
+  "engines": { "node": ">=18" },
+  "repository": { "type": "git", "url": "https://github.com/jamesyong-42/spaghetti.git", "directory": "packages/core" },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.0",
     "@types/node": "^22.0.0",

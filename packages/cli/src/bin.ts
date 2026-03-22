@@ -7,6 +7,7 @@
 import { createProgram } from './index.js';
 import { shutdownService } from './lib/init.js';
 import { handleError } from './lib/error.js';
+import { checkForUpdates } from './lib/updater.js';
 
 // Graceful shutdown on SIGINT
 process.on('SIGINT', () => {
@@ -15,6 +16,7 @@ process.on('SIGINT', () => {
 });
 
 async function main(): Promise<void> {
+  checkForUpdates();
   const program = createProgram();
 
   try {
