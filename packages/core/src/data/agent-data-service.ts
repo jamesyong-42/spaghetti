@@ -370,10 +370,12 @@ export class AgentDataServiceImpl extends EventEmitter implements ClaudeCodeAgen
     this.emitProgress('reconciling', 'Warm start: checking for changes...');
 
     // Check which files have changed since last parse
+    // Skip recovery:// fingerprints — those track imported legacy data
     const changedFiles: string[] = [];
     const removedFiles: string[] = [];
 
     for (const fp of existingFingerprints) {
+      if (fp.path.startsWith('recovery://')) continue;
       const stats = this.fileService.getStats(fp.path);
       if (!stats) {
         removedFiles.push(fp.path);
@@ -396,14 +398,13 @@ export class AgentDataServiceImpl extends EventEmitter implements ClaudeCodeAgen
       this.emitProgress('reconciling', 'Detected projects with 0 messages — triggering recovery re-parse...');
     }
 
-    // For simplicity in this phase, if there are changes, do a full re-parse
-    // (Phase 4 will add incremental per-file re-parsing)
+    // Re-parse only from disk files. Use a MERGE strategy: re-ingest from
+    // disk (which uses UPSERT) without deleting first. This preserves
+    // recovered legacy data that has no corresponding disk files.
     this.emitProgress('parsing', needsRecovery
       ? 'Recovery re-parse: fixing projects with missing messages...'
       : `Re-parsing: ${changedFiles.length} changed, ${removedFiles.length} removed files...`);
 
-    // Clear all data and re-ingest
-    this.ingestService.deleteAllData();
     this.ingestService.beginTransaction();
     try {
       this.parser.parseStreaming(this.ingestService, {
