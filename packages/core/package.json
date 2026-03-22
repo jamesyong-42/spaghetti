@@ -1,6 +1,6 @@
 {
   "name": "@vibecook/spaghetti-core",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "type": "module",
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",
@@ -12,7 +12,9 @@
       "types": "./dist/index.d.ts"
     }
   },
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "build": "vite build",
     "clean": "rm -rf dist",
@@ -22,9 +24,18 @@
     "better-sqlite3": "^11.0.0",
     "chokidar": "^4.0.0"
   },
-  "publishConfig": { "access": "public", "provenance": true },
-  "engines": { "node": ">=18" },
-  "repository": { "type": "git", "url": "https://github.com/jamesyong-42/spaghetti.git", "directory": "packages/core" },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/jamesyong-42/spaghetti.git",
+    "directory": "packages/core"
+  },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.0",
     "@types/node": "^22.0.0",
