@@ -57,13 +57,13 @@ export async function statsCommand(
         total: totalInput + totalOutput + totalCacheCreation + totalCacheRead,
       },
       topProjects: projects
-        .map((p) => ({
+        .map((p: any) => ({
           name: p.folderName,
           tokens: totalTokens(p.tokenUsage),
           sessions: p.sessionCount,
           messages: p.messageCount,
         }))
-        .sort((a, b) => b.tokens - a.tokens)
+        .sort((a: any, b: any) => b.tokens - a.tokens)
         .slice(0, 5),
     };
     process.stdout.write(JSON.stringify(data, null, 2) + '\n');
@@ -104,8 +104,8 @@ export async function statsCommand(
 
   // Top projects by tokens
   const sorted = projects
-    .map((p) => ({ name: p.folderName, tokens: totalTokens(p.tokenUsage) }))
-    .sort((a, b) => b.tokens - a.tokens)
+    .map((p: any) => ({ name: p.folderName, tokens: totalTokens(p.tokenUsage) }))
+    .sort((a: any, b: any) => b.tokens - a.tokens)
     .slice(0, 5);
 
   if (sorted.length > 0) {

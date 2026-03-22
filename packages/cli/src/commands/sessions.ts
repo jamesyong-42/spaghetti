@@ -24,13 +24,13 @@ function sortSessions(sessions: SessionListItem[], key: SortKey): SessionListIte
   const sorted = [...sessions];
   switch (key) {
     case 'recent':
-      return sorted.sort((a, b) => new Date(b.lastUpdate).getTime() - new Date(a.lastUpdate).getTime());
+      return sorted.sort((a: SessionListItem, b: SessionListItem) => new Date(b.lastUpdate).getTime() - new Date(a.lastUpdate).getTime());
     case 'tokens':
-      return sorted.sort((a, b) => totalTokens(b.tokenUsage) - totalTokens(a.tokenUsage));
+      return sorted.sort((a: SessionListItem, b: SessionListItem) => totalTokens(b.tokenUsage) - totalTokens(a.tokenUsage));
     case 'messages':
-      return sorted.sort((a, b) => b.messageCount - a.messageCount);
+      return sorted.sort((a: SessionListItem, b: SessionListItem) => b.messageCount - a.messageCount);
     case 'duration':
-      return sorted.sort((a, b) => b.lifespanMs - a.lifespanMs);
+      return sorted.sort((a: SessionListItem, b: SessionListItem) => b.lifespanMs - a.lifespanMs);
     default:
       return sorted;
   }
@@ -104,7 +104,7 @@ export async function sessionsCommand(
     const sinceDate = parseSince(opts.since);
     if (sinceDate) {
       const sinceMs = sinceDate.getTime();
-      sessions = sessions.filter((s) => new Date(s.lastUpdate).getTime() >= sinceMs);
+      sessions = sessions.filter((s: any) => new Date(s.lastUpdate).getTime() >= sinceMs);
     } else {
       process.stderr.write(theme.warning(`\n  Could not parse time: "${opts.since}"\n\n`));
     }
@@ -144,12 +144,12 @@ export async function sessionsCommand(
       label: '#',
       width: 4,
       align: 'right',
-      format: (v) => theme.muted(String(v)),
+      format: (v: any) => theme.muted(String(v)),
     },
     {
       key: 'gitBranch',
       label: 'Branch',
-      format: (v) => {
+      format: (v: any) => {
         const branch = String(v || '');
         return branch ? theme.accent(branch) : theme.muted('-');
       },
@@ -159,14 +159,14 @@ export async function sessionsCommand(
       label: 'Msgs',
       width: 6,
       align: 'right',
-      format: (v) => formatNumber(Number(v)),
+      format: (v: any) => formatNumber(Number(v)),
     },
     {
       key: 'tokenUsage',
       label: 'Tokens',
       width: 9,
       align: 'right',
-      format: (v) => {
+      format: (v: any) => {
         const usage = v as SessionListItem['tokenUsage'];
         return theme.tokens(formatTokens(totalTokens(usage)));
       },
@@ -176,17 +176,17 @@ export async function sessionsCommand(
       label: 'Duration',
       width: 10,
       align: 'right',
-      format: (v) => theme.muted(formatDuration(Number(v))),
+      format: (v: any) => theme.muted(formatDuration(Number(v))),
     },
     {
       key: '_summary',
       label: 'Summary',
-      format: (v) => String(v || ''),
+      format: (v: any) => String(v || ''),
     },
   ];
 
   // Add index and summary to data
-  const rows = sessions.map((s, i) => ({
+  const rows = sessions.map((s: any, i: number) => ({
     ...s,
     _index: i + 1,
     _summary: s.summary || s.firstPrompt || '',

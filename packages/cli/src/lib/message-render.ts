@@ -58,18 +58,18 @@ function renderCompact(msg: SessionMessage, width: number, opts?: RenderOptions)
     case 'assistant': {
       const payload = msg.message;
       const blocks = payload.content || [];
-      const textBlocks = blocks.filter((b): b is { type: 'text'; text: string } => b.type === 'text');
-      const toolBlocks = blocks.filter((b) => b.type === 'tool_use');
+      const textBlocks = blocks.filter((b: any): b is { type: 'text'; text: string } => b.type === 'text');
+      const toolBlocks = blocks.filter((b: any) => b.type === 'tool_use');
 
       // When noTools is set, skip assistant messages that contain ONLY tool_use blocks
       if (opts?.noTools) {
-        const hasNonToolBlock = blocks.some((b) => b.type !== 'tool_use');
+        const hasNonToolBlock = blocks.some((b: any) => b.type !== 'tool_use');
         if (!hasNonToolBlock) {
           return '';
         }
       }
 
-      const text = textBlocks.map((b) => b.text).join(' ').replace(/\n/g, ' ');
+      const text = textBlocks.map((b: any) => b.text).join(' ').replace(/\n/g, ' ');
       const tokens = payload.usage
         ? formatTokens(payload.usage.input_tokens + payload.usage.output_tokens)
         : '';
@@ -95,7 +95,7 @@ function isToolResultOnly(msg: SessionMessage & { type: 'user' }): boolean {
   const content = msg.message.content;
   if (typeof content === 'string') return false;
   if (!Array.isArray(content) || content.length === 0) return false;
-  return content.every((block) => block.type === 'tool_result');
+  return content.every((block: any) => block.type === 'tool_result');
 }
 
 function extractUserContent(msg: SessionMessage & { type: 'user' }): string {
@@ -105,7 +105,7 @@ function extractUserContent(msg: SessionMessage & { type: 'user' }): string {
   }
   if (Array.isArray(payload.content)) {
     return payload.content
-      .map((block) => {
+      .map((block: any) => {
         if (block.type === 'text') return block.text;
         if (block.type === 'tool_result') {
           const c = block.content;
@@ -148,7 +148,7 @@ function renderAssistantMessage(
 
   // When noTools is set, skip assistant messages that contain ONLY tool_use blocks
   if (opts?.noTools) {
-    const hasNonToolBlock = blocks.some((b) => b.type !== 'tool_use');
+    const hasNonToolBlock = blocks.some((b: any) => b.type !== 'tool_use');
     if (!hasNonToolBlock) {
       return '';
     }
@@ -271,7 +271,7 @@ export const INTERNAL_MESSAGE_TYPES: ReadonlySet<string> = new Set([
 
 /** Filter out internal message types that produce no visible output. */
 export function filterDisplayableMessages(messages: SessionMessage[]): SessionMessage[] {
-  return messages.filter((msg) => !INTERNAL_MESSAGE_TYPES.has(msg.type));
+  return messages.filter((msg: SessionMessage) => !INTERNAL_MESSAGE_TYPES.has(msg.type));
 }
 
 /**

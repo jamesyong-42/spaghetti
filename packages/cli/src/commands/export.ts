@@ -50,7 +50,7 @@ function extractTextContent(msg: SessionMessage, includeTools: boolean): string 
     if (typeof payload.content === 'string') return payload.content;
     if (Array.isArray(payload.content)) {
       return payload.content
-        .map((block) => {
+        .map((block: any) => {
           if (block.type === 'text') return block.text;
           if (block.type === 'tool_result' && includeTools) {
             const c = block.content;
@@ -69,7 +69,7 @@ function extractTextContent(msg: SessionMessage, includeTools: boolean): string 
     const payload = msg.message;
     const blocks = payload.content || [];
     return blocks
-      .map((block) => {
+      .map((block: any) => {
         if (block.type === 'text') return block.text;
         if (block.type === 'tool_use' && includeTools) {
           return `[Tool: ${block.name}]\n${JSON.stringify(block.input, null, 2)}`;
@@ -189,13 +189,13 @@ export async function exportCommand(
       let messages = page.messages;
       if (!includeTools) {
         // Strip tool result content to reduce size
-        messages = messages.map((m) => {
+        messages = messages.map((m: any) => {
           if (m.type === 'user' && Array.isArray(m.message.content)) {
             return {
               ...m,
               message: {
                 ...m.message,
-                content: m.message.content.map((block) => {
+                content: m.message.content.map((block: any) => {
                   if (block.type === 'tool_result') {
                     return { ...block, content: '[stripped]' };
                   }
@@ -226,7 +226,7 @@ export async function exportCommand(
       slug: project.slug,
       path: project.absolutePath,
       sessionCount: sessions.length,
-      messageCount: sessions.reduce((sum, s) => sum + s.messageCount, 0),
+      messageCount: sessions.reduce((sum: number, s: any) => sum + s.messageCount, 0),
       exportedAt: new Date().toISOString(),
       sessions: exportedSessions,
     };

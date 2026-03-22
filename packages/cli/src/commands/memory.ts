@@ -26,10 +26,10 @@ export async function memoryCommand(
   if (!project) {
     // If user didn't specify a project (fell through cwd auto-detect), list projects with memory
     if (!projectInput) {
-      const withMemory = projects.filter((p) => p.hasMemory);
+      const withMemory = projects.filter((p: any) => p.hasMemory);
 
       if (opts.json) {
-        process.stdout.write(JSON.stringify(withMemory.map((p) => ({ slug: p.slug, folderName: p.folderName, path: p.absolutePath })), null, 2) + '\n');
+        process.stdout.write(JSON.stringify(withMemory.map((p: any) => ({ slug: p.slug, folderName: p.folderName, path: p.absolutePath })), null, 2) + '\n');
         return;
       }
 

@@ -18,6 +18,7 @@ jobs:
           node-version: 18
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - run: pnpm build
       - run: pnpm typecheck
 
   test:
@@ -33,7 +34,7 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm build
-      - run: pnpm --filter @spaghetti/cli test
+      - run: pnpm --filter @vibecook/spaghetti test
 
   build:
     runs-on: ubuntu-latest

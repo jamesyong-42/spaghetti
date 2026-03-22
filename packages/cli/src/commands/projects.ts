@@ -20,15 +20,15 @@ function sortProjects(projects: ProjectListItem[], key: SortKey): ProjectListIte
   const sorted = [...projects];
   switch (key) {
     case 'active':
-      return sorted.sort((a, b) => new Date(b.lastActiveAt).getTime() - new Date(a.lastActiveAt).getTime());
+      return sorted.sort((a: ProjectListItem, b: ProjectListItem) => new Date(b.lastActiveAt).getTime() - new Date(a.lastActiveAt).getTime());
     case 'sessions':
-      return sorted.sort((a, b) => b.sessionCount - a.sessionCount);
+      return sorted.sort((a: ProjectListItem, b: ProjectListItem) => b.sessionCount - a.sessionCount);
     case 'messages':
-      return sorted.sort((a, b) => b.messageCount - a.messageCount);
+      return sorted.sort((a: ProjectListItem, b: ProjectListItem) => b.messageCount - a.messageCount);
     case 'tokens':
-      return sorted.sort((a, b) => totalTokens(b.tokenUsage) - totalTokens(a.tokenUsage));
+      return sorted.sort((a: ProjectListItem, b: ProjectListItem) => totalTokens(b.tokenUsage) - totalTokens(a.tokenUsage));
     case 'name':
-      return sorted.sort((a, b) => a.folderName.localeCompare(b.folderName));
+      return sorted.sort((a: ProjectListItem, b: ProjectListItem) => a.folderName.localeCompare(b.folderName));
     default:
       return sorted;
   }
@@ -63,33 +63,33 @@ export async function projectsCommand(api: SpaghettiAPI, opts: ProjectsOptions):
       label: '#',
       width: 4,
       align: 'right',
-      format: (v) => theme.muted(String(v)),
+      format: (v: any) => theme.muted(String(v)),
     },
     {
       key: 'folderName',
       label: 'Project',
-      format: (v) => theme.project(String(v)),
+      format: (v: any) => theme.project(String(v)),
     },
     {
       key: 'sessionCount',
       label: 'Sessions',
       width: 10,
       align: 'right',
-      format: (v) => formatNumber(Number(v)),
+      format: (v: any) => formatNumber(Number(v)),
     },
     {
       key: 'messageCount',
       label: 'Messages',
       width: 10,
       align: 'right',
-      format: (v) => formatNumber(Number(v)),
+      format: (v: any) => formatNumber(Number(v)),
     },
     {
       key: 'tokenUsage',
       label: 'Tokens',
       width: 10,
       align: 'right',
-      format: (v) => {
+      format: (v: any) => {
         const usage = v as ProjectListItem['tokenUsage'];
         return theme.tokens(formatTokens(totalTokens(usage)));
       },
@@ -99,12 +99,12 @@ export async function projectsCommand(api: SpaghettiAPI, opts: ProjectsOptions):
       label: 'Last Active',
       width: 12,
       align: 'right',
-      format: (v) => theme.time(formatRelativeTime(String(v))),
+      format: (v: any) => theme.time(formatRelativeTime(String(v))),
     },
   ];
 
   // Add index to data
-  const rows = projects.map((p, i) => ({ ...p, _index: i + 1 }));
+  const rows = projects.map((p: any, i: number) => ({ ...p, _index: i + 1 }));
 
   const table = renderTable(rows, columns);
 

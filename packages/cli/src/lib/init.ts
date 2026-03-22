@@ -101,7 +101,7 @@ export async function initService(opts?: InitOptions): Promise<SpaghettiAPI> {
 
   const startTime = Date.now();
 
-  const unsub = service.onProgress((p) => {
+  const unsub = service.onProgress((p: any) => {
     progress.update(p.message, p.current, p.total);
   });
 

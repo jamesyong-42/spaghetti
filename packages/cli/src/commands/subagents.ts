@@ -126,28 +126,28 @@ export async function subagentsCommand(
       label: '#',
       width: 4,
       align: 'right',
-      format: (v) => theme.muted(String(v)),
+      format: (v: any) => theme.muted(String(v)),
     },
     {
       key: 'agentId',
       label: 'Agent ID',
-      format: (v) => theme.accent(String(v).slice(0, 12)),
+      format: (v: any) => theme.accent(String(v).slice(0, 12)),
     },
     {
       key: 'agentType',
       label: 'Type',
-      format: (v) => String(v),
+      format: (v: any) => String(v),
     },
     {
       key: 'messageCount',
       label: 'Messages',
       width: 10,
       align: 'right',
-      format: (v) => formatNumber(Number(v)),
+      format: (v: any) => formatNumber(Number(v)),
     },
   ];
 
-  const rows = subagents.map((a, i) => ({
+  const rows = subagents.map((a: any, i: number) => ({
     ...a,
     _index: i + 1,
   }));
