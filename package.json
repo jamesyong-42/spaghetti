@@ -2,7 +2,23 @@
   "name": "spaghetti",
   "version": "0.1.0",
   "private": true,
-  "description": "Standalone library for browsing and analyzing Claude Code agent local data",
+  "description": "Untangle your Claude Code history — browse, search, and analyze all your conversations from the terminal",
+  "license": "MIT",
+  "author": "James Yong",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/jamesyong-42/spaghetti.git"
+  },
+  "homepage": "https://github.com/jamesyong-42/spaghetti",
+  "keywords": [
+    "claude",
+    "claude-code",
+    "cli",
+    "conversation",
+    "history",
+    "search",
+    "sqlite"
+  ],
   "scripts": {
     "build": "pnpm -r build",
     "clean": "pnpm -r clean",
