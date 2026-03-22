@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
-import type { ProjectListItem, SessionListItem, MessagePage, SubagentListItem, StoreStats, SearchResultSet, InitProgress } from '@spaghetti/core';
+import type { ProjectListItem, SessionListItem, MessagePage, SubagentListItem, StoreStats, SearchResultSet, InitProgress } from '@vibecook/spaghetti-core';
 import { useSpaghettiAPI } from './context.js';
 import { ProjectCard } from './components/ProjectCard.js';
 import { SessionCard } from './components/SessionCard.js';
@@ -83,7 +83,7 @@ export function AgentDataPlayground() {
     );
 
     unsubs.push(
-      api.onReady((info) => {
+      api.onReady((info: any) => {
         setReady(true);
         setInitDurationMs(info.durationMs);
         setInitProgress(`Ready in ${info.durationMs}ms`);
@@ -318,7 +318,7 @@ export function AgentDataPlayground() {
 
       {searchResults && searchResults.results.length > 0 && (
         <div className="px-4 py-2 border-b border-white/10 bg-white/[0.03] max-h-48 overflow-y-auto">
-          {searchResults.results.map((r, i) => (
+          {searchResults.results.map((r: any, i: number) => (
             <div key={i} className="flex items-center gap-2 text-[11px] py-0.5">
               <span className="text-purple-300 w-16 shrink-0 font-mono">{r.type}</span>
               {r.projectSlug && <span className="text-blue-300/60">{r.projectSlug}</span>}

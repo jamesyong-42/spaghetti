@@ -1,5 +1,5 @@
 import React from 'react';
-import type { ProjectListItem } from '@spaghetti/core';
+import type { ProjectListItem } from '@vibecook/spaghetti-core';
 import { formatRelativeTime, formatTokenCount } from '../utils/formatters.js';
 
 export function ProjectCard({

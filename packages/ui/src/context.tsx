@@ -1,5 +1,5 @@
 import React, { createContext, useContext } from 'react';
-import type { SpaghettiAPI } from '@spaghetti/core';
+import type { SpaghettiAPI } from '@vibecook/spaghetti-core';
 
 const SpaghettiContext = createContext<SpaghettiAPI | null>(null);
 
