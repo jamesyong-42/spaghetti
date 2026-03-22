@@ -5,17 +5,17 @@ on:
   pull_request:
     branches: [main]
 
+concurrency: ${{ github.workflow }}-${{ github.ref }}
+
 jobs:
   typecheck:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
-        with:
-          version: 9
       - uses: actions/setup-node@v4
         with:
-          node-version: 18
+          node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm build
@@ -26,11 +26,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
-        with:
-          version: 9
       - uses: actions/setup-node@v4
         with:
-          node-version: 18
+          node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm build
@@ -41,11 +39,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
-        with:
-          version: 9
       - uses: actions/setup-node@v4
         with:
-          node-version: 18
+          node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm build
@@ -56,23 +52,28 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
-      issues: write
       pull-requests: write
       id-token: write
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          persist-credentials: false
       - uses: pnpm/action-setup@v4
-        with:
-          version: 9
       - uses: actions/setup-node@v4
         with:
-          node-version: 18
+          node-version: 22
           cache: pnpm
+          registry-url: 'https://registry.npmjs.org'
+      - name: Update npm for OIDC trusted publishing
+        run: npm install -g npm@latest
       - run: pnpm install --frozen-lockfile
-      - run: npx semantic-release
+      - run: pnpm build
+      - name: Create Release Pull Request or Publish
+        id: changesets
+        uses: changesets/action@v1
+        with:
+          publish: pnpm changeset publish --access public
+          version: pnpm changeset version
+          title: 'chore: version packages'
+          commit: 'chore: version packages'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NPM_CONFIG_PROVENANCE: true

@@ -24,19 +24,20 @@
     "clean": "pnpm -r clean",
     "typecheck": "pnpm -r typecheck",
     "validate": "bash scripts/validate-all.sh",
-    "test": "pnpm typecheck && pnpm validate"
+    "test": "pnpm typecheck && pnpm validate",
+    "changeset": "changeset",
+    "version-packages": "changeset version",
+    "release": "pnpm build && changeset publish --access public"
   },
   "engines": {
     "node": ">=18"
   },
   "devDependencies": {
+    "@changesets/changelog-github": "^0.6.0",
+    "@changesets/cli": "^2.30.0",
     "@msgpack/msgpack": "^3.1.3",
-    "@semantic-release/changelog": "^6.0.0",
-    "@semantic-release/exec": "^6.0.0",
-    "@semantic-release/git": "^10.0.0",
     "@types/better-sqlite3": "^7.6.13",
     "better-sqlite3": "^11.10.0",
-    "semantic-release": "^24.0.0",
     "tsx": "^4.21.0"
   }
 }
