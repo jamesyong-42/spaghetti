@@ -164,7 +164,7 @@ export class AnalyticsParserImpl implements AnalyticsParser {
   }
 
   private parseDebugLogContent(content: string): DebugLogEntry[] {
-    const rawLines = content.split('\n');
+    const rawLines = content.split(/\r?\n/);
     const entries: DebugLogEntry[] = [];
 
     const logPattern = /^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d+Z)\s+\[(\w+)\]\s+(.*)/;

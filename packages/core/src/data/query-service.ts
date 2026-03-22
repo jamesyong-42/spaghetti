@@ -507,7 +507,7 @@ class QueryServiceImpl implements QueryService {
 
   private toProjectSummary(row: ProjectSummaryRow): ProjectSummaryData {
     const originalPath = row.original_path ?? '';
-    const parts = originalPath.split('/');
+    const parts = originalPath.split(/[\\/]/);
     const folderName = parts[parts.length - 1] || row.slug;
 
     const tokenUsage: TokenUsageSummary = {

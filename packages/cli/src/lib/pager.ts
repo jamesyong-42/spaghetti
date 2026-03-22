@@ -26,7 +26,8 @@ export function outputWithPager(content: string): void {
   }
 
   // Pipe to pager
-  const pagerCmd = process.env['PAGER'] || 'less -R';
+  const defaultPager = process.platform === 'win32' ? 'more' : 'less -R';
+  const pagerCmd = process.env['PAGER'] || defaultPager;
   const parts = pagerCmd.split(/\s+/);
   const cmd = parts[0]!;
   const args = parts.slice(1);

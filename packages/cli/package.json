@@ -12,7 +12,7 @@
     "clean": "rm -rf dist",
     "typecheck": "tsc --noEmit",
     "dev": "tsup --watch",
-    "postbuild": "chmod +x dist/bin.js",
+    "postbuild": "node -e \"try{require('fs').chmodSync('dist/bin.js',0o755)}catch{}\"",
     "test": "node --import tsx --test src/__tests__/*.test.ts"
   },
   "dependencies": {

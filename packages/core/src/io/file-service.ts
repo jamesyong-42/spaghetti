@@ -289,7 +289,7 @@ export class FileServiceImpl extends EventEmitter implements FileService {
 
     try {
       const content = this.readFileSync(path);
-      const lines = content.split('\n');
+      const lines = content.split(/\r?\n/);
 
       for (let i = 0; i < lines.length; i++) {
         const line = lines[i].trim();
@@ -323,7 +323,7 @@ export class FileServiceImpl extends EventEmitter implements FileService {
 
       const content = buffer.subarray(0, bytesRead).toString('utf-8');
       const newlineIndex = content.indexOf('\n');
-      return newlineIndex !== -1 ? content.substring(0, newlineIndex) : content;
+      return newlineIndex !== -1 ? content.substring(0, newlineIndex).replace(/\r$/, '') : content;
     } catch (error) {
       this.emit('error', { path, error });
       return null;

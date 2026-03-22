@@ -3,6 +3,7 @@
  */
 
 import type { ProjectListItem, SessionListItem } from '@spaghetti/core';
+import path from 'node:path';
 
 /**
  * Resolve a user-provided string to a project.
@@ -26,11 +27,11 @@ export function resolveProject(input: string, projects: ProjectListItem[]): Proj
     if (exact) return exact;
 
     // Then try cwd being inside a project path
-    const containing = projects.find((p) => cwd.startsWith(p.absolutePath + '/'));
+    const containing = projects.find((p) => cwd.startsWith(p.absolutePath + path.sep));
     if (containing) return containing;
 
     // Then try project path being inside cwd
-    const inside = projects.find((p) => p.absolutePath.startsWith(cwd + '/'));
+    const inside = projects.find((p) => p.absolutePath.startsWith(cwd + path.sep));
     if (inside) return inside;
 
     return null;

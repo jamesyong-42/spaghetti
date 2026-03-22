@@ -646,16 +646,34 @@ export class ProjectParserImpl implements ProjectParser {
   }
 
   private slugToPath(slug: string): string {
-    const naive = slug.replace(/^-/, '/').replace(/-/g, '/');
-    const parts = slug.replace(/^-/, '').split('-');
+    const sep = path.sep;
+    const isWindows = sep === '\\';
+
+    // Detect Windows drive-letter slug: e.g. "-C-Users-..." → "C:\Users\..."
+    const driveMatch = isWindows ? slug.match(/^-([A-Za-z])-(.*)$/) : null;
+
+    let naive: string;
+    let parts: string[];
+    let drivePrefix: string;
+
+    if (driveMatch) {
+      drivePrefix = driveMatch[1]!.toUpperCase() + ':';
+      naive = drivePrefix + sep + driveMatch[2]!.replace(/-/g, sep);
+      parts = driveMatch[2]!.split('-');
+    } else {
+      naive = slug.replace(/^-/, sep).replace(/-/g, sep);
+      parts = slug.replace(/^-/, '').split('-');
+      drivePrefix = '';
+    }
+
     if (parts.length === 0) return naive;
 
-    let resolved = '';
+    let resolved = drivePrefix;
     let i = 0;
     while (i < parts.length) {
       let matched = false;
       for (let end = parts.length; end > i; end--) {
-        const candidate = '/' + parts.slice(i, end).join('-');
+        const candidate = sep + parts.slice(i, end).join('-');
         const fullCandidate = resolved + candidate;
         const stats = this.fileService.getStats(fullCandidate);
         if (stats) {
@@ -666,7 +684,7 @@ export class ProjectParserImpl implements ProjectParser {
         }
       }
       if (!matched) {
-        resolved += '/' + parts[i];
+        resolved += sep + parts[i];
         i++;
       }
     }
