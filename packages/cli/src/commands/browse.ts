@@ -289,7 +289,7 @@ export async function browseCommand(api: SpaghettiAPI): Promise<void> {
         hints = '↑↓ navigate  Enter open  Esc back  q quit';
         break;
       case 'detail':
-        hints = `↑↓ scroll  Esc back  q quit  [${detailScrollOffset + 1}/${detailLines.length}]`;
+        hints = `↑↓ scroll  Esc back  q quit  [${detailScrollOffset + 1} / ${detailLines.length} lines]`;
         break;
     }
 
@@ -303,6 +303,10 @@ export async function browseCommand(api: SpaghettiAPI): Promise<void> {
 
   function setupProjectsView(): void {
     loadProjects();
+    if (projects.length === 0) {
+      tui.cleanup();
+      throw new TUINotAvailableError('no projects found');
+    }
     const header = buildHeader();
     const footer = buildFooter();
     const viewportHeight = tui.rows - header.length - footer.length;
@@ -322,6 +326,23 @@ export async function browseCommand(api: SpaghettiAPI): Promise<void> {
 
   function setupSessionsView(): void {
     loadSessions(state.project!);
+    if (sessions.length === 0) {
+      // Show empty state — render a centered message
+      state.level = 'sessions';
+      const header = buildHeader();
+      const footer = buildFooter();
+      const viewportHeight = tui.rows - header.length - footer.length;
+      const emptyMsg = pc.dim('No sessions found');
+      const padTop = Math.floor(viewportHeight / 2);
+      const lines = [...header];
+      for (let i = 0; i < padTop; i++) lines.push('');
+      lines.push(`  ${emptyMsg}`);
+      while (lines.length < header.length + viewportHeight) lines.push('');
+      lines.push(...footer);
+      tui.render(lines);
+      sessionList = null;
+      return;
+    }
     state.level = 'sessions';
     const header = buildHeader();
     const footer = buildFooter();
@@ -342,6 +363,22 @@ export async function browseCommand(api: SpaghettiAPI): Promise<void> {
 
   function setupMessagesView(): void {
     loadMessages(state.project!, state.session!);
+    if (messages.length === 0) {
+      state.level = 'messages';
+      const header = buildHeader();
+      const footer = buildFooter();
+      const viewportHeight = tui.rows - header.length - footer.length;
+      const emptyMsg = pc.dim('No messages');
+      const padTop = Math.floor(viewportHeight / 2);
+      const lines = [...header];
+      for (let i = 0; i < padTop; i++) lines.push('');
+      lines.push(`  ${emptyMsg}`);
+      while (lines.length < header.length + viewportHeight) lines.push('');
+      lines.push(...footer);
+      tui.render(lines);
+      messageList = null;
+      return;
+    }
     state.level = 'messages';
     const header = buildHeader();
     const footer = buildFooter();

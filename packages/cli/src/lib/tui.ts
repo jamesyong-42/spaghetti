@@ -139,6 +139,10 @@ export function createTUI(): TUI {
       // Restore screen
       process.stdout.write(ANSI.showCursor + ANSI.exitAltScreen);
 
+      // Remove signal listeners
+      process.removeListener('SIGINT', onSignal);
+      process.removeListener('SIGTERM', onSignal);
+
       // Remove resize listener
       process.stdout.removeListener('resize', onResizeEvent);
     },
@@ -169,6 +173,15 @@ export function createTUI(): TUI {
   }
 
   process.stdout.on('resize', onResizeEvent);
+
+  // Signal handling — safety net for kill signals
+  function onSignal() {
+    tui.cleanup();
+    process.exit(0);
+  }
+
+  process.on('SIGINT', onSignal);
+  process.on('SIGTERM', onSignal);
 
   return tui;
 }
