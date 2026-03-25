@@ -128,23 +128,32 @@ export async function browseCommand(api: SpaghettiAPI): Promise<void> {
   ): string[] {
     const cols = tui.cols;
     const prefix = selected ? pc.cyan('▎') : ' ';
-    const bg = selected ? pc.bold : (s: string) => pc.dim(s);
-    const accent = selected ? pc.cyan : pc.dim;
+    const dot = pc.dim(' · ');
 
-    const name = bg(p.folderName);
-    const branch = accent(p.latestGitBranch || '');
+    // Line 1: name + branch
+    const name = selected ? pc.bold(pc.white(p.folderName)) : pc.white(p.folderName);
+    const branch = p.latestGitBranch
+      ? (selected ? pc.cyan(p.latestGitBranch) : pc.dim(p.latestGitBranch))
+      : '';
+
+    // Line 2: first prompt (always subdued — it's context, not primary info)
     const prompt = projectFirstPrompts.get(p.slug) || '';
-    const promptLine = accent(
-      cliTruncate(`"${prompt}"`, Math.max(cols - 6, 20)),
-    );
-    const stats = accent(
-      `${formatNumber(p.sessionCount)} sessions  ·  ${formatNumber(p.messageCount)} msgs  ·  ${formatTokens(totalTokens(p.tokenUsage))} tokens  ·  ${formatRelativeTime(p.lastActiveAt)}`,
-    );
+    const promptLine = pc.dim(pc.italic(
+      cliTruncate(prompt ? `"${prompt}"` : '', Math.max(cols - 6, 20)),
+    ));
+
+    // Line 3: stats with semantic coloring
+    const sessions = (selected ? pc.white : pc.dim)(formatNumber(p.sessionCount));
+    const msgs = (selected ? pc.white : pc.dim)(formatNumber(p.messageCount));
+    const tokens = (selected ? pc.yellow : pc.dim)(formatTokens(totalTokens(p.tokenUsage)));
+    const time = pc.dim(formatRelativeTime(p.lastActiveAt));
+    const stats = `${sessions} ${pc.dim('sessions')}${dot}${msgs} ${pc.dim('msgs')}${dot}${tokens} ${pc.dim('tokens')}${dot}${time}`;
 
     return [
       `${prefix} ${name}  ${branch}`,
       `${prefix} ${promptLine}`,
       `${prefix} ${stats}`,
+      '', // breathing room between cards
     ];
   }
 
@@ -155,23 +164,32 @@ export async function browseCommand(api: SpaghettiAPI): Promise<void> {
   ): string[] {
     const cols = tui.cols;
     const prefix = selected ? pc.yellow('▎') : ' ';
-    const bg = selected ? pc.bold : (s: string) => pc.dim(s);
-    const accent = selected ? pc.yellow : pc.dim;
+    const dot = pc.dim(' · ');
 
-    const num = bg(`#${idx + 1}`);
-    const branch = accent(s.gitBranch || '');
+    // Line 1: session number + branch
+    const num = selected ? pc.bold(pc.white(`#${idx + 1}`)) : pc.white(`#${idx + 1}`);
+    const branch = s.gitBranch
+      ? (selected ? pc.yellow(s.gitBranch) : pc.dim(s.gitBranch))
+      : '';
+
+    // Line 2: first prompt
     const prompt = s.firstPrompt || '';
-    const promptLine = accent(
-      cliTruncate(`"${prompt}"`, Math.max(cols - 6, 20)),
-    );
-    const stats = accent(
-      `${formatNumber(s.messageCount)} msgs  ·  ${formatTokens(totalTokens(s.tokenUsage))} tokens  ·  ${formatDuration(s.lifespanMs)}  ·  ${formatRelativeTime(s.lastUpdate)}`,
-    );
+    const promptLine = pc.dim(pc.italic(
+      cliTruncate(prompt ? `"${prompt}"` : '', Math.max(cols - 6, 20)),
+    ));
+
+    // Line 3: stats with semantic coloring
+    const msgs = (selected ? pc.white : pc.dim)(formatNumber(s.messageCount));
+    const tokens = (selected ? pc.yellow : pc.dim)(formatTokens(totalTokens(s.tokenUsage)));
+    const duration = (selected ? pc.white : pc.dim)(formatDuration(s.lifespanMs));
+    const time = pc.dim(formatRelativeTime(s.lastUpdate));
+    const stats = `${msgs} ${pc.dim('msgs')}${dot}${tokens} ${pc.dim('tokens')}${dot}${duration}${dot}${time}`;
 
     return [
       `${prefix} ${num}  ${branch}`,
       `${prefix} ${promptLine}`,
       `${prefix} ${stats}`,
+      '', // breathing room between cards
     ];
   }
 
@@ -182,19 +200,24 @@ export async function browseCommand(api: SpaghettiAPI): Promise<void> {
   ): string[] {
     const cols = tui.cols;
     const prefix = selected ? pc.green('▎') : ' ';
-    const accent = selected ? pc.green : pc.dim;
 
-    let roleStyled = accent(msg.type);
-    if (msg.type === 'user') roleStyled = selected ? pc.green(pc.bold('user')) : pc.dim('user');
-    if (msg.type === 'assistant')
-      roleStyled = selected ? pc.green(pc.bold('assistant')) : pc.dim('assistant');
+    // Role badge — distinct colors for user vs assistant even when unselected
+    let roleStyled: string;
+    if (msg.type === 'user') {
+      roleStyled = selected ? pc.bold(pc.cyan('you')) : pc.cyan('you');
+    } else if (msg.type === 'assistant') {
+      roleStyled = selected ? pc.bold(pc.green('claude')) : pc.green('claude');
+    } else {
+      roleStyled = pc.dim(`[${msg.type}]`);
+    }
 
     // timestamp may not exist on all message types (e.g. SummaryMessage)
     const timestamp =
       'timestamp' in msg && (msg as any).timestamp
-        ? accent(formatRelativeTime((msg as any).timestamp))
+        ? pc.dim(formatRelativeTime((msg as any).timestamp))
         : '';
 
+    // Extract preview text
     let preview = '';
     if (msg.type === 'user') {
       const content = (msg as any).message.content;
@@ -211,7 +234,8 @@ export async function browseCommand(api: SpaghettiAPI): Promise<void> {
       preview = '[system]';
     }
     preview = preview.replace(/\n/g, ' ');
-    const previewLine = accent(cliTruncate(preview, Math.max(cols - 6, 20)));
+    const previewText = cliTruncate(preview, Math.max(cols - 6, 20));
+    const previewLine = selected ? pc.white(previewText) : pc.dim(previewText);
 
     return [
       `${prefix} ${roleStyled}  ${timestamp}`,
@@ -270,24 +294,30 @@ export async function browseCommand(api: SpaghettiAPI): Promise<void> {
 
   function buildFooter(): string[] {
     const cols = tui.cols;
+    // Style: keys are white, descriptions are dim
+    const key = (k: string) => pc.white(k);
+    const desc = (d: string) => pc.dim(d);
+    const sep = pc.dim('  ');
     let hints = '';
 
     switch (state.level) {
       case 'projects':
-        hints = '↑↓ navigate  Enter open  q quit';
+        hints = `${key('↑↓')} ${desc('navigate')}${sep}${key('Enter')} ${desc('open')}${sep}${key('q')} ${desc('quit')}`;
         break;
       case 'sessions':
       case 'messages':
-        hints = '↑↓ navigate  Enter open  Esc back  q quit';
+        hints = `${key('↑↓')} ${desc('navigate')}${sep}${key('Enter')} ${desc('open')}${sep}${key('Esc')} ${desc('back')}${sep}${key('q')} ${desc('quit')}`;
         break;
-      case 'detail':
-        hints = `↑↓ scroll  Esc back  q quit  [${detailScrollOffset + 1} / ${detailLines.length} lines]`;
+      case 'detail': {
+        const pos = pc.dim(`[${detailScrollOffset + 1} / ${detailLines.length} lines]`);
+        hints = `${key('↑↓')} ${desc('scroll')}${sep}${key('Esc')} ${desc('back')}${sep}${key('q')} ${desc('quit')}${sep}${pos}`;
         break;
+      }
     }
 
     return [
       `  ${SEPARATOR(cols - 4)}`,
-      `  ${pc.dim(hints)}`,
+      `  ${hints}`,
     ];
   }
 
