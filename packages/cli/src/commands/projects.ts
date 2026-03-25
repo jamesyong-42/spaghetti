@@ -7,10 +7,13 @@ import { theme } from '../lib/color.js';
 import { formatTokens, formatRelativeTime, formatNumber, totalTokens } from '../lib/format.js';
 import { renderTable } from '../lib/table.js';
 import type { Column } from '../lib/table.js';
+import { browseCommand } from './browse.js';
+import { TUINotAvailableError } from '../lib/tui.js';
 
 export interface ProjectsOptions {
   sort?: string;
   limit?: number;
+  interactive?: boolean;
   json?: boolean;
 }
 
@@ -35,6 +38,21 @@ function sortProjects(projects: ProjectListItem[], key: SortKey): ProjectListIte
 }
 
 export async function projectsCommand(api: SpaghettiAPI, opts: ProjectsOptions): Promise<void> {
+  // Interactive mode: delegate to browse command when TTY and not explicitly disabled
+  const interactive = opts.interactive !== false && !opts.json && !opts.limit;
+  if (interactive) {
+    try {
+      await browseCommand(api);
+      return;
+    } catch (err) {
+      if (err instanceof TUINotAvailableError) {
+        // Fall through to static output
+      } else {
+        throw err;
+      }
+    }
+  }
+
   let projects = api.getProjectList();
 
   // Sort

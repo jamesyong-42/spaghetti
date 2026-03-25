@@ -141,12 +141,14 @@ export function createProgram(): Command {
     .description('List all projects')
     .option('-s, --sort <key>', 'Sort by: active, sessions, messages, tokens, name', 'active')
     .option('-l, --limit <n>', 'Limit results', parseInt)
+    .option('--no-interactive', 'Disable interactive mode (use static table)')
     .option('--json', 'Output as JSON')
     .action(async (cmdOpts: ProjectsOptions) => {
       await withService((api) =>
         projectsCommand(api, {
           sort: cmdOpts.sort,
           limit: cmdOpts.limit,
+          interactive: cmdOpts.interactive,
           json: cmdOpts.json,
         }),
       );
