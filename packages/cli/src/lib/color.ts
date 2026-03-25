@@ -18,4 +18,7 @@ export const theme = {
   time: (s: string) => pc.dim(s),
   bar: (s: string) => pc.green(s),
   barEmpty: (s: string) => pc.dim(s),
+  session: (s: string) => pc.bold(pc.yellow(s)),
+  message: (s: string) => pc.bold(pc.green(s)),
+  detail: (s: string) => pc.bold(pc.magenta(s)),
 };
