@@ -51,15 +51,7 @@ const SEPARATOR = (cols: number) => pc.dim('─'.repeat(cols));
 // ─── Main Entry Point ───────────────────────────────────────────────────
 
 export async function browseCommand(api: SpaghettiAPI): Promise<void> {
-  let tui: TUI;
-  try {
-    tui = createTUI();
-  } catch (err) {
-    if (err instanceof TUINotAvailableError) {
-      throw err;
-    }
-    throw err;
-  }
+  const tui = createTUI(); // throws TUINotAvailableError if not possible
 
   const state: ViewState = {
     level: 'projects',
@@ -536,7 +528,14 @@ export async function browseCommand(api: SpaghettiAPI): Promise<void> {
   }
 
   function handleSessionsKey(key: KeyEvent): void {
-    if (!sessionList) return;
+    if (!sessionList) {
+      if (key === 'escape') {
+        state.level = 'projects';
+        setupProjectsView();
+        fullRender();
+      }
+      return;
+    }
 
     switch (key) {
       case 'up':
@@ -566,7 +565,14 @@ export async function browseCommand(api: SpaghettiAPI): Promise<void> {
   }
 
   function handleMessagesKey(key: KeyEvent): void {
-    if (!messageList) return;
+    if (!messageList) {
+      if (key === 'escape') {
+        state.level = 'sessions';
+        setupSessionsView();
+        fullRender();
+      }
+      return;
+    }
 
     switch (key) {
       case 'up':

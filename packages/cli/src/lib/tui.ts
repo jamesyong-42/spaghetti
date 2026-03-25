@@ -152,7 +152,6 @@ export function createTUI(): TUI {
   process.stdout.write(ANSI.enterAltScreen + ANSI.hideCursor);
   process.stdin.setRawMode(true);
   process.stdin.resume();
-  process.stdin.setEncoding('utf8');
 
   // Input handling
   function onData(data: Buffer | string) {
