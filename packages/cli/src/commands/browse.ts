@@ -32,11 +32,187 @@ import pc from 'picocolors';
 
 type ViewLevel = 'projects' | 'sessions' | 'messages' | 'detail';
 
+// ─── Display Items (message list abstraction) ───────────────────────────
+
+/** A display item is either a regular message or a merged tool call */
+type DisplayItem =
+  | { kind: 'message'; msg: SessionMessage }
+  | { kind: 'tool-call'; toolName: string; toolInput: Record<string, unknown>; toolUseId: string;
+      result: { content: string; isError: boolean } | null; sourceMsg: SessionMessage };
+
+/** Tool visual categories for color-coding */
+type ToolCategory = 'file' | 'search' | 'shell' | 'agent' | 'nav' | 'web' | 'mcp' | 'other';
+
+const TOOL_CATEGORIES: Record<string, ToolCategory> = {
+  Read: 'file', Write: 'file', Edit: 'file', Glob: 'file',
+  Grep: 'search', WebSearch: 'web', WebFetch: 'web', ToolSearch: 'search',
+  Bash: 'shell', KillShell: 'shell',
+  Agent: 'agent', SendMessage: 'agent', TaskCreate: 'agent', TaskUpdate: 'agent',
+  TaskList: 'agent', TaskOutput: 'agent', TaskStop: 'agent', TaskGet: 'agent',
+  Task: 'agent', TodoWrite: 'agent',
+  Skill: 'nav', EnterPlanMode: 'nav', ExitPlanMode: 'nav',
+  EnterWorktree: 'nav', ExitWorktree: 'nav',
+  NotebookEdit: 'file', LSP: 'file',
+  AskUserQuestion: 'other',
+  CronCreate: 'other', CronDelete: 'other', CronList: 'other',
+  TeamCreate: 'other', TeamDelete: 'other',
+};
+
+function getToolCategory(name: string): ToolCategory {
+  if (name.startsWith('mcp__')) return 'mcp';
+  return TOOL_CATEGORIES[name] || 'other';
+}
+
+const TOOL_CATEGORY_COLORS: Record<ToolCategory, (s: string) => string> = {
+  file: pc.cyan,
+  search: pc.yellow,
+  shell: pc.red,
+  agent: pc.magenta,
+  nav: pc.blue,
+  web: pc.green,
+  mcp: (s: string) => pc.dim(pc.cyan(s)),
+  other: pc.dim,
+};
+
+/** Summarize tool input for display */
+function toolInputSummary(name: string, input: Record<string, unknown>): string {
+  switch (name) {
+    case 'Read':
+      return String(input.file_path || '');
+    case 'Write':
+      return String(input.file_path || '');
+    case 'Edit':
+      return String(input.file_path || '');
+    case 'Glob':
+      return String(input.pattern || '');
+    case 'Grep':
+      return `/${input.pattern || ''}/ ${input.path || input.glob || ''}`.trim();
+    case 'Bash':
+      return String(input.command || '').slice(0, 80);
+    case 'WebSearch':
+      return String(input.query || '');
+    case 'WebFetch':
+      return String(input.url || '');
+    case 'Agent':
+      return String(input.description || input.prompt || '').slice(0, 60);
+    case 'Skill':
+      return String(input.skill || '');
+    case 'TaskCreate':
+      return String(input.subject || '');
+    case 'TaskUpdate':
+      return `#${input.taskId || '?'} ${input.status || ''}`.trim();
+    case 'SendMessage':
+      return `→ ${input.to || ''}`;
+    case 'LSP':
+      return `${input.operation || ''} ${input.filePath || ''}`.trim();
+    default:
+      if (name.startsWith('mcp__')) {
+        const parts = name.split('__');
+        return parts.length >= 3 ? parts[2] : name;
+      }
+      const keys = Object.keys(input);
+      return keys.length > 0 ? `{${keys.join(', ')}}` : '';
+  }
+}
+
+/** Summarize tool result for display */
+function toolResultSummary(content: string): string {
+  if (!content) return '';
+  // Estimate line count
+  const lines = content.split('\n');
+  if (lines.length > 3) {
+    return `${lines.length} lines`;
+  }
+  return content.replace(/\n/g, ' ').slice(0, 60);
+}
+
+/** Convert raw messages into display items, merging tool_use + tool_result pairs */
+function buildDisplayItems(msgs: SessionMessage[]): DisplayItem[] {
+  // First pass: collect all tool_results keyed by tool_use_id
+  const resultMap = new Map<string, { content: string; isError: boolean }>();
+  for (const msg of msgs) {
+    if (msg.type === 'user') {
+      const content = (msg as any).message?.content;
+      if (Array.isArray(content)) {
+        for (const block of content) {
+          if (block.type === 'tool_result' && block.tool_use_id) {
+            const resultContent = typeof block.content === 'string'
+              ? block.content
+              : Array.isArray(block.content)
+                ? block.content.map((b: any) => b.text || '').join(' ')
+                : '';
+            resultMap.set(block.tool_use_id, {
+              content: resultContent,
+              isError: block.is_error === true,
+            });
+          }
+        }
+      }
+    }
+  }
+
+  // Second pass: build display items
+  const items: DisplayItem[] = [];
+  const consumedUserMsgs = new Set<SessionMessage>();
+
+  for (let i = 0; i < msgs.length; i++) {
+    const msg = msgs[i];
+
+    if (msg.type === 'assistant') {
+      const blocks = (msg as any).message?.content || [];
+      const textBlocks = blocks.filter((b: any) => b.type === 'text');
+      const thinkingBlocks = blocks.filter((b: any) => b.type === 'thinking' || b.type === 'redacted_thinking');
+      const toolBlocks = blocks.filter((b: any) => b.type === 'tool_use');
+
+      // If there's text or thinking, emit the message (without tool blocks in preview)
+      if (textBlocks.length > 0 || thinkingBlocks.length > 0) {
+        items.push({ kind: 'message', msg });
+      } else if (toolBlocks.length === 0) {
+        // Empty assistant message — still show it
+        items.push({ kind: 'message', msg });
+      }
+
+      // Emit each tool_use as a separate display item
+      for (const tb of toolBlocks) {
+        const result = resultMap.get(tb.id) || null;
+        items.push({
+          kind: 'tool-call',
+          toolName: tb.name,
+          toolInput: tb.input,
+          toolUseId: tb.id,
+          result,
+          sourceMsg: msg,
+        });
+      }
+
+      // Mark the next user message as consumed if it's purely tool results
+      if (toolBlocks.length > 0 && i + 1 < msgs.length) {
+        const next = msgs[i + 1];
+        if (next.type === 'user') {
+          const nextContent = (next as any).message?.content;
+          if (Array.isArray(nextContent) && nextContent.length > 0 &&
+              nextContent.every((b: any) => b.type === 'tool_result')) {
+            consumedUserMsgs.add(next);
+          }
+        }
+      }
+    } else if (msg.type === 'user' && consumedUserMsgs.has(msg)) {
+      // Skip — already merged into tool-call items
+      continue;
+    } else {
+      items.push({ kind: 'message', msg });
+    }
+  }
+
+  return items;
+}
+
 interface ViewState {
   level: ViewLevel;
   project?: ProjectListItem;
   session?: SessionListItem;
   message?: SessionMessage;
+  displayItem?: DisplayItem;      // currently selected display item
   projectIndex: number;
   sessionIndex: number;
   messageIndex: number;
@@ -60,9 +236,9 @@ interface FilterCategory {
 const FILTER_CATEGORIES: FilterCategory[] = [
   { key: '1', label: 'user',     color: pc.cyan,    types: ['user'] },
   { key: '2', label: 'claude',   color: pc.green,   types: ['assistant'] },
-  { key: '3', label: 'system',   color: pc.red,     types: ['system'] },
-  { key: '4', label: 'summary',  color: pc.magenta, types: ['summary'] },
-  { key: '5', label: 'progress', color: pc.blue,    types: ['progress'] },
+  { key: '3', label: 'tools',    color: pc.yellow,  types: ['__tool-call__'] },
+  { key: '4', label: 'system',   color: pc.red,     types: ['system'] },
+  { key: '5', label: 'progress', color: pc.blue,    types: ['progress', 'summary'] },
   { key: '6', label: 'internal', color: pc.dim,     types: ['file-history-snapshot', 'saved_hook_context', 'queue-operation', 'last-prompt'] },
 ];
 
@@ -74,15 +250,17 @@ function createDefaultFilters(): FilterState {
   return filters;
 }
 
-function applyFilters(allMessages: SessionMessage[], filters: FilterState): SessionMessage[] {
-  // Build set of enabled message types
+function applyDisplayFilters(allItems: DisplayItem[], filters: FilterState): DisplayItem[] {
   const enabledTypes = new Set<string>();
   for (const cat of FILTER_CATEGORIES) {
     if (filters[cat.key]) {
       for (const t of cat.types) enabledTypes.add(t);
     }
   }
-  return allMessages.filter(msg => enabledTypes.has(msg.type));
+  return allItems.filter(item => {
+    if (item.kind === 'tool-call') return enabledTypes.has('__tool-call__');
+    return enabledTypes.has(item.msg.type);
+  });
 }
 
 // ─── Main Entry Point ───────────────────────────────────────────────────
@@ -99,15 +277,16 @@ export async function browseCommand(api: SpaghettiAPI): Promise<void> {
 
   let projects: ProjectListItem[] = [];
   let sessions: SessionListItem[] = [];
-  let allMessages: SessionMessage[] = [];  // unfiltered
-  let messages: SessionMessage[] = [];     // filtered view
+  let allMessages: SessionMessage[] = [];       // raw messages
+  let allDisplayItems: DisplayItem[] = [];      // processed (tool pairs merged)
+  let displayItems: DisplayItem[] = [];         // filtered view
   let messagePage: MessagePage | null = null;
   let projectFirstPrompts: Map<string, string> = new Map();
   const filters: FilterState = createDefaultFilters();
 
   let projectList: ListView<ProjectListItem> | null = null;
   let sessionList: ListView<SessionListItem> | null = null;
-  let messageList: ListView<SessionMessage> | null = null;
+  let messageList: ListView<DisplayItem> | null = null;
 
   let detailLines: string[] = [];
   let detailScrollOffset = 0;
@@ -136,7 +315,8 @@ export async function browseCommand(api: SpaghettiAPI): Promise<void> {
   function loadMessages(project: ProjectListItem, session: SessionListItem): void {
     messagePage = api.getSessionMessages(project.slug, session.sessionId, PAGE_SIZE, 0);
     allMessages = messagePage.messages;
-    messages = applyFilters(allMessages, filters);
+    allDisplayItems = buildDisplayItems(allMessages);
+    displayItems = applyDisplayFilters(allDisplayItems, filters);
   }
 
   function loadMoreMessages(): void {
@@ -154,18 +334,19 @@ export async function browseCommand(api: SpaghettiAPI): Promise<void> {
       hasMore: nextPage.hasMore,
     };
     allMessages = messagePage.messages;
-    messages = applyFilters(allMessages, filters);
+    allDisplayItems = buildDisplayItems(allMessages);
+    displayItems = applyDisplayFilters(allDisplayItems, filters);
     if (messageList) {
-      messageList.updateItems(messages);
+      messageList.updateItems(displayItems);
     }
   }
 
   function reapplyFilters(): void {
-    messages = applyFilters(allMessages, filters);
+    displayItems = applyDisplayFilters(allDisplayItems, filters);
     if (messageList) {
-      messageList.updateItems(messages);
+      messageList.updateItems(displayItems);
     }
-    state.messageIndex = Math.min(state.messageIndex, Math.max(0, messages.length - 1));
+    state.messageIndex = Math.min(state.messageIndex, Math.max(0, displayItems.length - 1));
   }
 
   // ─── Renderers ──────────────────────────────────────────────────────
@@ -242,15 +423,60 @@ export async function browseCommand(api: SpaghettiAPI): Promise<void> {
     ];
   }
 
-  function renderMessageItem(
-    msg: SessionMessage,
+  function renderDisplayItem(
+    item: DisplayItem,
     _idx: number,
+    selected: boolean,
+  ): string[] {
+    if (item.kind === 'tool-call') return renderToolCallItem(item, selected);
+    return renderMessageDisplayItem(item.msg, selected);
+  }
+
+  function renderToolCallItem(
+    item: DisplayItem & { kind: 'tool-call' },
+    selected: boolean,
+  ): string[] {
+    const cols = tui.cols;
+    const cat = getToolCategory(item.toolName);
+    const colorFn = TOOL_CATEGORY_COLORS[cat];
+    const prefix = selected ? colorFn('▎') : ' ';
+
+    // Line 1: tool name badge + input summary
+    const badge = selected ? pc.bold(colorFn(item.toolName)) : colorFn(item.toolName);
+    const input = toolInputSummary(item.toolName, item.toolInput);
+    const inputText = input
+      ? (selected ? pc.white(cliTruncate(input, Math.max(cols - item.toolName.length - 8, 20)))
+                  : pc.dim(cliTruncate(input, Math.max(cols - item.toolName.length - 8, 20))))
+      : '';
+
+    // Line 2: result summary or pending
+    let resultLine: string;
+    if (item.result) {
+      if (item.result.isError) {
+        const errText = cliTruncate(item.result.content.replace(/\n/g, ' '), Math.max(cols - 10, 20));
+        resultLine = selected ? pc.red(`✗ ${errText}`) : pc.red(pc.dim(`✗ ${errText}`));
+      } else {
+        const summary = toolResultSummary(item.result.content);
+        const summaryText = cliTruncate(summary, Math.max(cols - 10, 20));
+        resultLine = selected ? pc.dim(`→ ${pc.white(summaryText)}`) : pc.dim(`→ ${summaryText}`);
+      }
+    } else {
+      resultLine = pc.dim('→ (no result)');
+    }
+
+    return [
+      `${prefix} ${badge}  ${inputText}`,
+      `${prefix} ${resultLine}`,
+    ];
+  }
+
+  function renderMessageDisplayItem(
+    msg: SessionMessage,
     selected: boolean,
   ): string[] {
     const cols = tui.cols;
     const prefix = selected ? pc.green('▎') : ' ';
 
-    // Role badge — distinct colors per type, visible even when unselected
     let roleStyled: string;
     let preview = '';
 
@@ -262,8 +488,6 @@ export async function browseCommand(api: SpaghettiAPI): Promise<void> {
         else if (Array.isArray(content)) {
           const textBlock = content.find((b: any) => b.type === 'text');
           if (textBlock && 'text' in textBlock) preview = textBlock.text;
-          else if (content.some((b: any) => b.type === 'tool_result'))
-            preview = '[tool result]';
         }
         break;
       }
@@ -271,12 +495,7 @@ export async function browseCommand(api: SpaghettiAPI): Promise<void> {
         roleStyled = selected ? pc.bold(pc.green('claude')) : pc.green('claude');
         const blocks = (msg as any).message.content || [];
         const textBlocks = blocks.filter((b: any) => b.type === 'text');
-        const toolBlocks = blocks.filter((b: any) => b.type === 'tool_use');
         preview = textBlocks.map((b: any) => b.text).join(' ');
-        if (!preview && toolBlocks.length > 0) {
-          const names = toolBlocks.map((b: any) => b.name).join(', ');
-          preview = `[tools: ${names}]`;
-        }
         break;
       }
       case 'system': {
@@ -315,7 +534,6 @@ export async function browseCommand(api: SpaghettiAPI): Promise<void> {
         break;
       }
       default: {
-        // Internal types: file-history-snapshot, saved_hook_context, queue-operation, last-prompt
         roleStyled = pc.dim(`[${msg.type}]`);
         if (msg.type === 'saved_hook_context') {
           preview = `hook: ${(msg as any).hookName || ''} (${(msg as any).hookEvent || ''})`;
@@ -323,14 +541,11 @@ export async function browseCommand(api: SpaghettiAPI): Promise<void> {
           preview = (msg as any).operation || '';
         } else if (msg.type === 'last-prompt') {
           preview = (msg as any).lastPrompt?.slice(0, 80) || '';
-        } else {
-          preview = '';
         }
         break;
       }
     }
 
-    // Timestamp — not all types have it
     const timestamp =
       'timestamp' in msg && (msg as any).timestamp
         ? pc.dim(formatRelativeTime((msg as any).timestamp))
@@ -364,8 +579,8 @@ export async function browseCommand(api: SpaghettiAPI): Promise<void> {
           pc.dim(` (${sessions.length})`);
         break;
       case 'messages': {
-        const total = allMessages.length;
-        const shown = messages.length;
+        const total = allDisplayItems.length;
+        const shown = displayItems.length;
         const countLabel = total === shown
           ? pc.dim(` (${total})`)
           : pc.dim(` (${shown}/${total})`);
@@ -379,18 +594,31 @@ export async function browseCommand(api: SpaghettiAPI): Promise<void> {
         break;
       }
       case 'detail': {
-        const role = state.message?.type || '';
-        const ts =
-          state.message && 'timestamp' in state.message && (state.message as any).timestamp
-            ? formatRelativeTime((state.message as any).timestamp)
-            : '';
-        breadcrumb =
-          pc.dim(state.project!.folderName) +
-          pc.dim(' › ') +
-          pc.dim(`#${state.sessionIndex + 1}`) +
-          pc.dim(' › ') +
-          theme.detail(`Message ${state.messageIndex + 1}`) +
-          pc.dim(` ${role} · ${ts}`);
+        const di = state.displayItem;
+        if (di && di.kind === 'tool-call') {
+          const cat = getToolCategory(di.toolName);
+          const colorFn = TOOL_CATEGORY_COLORS[cat];
+          breadcrumb =
+            pc.dim(state.project!.folderName) +
+            pc.dim(' › ') +
+            pc.dim(`#${state.sessionIndex + 1}`) +
+            pc.dim(' › ') +
+            colorFn(pc.bold(di.toolName)) +
+            pc.dim(` ${toolInputSummary(di.toolName, di.toolInput).slice(0, 40)}`);
+        } else {
+          const role = state.message?.type || '';
+          const ts =
+            state.message && 'timestamp' in state.message && (state.message as any).timestamp
+              ? formatRelativeTime((state.message as any).timestamp)
+              : '';
+          breadcrumb =
+            pc.dim(state.project!.folderName) +
+            pc.dim(' › ') +
+            pc.dim(`#${state.sessionIndex + 1}`) +
+            pc.dim(' › ') +
+            theme.detail(`Message ${state.messageIndex + 1}`) +
+            pc.dim(` ${role} · ${ts}`);
+        }
         break;
       }
     }
@@ -511,7 +739,7 @@ export async function browseCommand(api: SpaghettiAPI): Promise<void> {
 
   function setupMessagesView(): void {
     loadMessages(state.project!, state.session!);
-    if (messages.length === 0) {
+    if (displayItems.length === 0) {
       state.level = 'messages';
       const header = buildHeader();
       const footer = buildFooter();
@@ -533,14 +761,14 @@ export async function browseCommand(api: SpaghettiAPI): Promise<void> {
     const viewportHeight = tui.rows - header.length - footer.length;
 
     messageList = createListView({
-      items: messages,
-      renderItem: renderMessageItem,
+      items: displayItems,
+      renderItem: renderDisplayItem,
       headerLines: header,
       footerLines: footer,
       viewportHeight,
     });
 
-    while (messageList.getSelectedIndex() < state.messageIndex && state.messageIndex < messages.length) {
+    while (messageList.getSelectedIndex() < state.messageIndex && state.messageIndex < displayItems.length) {
       messageList.moveDown();
     }
   }
@@ -550,6 +778,54 @@ export async function browseCommand(api: SpaghettiAPI): Promise<void> {
     detailScrollOffset = 0;
     const rendered = renderMessage(state.message!, { width: tui.cols - 4 });
     detailLines = rendered.split('\n');
+  }
+
+  function setupToolDetailView(item: DisplayItem & { kind: 'tool-call' }): void {
+    state.level = 'detail';
+    detailScrollOffset = 0;
+    const cat = getToolCategory(item.toolName);
+    const colorFn = TOOL_CATEGORY_COLORS[cat];
+    const width = tui.cols - 4;
+
+    const lines: string[] = [];
+    lines.push(colorFn(pc.bold(item.toolName)));
+    lines.push('');
+
+    // Input details
+    lines.push(pc.white('Input:'));
+    const input = item.toolInput;
+    for (const [key, value] of Object.entries(input)) {
+      const valStr = typeof value === 'string' ? value : JSON.stringify(value);
+      const valLines = valStr.split('\n');
+      if (valLines.length <= 1) {
+        lines.push(`  ${pc.dim(key + ':')} ${cliTruncate(valStr, Math.max(width - key.length - 4, 20))}`);
+      } else {
+        lines.push(`  ${pc.dim(key + ':')} ${cliTruncate(valLines[0], Math.max(width - key.length - 4, 20))}`);
+        for (let i = 1; i < Math.min(valLines.length, 20); i++) {
+          lines.push(`  ${cliTruncate(valLines[i], width - 2)}`);
+        }
+        if (valLines.length > 20) lines.push(pc.dim(`  ... (${valLines.length - 20} more lines)`));
+      }
+    }
+
+    lines.push('');
+
+    // Result
+    if (item.result) {
+      if (item.result.isError) {
+        lines.push(pc.red(pc.bold('Error:')));
+      } else {
+        lines.push(pc.white('Result:'));
+      }
+      const resultLines = item.result.content.split('\n');
+      for (const rl of resultLines) {
+        lines.push(`  ${rl}`);
+      }
+    } else {
+      lines.push(pc.dim('(no result captured)'));
+    }
+
+    detailLines = lines;
   }
 
   // ─── Render ──────────────────────────────────────────────────────────
@@ -610,13 +886,13 @@ export async function browseCommand(api: SpaghettiAPI): Promise<void> {
       case 'messages':
         if (messageList) {
           messageList = createListView({
-            items: messages,
-            renderItem: renderMessageItem,
+            items: displayItems,
+            renderItem: renderDisplayItem,
             headerLines: header,
             footerLines: footer,
             viewportHeight,
           });
-          for (let i = 0; i < state.messageIndex && i < messages.length - 1; i++) {
+          for (let i = 0; i < state.messageIndex && i < displayItems.length - 1; i++) {
             messageList.moveDown();
           }
           activeList = messageList;
@@ -725,11 +1001,9 @@ export async function browseCommand(api: SpaghettiAPI): Promise<void> {
     if (key >= '1' && key <= '6') {
       filters[key] = !filters[key];
       reapplyFilters();
-      if (messages.length > 0 && !messageList) {
-        // Filters revealed messages — rebuild the list
+      if (displayItems.length > 0 && !messageList) {
         setupMessagesView();
-      } else if (messages.length === 0) {
-        // All filtered out — show empty state
+      } else if (displayItems.length === 0) {
         setupMessagesView();
       }
       fullRender();
@@ -756,19 +1030,29 @@ export async function browseCommand(api: SpaghettiAPI): Promise<void> {
         state.messageIndex = messageList.getSelectedIndex();
         if (
           messagePage?.hasMore &&
-          state.messageIndex >= messages.length - LOAD_MORE_THRESHOLD
+          state.messageIndex >= displayItems.length - LOAD_MORE_THRESHOLD
         ) {
           loadMoreMessages();
         }
         fullRender();
         break;
-      case 'enter':
-        if (messages.length === 0) break;
-        state.message = messageList.getSelected();
+      case 'enter': {
+        if (displayItems.length === 0) break;
+        const selected = messageList.getSelected();
+        if (!selected) break;
         state.messageIndex = messageList.getSelectedIndex();
-        setupDetailView();
+        state.displayItem = selected;
+        if (selected.kind === 'tool-call') {
+          // Show tool result in detail view
+          state.message = selected.sourceMsg;
+          setupToolDetailView(selected);
+        } else {
+          state.message = selected.msg;
+          setupDetailView();
+        }
         fullRender();
         break;
+      }
       case 'escape':
         state.level = 'sessions';
         setupSessionsView();
