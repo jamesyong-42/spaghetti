@@ -10,7 +10,8 @@ import cliTruncate from 'cli-truncate';
 
 // ─── Types ──────────────────────────────────────────────────────────────
 
-export type KeyEvent = 'up' | 'down' | 'enter' | 'escape' | 'q' | 'ctrl-c';
+export type KeyEvent = 'up' | 'down' | 'enter' | 'escape' | 'q' | 'ctrl-c'
+  | '1' | '2' | '3' | '4' | '5' | '6';
 
 export interface TUI {
   /** Clear screen and write lines */
@@ -67,6 +68,9 @@ export function parseKeypress(buf: Buffer): KeyEvent | null {
 
   // 'q' key
   if (buf[0] === 0x71) return 'q';
+
+  // Number keys 1-6 (for filter toggles)
+  if (buf[0] >= 0x31 && buf[0] <= 0x36) return String.fromCharCode(buf[0]) as KeyEvent;
 
   return null;
 }

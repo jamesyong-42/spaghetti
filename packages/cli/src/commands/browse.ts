@@ -24,7 +24,7 @@ import {
   formatDuration,
   totalTokens,
 } from '../lib/format.js';
-import { renderMessage, filterDisplayableMessages } from '../lib/message-render.js';
+import { renderMessage } from '../lib/message-render.js';
 import cliTruncate from 'cli-truncate';
 import pc from 'picocolors';
 
@@ -48,6 +48,43 @@ const PAGE_SIZE = 50;
 const LOAD_MORE_THRESHOLD = 5;
 const SEPARATOR = (cols: number) => pc.dim('─'.repeat(cols));
 
+// ─── Filter Categories ──────────────────────────────────────────────────
+
+interface FilterCategory {
+  key: string;       // '1'-'6' hotkey
+  label: string;     // display name
+  color: (s: string) => string;
+  types: string[];   // message types this category includes
+}
+
+const FILTER_CATEGORIES: FilterCategory[] = [
+  { key: '1', label: 'user',     color: pc.cyan,    types: ['user'] },
+  { key: '2', label: 'claude',   color: pc.green,   types: ['assistant'] },
+  { key: '3', label: 'system',   color: pc.red,     types: ['system'] },
+  { key: '4', label: 'summary',  color: pc.magenta, types: ['summary'] },
+  { key: '5', label: 'progress', color: pc.blue,    types: ['progress'] },
+  { key: '6', label: 'internal', color: pc.dim,     types: ['file-history-snapshot', 'saved_hook_context', 'queue-operation', 'last-prompt'] },
+];
+
+type FilterState = Record<string, boolean>; // key = category key ('1'-'6')
+
+function createDefaultFilters(): FilterState {
+  const filters: FilterState = {};
+  for (const cat of FILTER_CATEGORIES) filters[cat.key] = true;
+  return filters;
+}
+
+function applyFilters(allMessages: SessionMessage[], filters: FilterState): SessionMessage[] {
+  // Build set of enabled message types
+  const enabledTypes = new Set<string>();
+  for (const cat of FILTER_CATEGORIES) {
+    if (filters[cat.key]) {
+      for (const t of cat.types) enabledTypes.add(t);
+    }
+  }
+  return allMessages.filter(msg => enabledTypes.has(msg.type));
+}
+
 // ─── Main Entry Point ───────────────────────────────────────────────────
 
 export async function browseCommand(api: SpaghettiAPI): Promise<void> {
@@ -62,9 +99,11 @@ export async function browseCommand(api: SpaghettiAPI): Promise<void> {
 
   let projects: ProjectListItem[] = [];
   let sessions: SessionListItem[] = [];
-  let messages: SessionMessage[] = [];
+  let allMessages: SessionMessage[] = [];  // unfiltered
+  let messages: SessionMessage[] = [];     // filtered view
   let messagePage: MessagePage | null = null;
   let projectFirstPrompts: Map<string, string> = new Map();
+  const filters: FilterState = createDefaultFilters();
 
   let projectList: ListView<ProjectListItem> | null = null;
   let sessionList: ListView<SessionListItem> | null = null;
@@ -96,7 +135,8 @@ export async function browseCommand(api: SpaghettiAPI): Promise<void> {
 
   function loadMessages(project: ProjectListItem, session: SessionListItem): void {
     messagePage = api.getSessionMessages(project.slug, session.sessionId, PAGE_SIZE, 0);
-    messages = filterDisplayableMessages(messagePage.messages);
+    allMessages = messagePage.messages;
+    messages = applyFilters(allMessages, filters);
   }
 
   function loadMoreMessages(): void {
@@ -113,10 +153,19 @@ export async function browseCommand(api: SpaghettiAPI): Promise<void> {
       offset: 0,
       hasMore: nextPage.hasMore,
     };
-    messages = filterDisplayableMessages(messagePage.messages);
+    allMessages = messagePage.messages;
+    messages = applyFilters(allMessages, filters);
     if (messageList) {
       messageList.updateItems(messages);
     }
+  }
+
+  function reapplyFilters(): void {
+    messages = applyFilters(allMessages, filters);
+    if (messageList) {
+      messageList.updateItems(messages);
+    }
+    state.messageIndex = Math.min(state.messageIndex, Math.max(0, messages.length - 1));
   }
 
   // ─── Renderers ──────────────────────────────────────────────────────
@@ -201,38 +250,92 @@ export async function browseCommand(api: SpaghettiAPI): Promise<void> {
     const cols = tui.cols;
     const prefix = selected ? pc.green('▎') : ' ';
 
-    // Role badge — distinct colors for user vs assistant even when unselected
+    // Role badge — distinct colors per type, visible even when unselected
     let roleStyled: string;
-    if (msg.type === 'user') {
-      roleStyled = selected ? pc.bold(pc.cyan('you')) : pc.cyan('you');
-    } else if (msg.type === 'assistant') {
-      roleStyled = selected ? pc.bold(pc.green('claude')) : pc.green('claude');
-    } else {
-      roleStyled = pc.dim(`[${msg.type}]`);
+    let preview = '';
+
+    switch (msg.type) {
+      case 'user': {
+        roleStyled = selected ? pc.bold(pc.cyan('you')) : pc.cyan('you');
+        const content = (msg as any).message.content;
+        if (typeof content === 'string') preview = content;
+        else if (Array.isArray(content)) {
+          const textBlock = content.find((b: any) => b.type === 'text');
+          if (textBlock && 'text' in textBlock) preview = textBlock.text;
+          else if (content.some((b: any) => b.type === 'tool_result'))
+            preview = '[tool result]';
+        }
+        break;
+      }
+      case 'assistant': {
+        roleStyled = selected ? pc.bold(pc.green('claude')) : pc.green('claude');
+        const blocks = (msg as any).message.content || [];
+        const textBlocks = blocks.filter((b: any) => b.type === 'text');
+        const toolBlocks = blocks.filter((b: any) => b.type === 'tool_use');
+        preview = textBlocks.map((b: any) => b.text).join(' ');
+        if (!preview && toolBlocks.length > 0) {
+          const names = toolBlocks.map((b: any) => b.name).join(', ');
+          preview = `[tools: ${names}]`;
+        }
+        break;
+      }
+      case 'system': {
+        roleStyled = selected ? pc.bold(pc.red('system')) : pc.red('system');
+        const subtype = 'subtype' in msg ? (msg as any).subtype : '';
+        if ('content' in msg && typeof (msg as any).content === 'string') {
+          preview = `${subtype ? subtype + ': ' : ''}${(msg as any).content}`;
+        } else if (subtype === 'turn_duration') {
+          preview = `turn: ${(msg as any).durationMs}ms`;
+        } else if (subtype === 'api_error') {
+          preview = `api error (retry ${(msg as any).retryAttempt}/${(msg as any).maxRetries})`;
+        } else {
+          preview = subtype || 'system';
+        }
+        break;
+      }
+      case 'summary': {
+        roleStyled = selected ? pc.bold(pc.magenta('summary')) : pc.magenta('summary');
+        preview = (msg as any).summary || '';
+        break;
+      }
+      case 'progress': {
+        roleStyled = selected ? pc.bold(pc.blue('progress')) : pc.blue('progress');
+        const data = (msg as any).data;
+        if (data?.type === 'bash_progress') {
+          preview = `bash: ${(data.output || '').slice(0, 80)}`;
+        } else if (data?.type === 'agent_progress') {
+          preview = `agent: ${data.agentId}`;
+        } else if (data?.type === 'hook_progress') {
+          preview = `hook: ${data.hookName}`;
+        } else if (data?.type === 'mcp_progress') {
+          preview = `mcp: ${data.serverName}/${data.toolName}`;
+        } else {
+          preview = data?.type || 'progress';
+        }
+        break;
+      }
+      default: {
+        // Internal types: file-history-snapshot, saved_hook_context, queue-operation, last-prompt
+        roleStyled = pc.dim(`[${msg.type}]`);
+        if (msg.type === 'saved_hook_context') {
+          preview = `hook: ${(msg as any).hookName || ''} (${(msg as any).hookEvent || ''})`;
+        } else if (msg.type === 'queue-operation') {
+          preview = (msg as any).operation || '';
+        } else if (msg.type === 'last-prompt') {
+          preview = (msg as any).lastPrompt?.slice(0, 80) || '';
+        } else {
+          preview = '';
+        }
+        break;
+      }
     }
 
-    // timestamp may not exist on all message types (e.g. SummaryMessage)
+    // Timestamp — not all types have it
     const timestamp =
       'timestamp' in msg && (msg as any).timestamp
         ? pc.dim(formatRelativeTime((msg as any).timestamp))
         : '';
 
-    // Extract preview text
-    let preview = '';
-    if (msg.type === 'user') {
-      const content = (msg as any).message.content;
-      if (typeof content === 'string') preview = content;
-      else if (Array.isArray(content)) {
-        const textBlock = content.find((b: any) => b.type === 'text');
-        if (textBlock && 'text' in textBlock) preview = textBlock.text;
-      }
-    } else if (msg.type === 'assistant') {
-      const blocks = (msg as any).message.content || [];
-      const textBlocks = blocks.filter((b: any) => b.type === 'text');
-      preview = textBlocks.map((b: any) => b.text).join(' ');
-    } else if (msg.type === 'system') {
-      preview = '[system]';
-    }
     preview = preview.replace(/\n/g, ' ');
     const previewText = cliTruncate(preview, Math.max(cols - 6, 20));
     const previewLine = selected ? pc.white(previewText) : pc.dim(previewText);
@@ -260,15 +363,21 @@ export async function browseCommand(api: SpaghettiAPI): Promise<void> {
           theme.session(`Sessions`) +
           pc.dim(` (${sessions.length})`);
         break;
-      case 'messages':
+      case 'messages': {
+        const total = allMessages.length;
+        const shown = messages.length;
+        const countLabel = total === shown
+          ? pc.dim(` (${total})`)
+          : pc.dim(` (${shown}/${total})`);
         breadcrumb =
           pc.dim(state.project!.folderName) +
           pc.dim(' › ') +
           pc.dim(`#${state.sessionIndex + 1}`) +
           pc.dim(' › ') +
           theme.message(`Messages`) +
-          pc.dim(` (${messagePage?.total ?? messages.length})`);
+          countLabel;
         break;
+      }
       case 'detail': {
         const role = state.message?.type || '';
         const ts =
@@ -286,10 +395,25 @@ export async function browseCommand(api: SpaghettiAPI): Promise<void> {
       }
     }
 
-    return [
+    const lines = [
       `  ${breadcrumb}`,
-      `  ${SEPARATOR(cols - 4)}`,
     ];
+
+    // Filter chips — only on messages view
+    if (state.level === 'messages') {
+      const chips = FILTER_CATEGORIES.map(cat => {
+        const on = filters[cat.key];
+        if (on) {
+          return `${pc.white(cat.key)}${pc.dim(':')}${cat.color(cat.label)}`;
+        } else {
+          return `${pc.dim(cat.key)}${pc.dim(':')}${pc.strikethrough(pc.dim(cat.label))}`;
+        }
+      }).join(pc.dim('  '));
+      lines.push(`  ${chips}`);
+    }
+
+    lines.push(`  ${SEPARATOR(cols - 4)}`);
+    return lines;
   }
 
   function buildFooter(): string[] {
@@ -305,8 +429,10 @@ export async function browseCommand(api: SpaghettiAPI): Promise<void> {
         hints = `${key('↑↓')} ${desc('navigate')}${sep}${key('Enter')} ${desc('open')}${sep}${key('q')} ${desc('quit')}`;
         break;
       case 'sessions':
-      case 'messages':
         hints = `${key('↑↓')} ${desc('navigate')}${sep}${key('Enter')} ${desc('open')}${sep}${key('Esc')} ${desc('back')}${sep}${key('q')} ${desc('quit')}`;
+        break;
+      case 'messages':
+        hints = `${key('↑↓')} ${desc('navigate')}${sep}${key('1-6')} ${desc('filter')}${sep}${key('Enter')} ${desc('open')}${sep}${key('Esc')} ${desc('back')}${sep}${key('q')} ${desc('quit')}`;
         break;
       case 'detail': {
         const pos = pc.dim(`[${detailScrollOffset + 1} / ${detailLines.length} lines]`);
@@ -595,6 +721,21 @@ export async function browseCommand(api: SpaghettiAPI): Promise<void> {
   }
 
   function handleMessagesKey(key: KeyEvent): void {
+    // Filter toggles work even when list is empty
+    if (key >= '1' && key <= '6') {
+      filters[key] = !filters[key];
+      reapplyFilters();
+      if (messages.length > 0 && !messageList) {
+        // Filters revealed messages — rebuild the list
+        setupMessagesView();
+      } else if (messages.length === 0) {
+        // All filtered out — show empty state
+        setupMessagesView();
+      }
+      fullRender();
+      return;
+    }
+
     if (!messageList) {
       if (key === 'escape') {
         state.level = 'sessions';

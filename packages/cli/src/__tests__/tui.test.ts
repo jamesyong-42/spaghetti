@@ -27,6 +27,20 @@ describe('parseKeypress', () => {
     assert.strictEqual(parseKeypress(Buffer.from([0x03])), 'ctrl-c');
   });
 
+  test('parses number keys 1-6', () => {
+    assert.strictEqual(parseKeypress(Buffer.from([0x31])), '1');
+    assert.strictEqual(parseKeypress(Buffer.from([0x32])), '2');
+    assert.strictEqual(parseKeypress(Buffer.from([0x33])), '3');
+    assert.strictEqual(parseKeypress(Buffer.from([0x34])), '4');
+    assert.strictEqual(parseKeypress(Buffer.from([0x35])), '5');
+    assert.strictEqual(parseKeypress(Buffer.from([0x36])), '6');
+  });
+
+  test('returns null for number keys outside 1-6', () => {
+    assert.strictEqual(parseKeypress(Buffer.from([0x30])), null); // '0'
+    assert.strictEqual(parseKeypress(Buffer.from([0x37])), null); // '7'
+  });
+
   test('returns null for unknown input', () => {
     assert.strictEqual(parseKeypress(Buffer.from([0x61])), null); // 'a'
   });
