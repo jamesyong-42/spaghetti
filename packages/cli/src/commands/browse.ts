@@ -34,11 +34,12 @@ type ViewLevel = 'projects' | 'sessions' | 'messages' | 'detail';
 
 // ─── Display Items (message list abstraction) ───────────────────────────
 
-/** A display item is either a regular message or a merged tool call */
+/** A display item is a regular message, a merged tool call, or extracted thinking */
 type DisplayItem =
   | { kind: 'message'; msg: SessionMessage }
   | { kind: 'tool-call'; toolName: string; toolInput: Record<string, unknown>; toolUseId: string;
-      result: { content: string; isError: boolean } | null; sourceMsg: SessionMessage };
+      result: { content: string; isError: boolean } | null; sourceMsg: SessionMessage }
+  | { kind: 'thinking'; content: string; redacted: boolean; tokenEstimate: number; sourceMsg: SessionMessage };
 
 /** Tool visual categories for color-coding */
 type ToolCategory = 'file' | 'search' | 'shell' | 'agent' | 'nav' | 'web' | 'mcp' | 'other';
@@ -174,10 +175,33 @@ function buildDisplayItems(msgs: SessionMessage[]): DisplayItem[] {
       const thinkingBlocks = blocks.filter((b: any) => b.type === 'thinking' || b.type === 'redacted_thinking');
       const toolBlocks = blocks.filter((b: any) => b.type === 'tool_use');
 
-      // If there's text or thinking, emit the message (without tool blocks in preview)
-      if (textBlocks.length > 0 || thinkingBlocks.length > 0) {
+      // Emit thinking blocks as separate items (before text/tools)
+      for (const tb of thinkingBlocks) {
+        if (tb.type === 'thinking') {
+          const thinkLen = tb.thinking?.length ?? 0;
+          items.push({
+            kind: 'thinking',
+            content: tb.thinking || '',
+            redacted: false,
+            tokenEstimate: Math.round(thinkLen / 4),
+            sourceMsg: msg,
+          });
+        } else {
+          // redacted_thinking
+          items.push({
+            kind: 'thinking',
+            content: '',
+            redacted: true,
+            tokenEstimate: 0,
+            sourceMsg: msg,
+          });
+        }
+      }
+
+      // If there's text, emit the message (text-only preview)
+      if (textBlocks.length > 0) {
         items.push({ kind: 'message', msg });
-      } else if (toolBlocks.length === 0) {
+      } else if (thinkingBlocks.length === 0 && toolBlocks.length === 0) {
         // Empty assistant message — still show it
         items.push({ kind: 'message', msg });
       }
@@ -240,9 +264,9 @@ interface FilterCategory {
 const FILTER_CATEGORIES: FilterCategory[] = [
   { key: '1', label: 'user',     color: pc.cyan,    types: ['user'] },
   { key: '2', label: 'claude',   color: pc.green,   types: ['assistant'] },
-  { key: '3', label: 'tools',    color: pc.yellow,  types: ['__tool-call__'] },
-  { key: '4', label: 'system',   color: pc.red,     types: ['system'] },
-  { key: '5', label: 'progress', color: pc.blue,    types: ['progress', 'summary'] },
+  { key: '3', label: 'thinking', color: pc.magenta, types: ['__thinking__'] },
+  { key: '4', label: 'tools',    color: pc.yellow,  types: ['__tool-call__'] },
+  { key: '5', label: 'system',   color: pc.red,     types: ['system', 'progress', 'summary'] },
   { key: '6', label: 'internal', color: pc.dim,     types: ['file-history-snapshot', 'saved_hook_context', 'queue-operation', 'last-prompt'] },
 ];
 
@@ -263,6 +287,7 @@ function applyDisplayFilters(allItems: DisplayItem[], filters: FilterState): Dis
   }
   return allItems.filter(item => {
     if (item.kind === 'tool-call') return enabledTypes.has('__tool-call__');
+    if (item.kind === 'thinking') return enabledTypes.has('__thinking__');
     return enabledTypes.has(item.msg.type);
   });
 }
@@ -433,7 +458,40 @@ export async function browseCommand(api: SpaghettiAPI): Promise<void> {
     selected: boolean,
   ): string[] {
     if (item.kind === 'tool-call') return renderToolCallItem(item, selected);
+    if (item.kind === 'thinking') return renderThinkingItem(item, selected);
     return renderMessageDisplayItem(item.msg, selected);
+  }
+
+  function renderThinkingItem(
+    item: DisplayItem & { kind: 'thinking' },
+    selected: boolean,
+  ): string[] {
+    const cols = tui.cols;
+    // Dim purple/magenta for thinking — visually distinct from claude's green
+    const thinkColor = selected ? (s: string) => pc.bold(pc.magenta(s)) : pc.dim;
+    const prefix = selected ? pc.magenta('▎') : ' ';
+
+    if (item.redacted) {
+      return [
+        `${prefix} ${thinkColor('thinking')}  ${pc.dim('(redacted)')}`,
+        `${prefix} ${pc.dim(pc.italic('content hidden by model'))}`,
+      ];
+    }
+
+    const badge = thinkColor('thinking');
+    const tokensLabel = item.tokenEstimate > 0
+      ? pc.dim(`~${formatTokens(item.tokenEstimate)} tokens`)
+      : '';
+
+    // Preview: first meaningful line of thinking content
+    const firstLine = item.content.split('\n').find(l => l.trim().length > 0) || '';
+    const previewText = cliTruncate(firstLine.trim(), Math.max(cols - 6, 20));
+    const preview = selected ? pc.italic(pc.white(previewText)) : pc.dim(pc.italic(previewText));
+
+    return [
+      `${prefix} ${badge}  ${tokensLabel}`,
+      `${prefix} ${preview}`,
+    ];
   }
 
   function renderToolCallItem(
@@ -609,6 +667,18 @@ export async function browseCommand(api: SpaghettiAPI): Promise<void> {
             pc.dim(' › ') +
             colorFn(pc.bold(di.toolName)) +
             pc.dim(` ${toolInputSummary(di.toolName, di.toolInput).slice(0, 40)}`);
+        } else if (di && di.kind === 'thinking') {
+          const label = di.redacted ? 'Redacted Thinking' : 'Thinking';
+          const tokLabel = !di.redacted && di.tokenEstimate > 0
+            ? pc.dim(` ~${formatTokens(di.tokenEstimate)} tokens`)
+            : '';
+          breadcrumb =
+            pc.dim(state.project!.folderName) +
+            pc.dim(' › ') +
+            pc.dim(`#${state.sessionIndex + 1}`) +
+            pc.dim(' › ') +
+            pc.bold(pc.magenta(label)) +
+            tokLabel;
         } else {
           const role = state.message?.type || '';
           const ts =
@@ -832,6 +902,30 @@ export async function browseCommand(api: SpaghettiAPI): Promise<void> {
     detailLines = lines;
   }
 
+  function setupThinkingDetailView(item: DisplayItem & { kind: 'thinking' }): void {
+    state.level = 'detail';
+    detailScrollOffset = 0;
+
+    const lines: string[] = [];
+    if (item.redacted) {
+      lines.push(pc.magenta(pc.bold('Redacted Thinking')));
+      lines.push('');
+      lines.push(pc.dim('The model chose to redact this thinking block.'));
+      lines.push(pc.dim('This is typically done for safety or privacy reasons.'));
+    } else {
+      const tokLabel = item.tokenEstimate > 0
+        ? pc.dim(` (~${formatTokens(item.tokenEstimate)} tokens)`)
+        : '';
+      lines.push(pc.magenta(pc.bold('Thinking')) + tokLabel);
+      lines.push('');
+      for (const line of item.content.split('\n')) {
+        lines.push(pc.italic(line));
+      }
+    }
+
+    detailLines = lines;
+  }
+
   // ─── Render ──────────────────────────────────────────────────────────
 
   // Recreates the list view with fresh header/footer on each render.
@@ -1047,9 +1141,11 @@ export async function browseCommand(api: SpaghettiAPI): Promise<void> {
         state.messageIndex = messageList.getSelectedIndex();
         state.displayItem = selected;
         if (selected.kind === 'tool-call') {
-          // Show tool result in detail view
           state.message = selected.sourceMsg;
           setupToolDetailView(selected);
+        } else if (selected.kind === 'thinking') {
+          state.message = selected.sourceMsg;
+          setupThinkingDetailView(selected);
         } else {
           state.message = selected.msg;
           setupDetailView();
