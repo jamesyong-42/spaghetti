@@ -151,9 +151,19 @@ function buildDisplayItems(msgs: SessionMessage[]): DisplayItem[] {
     }
   }
 
+  // Collect all tool_use IDs that we'll emit as tool-call items
+  const emittedToolUseIds = new Set<string>();
+  for (const msg of msgs) {
+    if (msg.type === 'assistant') {
+      const blocks = (msg as any).message?.content || [];
+      for (const b of blocks) {
+        if (b.type === 'tool_use') emittedToolUseIds.add(b.id);
+      }
+    }
+  }
+
   // Second pass: build display items
   const items: DisplayItem[] = [];
-  const consumedUserMsgs = new Set<SessionMessage>();
 
   for (let i = 0; i < msgs.length; i++) {
     const msg = msgs[i];
@@ -184,21 +194,15 @@ function buildDisplayItems(msgs: SessionMessage[]): DisplayItem[] {
           sourceMsg: msg,
         });
       }
-
-      // Mark the next user message as consumed if it's purely tool results
-      if (toolBlocks.length > 0 && i + 1 < msgs.length) {
-        const next = msgs[i + 1];
-        if (next.type === 'user') {
-          const nextContent = (next as any).message?.content;
-          if (Array.isArray(nextContent) && nextContent.length > 0 &&
-              nextContent.every((b: any) => b.type === 'tool_result')) {
-            consumedUserMsgs.add(next);
-          }
-        }
+    } else if (msg.type === 'user') {
+      // Check if this user message is purely tool results that are already merged
+      const content = (msg as any).message?.content;
+      if (Array.isArray(content) && content.length > 0 &&
+          content.every((b: any) => b.type === 'tool_result' && emittedToolUseIds.has(b.tool_use_id))) {
+        // All blocks are tool_results matching emitted tool-call items — skip
+        continue;
       }
-    } else if (msg.type === 'user' && consumedUserMsgs.has(msg)) {
-      // Skip — already merged into tool-call items
-      continue;
+      items.push({ kind: 'message', msg });
     } else {
       items.push({ kind: 'message', msg });
     }
