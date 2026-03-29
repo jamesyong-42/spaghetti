@@ -306,6 +306,9 @@ type FilterState = Record<string, boolean>; // key = category key ('1'-'6')
 function createDefaultFilters(): FilterState {
   const filters: FilterState = {};
   for (const cat of FILTER_CATEGORIES) filters[cat.key] = true;
+  // Progress and internal are noisy — off by default
+  filters['5'] = false;
+  filters['6'] = false;
   return filters;
 }
 
