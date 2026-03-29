@@ -969,9 +969,7 @@ export async function browseCommand(api: SpaghettiAPI): Promise<void> {
 
   // ─── Render ──────────────────────────────────────────────────────────
 
-  // Recreates the list view with fresh header/footer on each render.
-  // This is simple and correct. At our data scale (< 50 visible items
-  // due to pagination), the O(n) index restoration is negligible.
+  // Updates header/footer in-place and re-renders. No list recreation.
   function fullRender(): void {
     if (state.level === 'detail') {
       const dh = buildHeader();
@@ -990,53 +988,18 @@ export async function browseCommand(api: SpaghettiAPI): Promise<void> {
     let activeList: ListView<any> | null = null;
     switch (state.level) {
       case 'projects':
-        if (projectList) {
-          projectList = createListView({
-            items: projects,
-            renderItem: renderProjectItem,
-            headerLines: header,
-            footerLines: footer,
-            viewportHeight,
-          });
-          for (let i = 0; i < state.projectIndex && i < projects.length - 1; i++) {
-            projectList.moveDown();
-          }
-          activeList = projectList;
-        }
+        activeList = projectList;
         break;
       case 'sessions':
-        if (sessionList) {
-          sessionList = createListView({
-            items: sessions,
-            renderItem: renderSessionItem,
-            headerLines: header,
-            footerLines: footer,
-            viewportHeight,
-          });
-          for (let i = 0; i < state.sessionIndex && i < sessions.length - 1; i++) {
-            sessionList.moveDown();
-          }
-          activeList = sessionList;
-        }
+        activeList = sessionList;
         break;
       case 'messages':
-        if (messageList) {
-          messageList = createListView({
-            items: displayItems,
-            renderItem: renderDisplayItem,
-            headerLines: header,
-            footerLines: footer,
-            viewportHeight,
-          });
-          for (let i = 0; i < state.messageIndex && i < displayItems.length - 1; i++) {
-            messageList.moveDown();
-          }
-          activeList = messageList;
-        }
+        activeList = messageList;
         break;
     }
 
     if (activeList) {
+      activeList.updateHeaderFooter(header, footer, viewportHeight);
       tui.render(activeList.getLines());
     }
   }

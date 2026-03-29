@@ -21,6 +21,7 @@ export interface ListView<T> {
   getSelected(): T | undefined;
   getSelectedIndex(): number;
   updateItems(items: T[]): void;
+  updateHeaderFooter(headerLines: string[], footerLines: string[], viewportHeight: number): void;
   reset(): void;
 }
 
@@ -122,6 +123,13 @@ export function createListView<T>(config: ListConfig<T>): ListView<T> {
       if (selectedIndex >= items.length) {
         selectedIndex = Math.max(0, items.length - 1);
       }
+      adjustScroll();
+    },
+
+    updateHeaderFooter(headerLines: string[], footerLines: string[], viewportHeight: number): void {
+      config.headerLines = headerLines;
+      config.footerLines = footerLines;
+      config.viewportHeight = viewportHeight;
       adjustScroll();
     },
 
