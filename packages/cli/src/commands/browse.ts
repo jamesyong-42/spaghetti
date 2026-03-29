@@ -258,7 +258,7 @@ function buildDisplayItems(msgs: SessionMessage[]): DisplayItem[] {
     }
   }
 
-  return items;
+  return items.reverse();
 }
 
 interface ViewState {
