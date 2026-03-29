@@ -472,26 +472,23 @@ export async function browseCommand(api: SpaghettiAPI): Promise<void> {
 
   function renderThinkingItem(item: DisplayItem & { kind: 'thinking' }, selected: boolean): string[] {
     const cols = tui.cols;
-    // Dim purple/magenta for thinking — visually distinct from claude's green
-    const thinkColor = selected ? (s: string) => pc.bold(pc.magenta(s)) : pc.dim;
     const prefix = selected ? pc.magenta('▎') : ' ';
+    const dots = selected ? pc.magenta('···') : pc.dim('···');
+    const label = selected ? pc.white('thinking') : pc.dim('thinking');
 
     if (item.redacted) {
-      return [
-        `${prefix} ${thinkColor('thinking')}  ${pc.dim('(redacted)')}`,
-        `${prefix} ${pc.dim(pc.italic('content hidden by model'))}`,
-      ];
+      return [`${prefix} ${dots} ${label}  ${pc.dim('(redacted)')}`];
     }
 
-    const badge = thinkColor('thinking');
-    const tokensLabel = item.tokenEstimate > 0 ? pc.dim(`~${formatTokens(item.tokenEstimate)} tokens`) : '';
+    const tokensLabel = item.tokenEstimate > 0 ? pc.dim(`~${formatTokens(item.tokenEstimate)}`) : '';
 
-    // Preview: first meaningful line of thinking content
+    // Inline preview — single collapsed line
     const firstLine = item.content.split('\n').find((l) => l.trim().length > 0) || '';
-    const previewText = cliTruncate(firstLine.trim(), Math.max(cols - 6, 20));
-    const preview = selected ? pc.italic(pc.white(previewText)) : pc.dim(pc.italic(previewText));
+    const usedWidth = 22 + (item.tokenEstimate > 0 ? 8 : 0);
+    const previewText = cliTruncate(firstLine.trim(), Math.max(cols - usedWidth, 20));
+    const preview = selected ? pc.italic(pc.dim(previewText)) : pc.dim(pc.italic(previewText));
 
-    return [`${prefix} ${badge}  ${tokensLabel}`, `${prefix} ${preview}`];
+    return [`${prefix} ${dots} ${label}  ${tokensLabel}  ${preview}`];
   }
 
   function renderToolCallItem(item: DisplayItem & { kind: 'tool-call' }, selected: boolean): string[] {
@@ -500,114 +497,178 @@ export async function browseCommand(api: SpaghettiAPI): Promise<void> {
     const colorFn = TOOL_CATEGORY_COLORS[cat];
     const prefix = selected ? colorFn('▎') : ' ';
 
-    // Line 1: tool name badge + input summary
+    // Category label + tool name + input + status — all on one line (pipeline feel)
+    const catLabel = pc.dim(cat);
     const badge = selected ? pc.bold(colorFn(item.toolName)) : colorFn(item.toolName);
     const input = toolInputSummary(item.toolName, item.toolInput);
-    const inputText = input
-      ? selected
-        ? pc.white(cliTruncate(input, Math.max(cols - item.toolName.length - 8, 20)))
-        : pc.dim(cliTruncate(input, Math.max(cols - item.toolName.length - 8, 20)))
-      : '';
 
-    // Line 2: result summary or pending
-    let resultLine: string;
+    // Status indicator: ✓ success, ✗ error
+    let status: string;
+    let resultHint = '';
     if (item.result) {
       if (item.result.isError) {
-        const errText = cliTruncate(item.result.content.replace(/\n/g, ' '), Math.max(cols - 10, 20));
-        resultLine = selected ? pc.red(`✗ ${errText}`) : pc.red(pc.dim(`✗ ${errText}`));
+        status = pc.red('✗');
+        const errText = item.result.content.replace(/\n/g, ' ').slice(0, 40);
+        resultHint = pc.red(pc.dim(errText));
       } else {
+        status = pc.green('✓');
         const summary = toolResultSummary(item.result.content);
-        const summaryText = cliTruncate(summary, Math.max(cols - 10, 20));
-        resultLine = selected ? pc.dim(`→ ${pc.white(summaryText)}`) : pc.dim(`→ ${summaryText}`);
+        resultHint = pc.dim(summary);
       }
     } else {
-      resultLine = pc.dim('→ (no result)');
+      status = pc.dim('·');
+      resultHint = '';
     }
 
-    return [`${prefix} ${badge}  ${inputText}`, `${prefix} ${resultLine}`];
+    // Calculate available width for input text
+    const fixedWidth = cat.length + item.toolName.length + 10; // spaces + status
+    const inputText = input
+      ? (selected
+          ? pc.white(cliTruncate(input, Math.max(cols - fixedWidth - 20, 10)))
+          : pc.dim(cliTruncate(input, Math.max(cols - fixedWidth - 20, 10))))
+      : '';
+
+    return [
+      `${prefix} ${catLabel} ${badge}  ${inputText}  ${status} ${resultHint}`,
+    ];
+  }
+
+  // ─── Per-Type Message Renderers ─────────────────────────────────────
+
+  function renderUserItem(msg: SessionMessage, selected: boolean): string[] {
+    const cols = tui.cols;
+    const prefix = selected ? pc.cyan('▎') : ' ';
+
+    // Pill badge style — ALL CAPS, colored background feel via inverse/bold
+    const badge = selected
+      ? pc.bold(pc.inverse(pc.cyan(' USER ')))
+      : pc.inverse(pc.cyan(' USER '));
+    const timestamp =
+      'timestamp' in msg && (msg as any).timestamp ? pc.dim(formatRelativeTime((msg as any).timestamp)) : '';
+
+    // Extract text content
+    let preview = '';
+    const content = (msg as any).message.content;
+    if (typeof content === 'string') preview = content;
+    else if (Array.isArray(content)) {
+      const textBlock = content.find((b: any) => b.type === 'text');
+      if (textBlock && 'text' in textBlock) preview = textBlock.text;
+    }
+    preview = preview.replace(/\n/g, ' ');
+    const previewText = cliTruncate(preview, Math.max(cols - 10, 20));
+    const previewLine = selected ? pc.white(previewText) : pc.dim(previewText);
+
+    return [
+      `${prefix} ${badge}  ${timestamp}`,
+      `${prefix}     ${previewLine}`,
+    ];
+  }
+
+  function renderAssistantItem(msg: SessionMessage, selected: boolean): string[] {
+    const cols = tui.cols;
+    const prefix = selected ? pc.yellow('▎') : ' ';
+
+    // Pill badge — Claude Code brand color (amber/orange → pc.yellow)
+    const badge = selected
+      ? pc.bold(pc.inverse(pc.yellow(' CLAUDE ')))
+      : pc.inverse(pc.yellow(' CLAUDE '));
+    const timestamp =
+      'timestamp' in msg && (msg as any).timestamp ? pc.dim(formatRelativeTime((msg as any).timestamp)) : '';
+
+    const blocks = (msg as any).message.content || [];
+    const textBlocks = blocks.filter((b: any) => b.type === 'text');
+    let preview = textBlocks.map((b: any) => b.text).join(' ');
+    preview = preview.replace(/\n/g, ' ');
+    const previewText = cliTruncate(preview, Math.max(cols - 10, 20));
+    const previewLine = selected ? pc.white(previewText) : pc.dim(previewText);
+
+    return [
+      `${prefix} ${badge}  ${timestamp}`,
+      `${prefix}     ${previewLine}`,
+    ];
   }
 
   function renderMessageDisplayItem(msg: SessionMessage, selected: boolean): string[] {
-    const cols = tui.cols;
-    const prefix = selected ? pc.green('▎') : ' ';
+    // Dispatch to type-specific renderers
+    if (msg.type === 'user') return renderUserItem(msg, selected);
+    if (msg.type === 'assistant') return renderAssistantItem(msg, selected);
 
-    let roleStyled: string;
-    let preview = '';
+    const cols = tui.cols;
+    const prefix = selected ? pc.dim('▎') : ' ';
+
+    // All metadata types render as single-line with a unicode symbol prefix
+    let symbol: string;
+    let text: string;
 
     switch (msg.type) {
-      case 'user': {
-        roleStyled = selected ? pc.bold(pc.cyan('you')) : pc.cyan('you');
-        const content = (msg as any).message.content;
-        if (typeof content === 'string') preview = content;
-        else if (Array.isArray(content)) {
-          const textBlock = content.find((b: any) => b.type === 'text');
-          if (textBlock && 'text' in textBlock) preview = textBlock.text;
-        }
-        break;
-      }
-      case 'assistant': {
-        roleStyled = selected ? pc.bold(pc.green('claude')) : pc.green('claude');
-        const blocks = (msg as any).message.content || [];
-        const textBlocks = blocks.filter((b: any) => b.type === 'text');
-        preview = textBlocks.map((b: any) => b.text).join(' ');
-        break;
-      }
       case 'system': {
-        roleStyled = selected ? pc.bold(pc.red('system')) : pc.red('system');
         const subtype = 'subtype' in msg ? (msg as any).subtype : '';
-        if ('content' in msg && typeof (msg as any).content === 'string') {
-          preview = `${subtype ? subtype + ': ' : ''}${(msg as any).content}`;
-        } else if (subtype === 'turn_duration') {
-          preview = `turn: ${(msg as any).durationMs}ms`;
+        if (subtype === 'turn_duration') {
+          symbol = selected ? pc.white('⏱') : pc.dim('⏱');
+          text = formatDuration((msg as any).durationMs || 0);
         } else if (subtype === 'api_error') {
-          preview = `api error (retry ${(msg as any).retryAttempt}/${(msg as any).maxRetries})`;
+          symbol = selected ? pc.red('⚠') : pc.dim('⚠');
+          text = `api error (retry ${(msg as any).retryAttempt}/${(msg as any).maxRetries})`;
+        } else if (subtype === 'compact_boundary') {
+          symbol = selected ? pc.white('◇') : pc.dim('◇');
+          const content = (msg as any).content || '';
+          text = `compacted ${content ? cliTruncate(content.replace(/\n/g, ' '), Math.max(cols - 16, 20)) : ''}`;
+        } else if (subtype === 'stop_hook_summary') {
+          symbol = selected ? pc.white('■') : pc.dim('■');
+          text = `stop hook (${(msg as any).hookCount || 0} hooks)`;
         } else {
-          preview = subtype || 'system';
+          symbol = selected ? pc.white('◆') : pc.dim('◆');
+          const content = 'content' in msg && typeof (msg as any).content === 'string'
+            ? (msg as any).content.replace(/\n/g, ' ')
+            : subtype || 'system';
+          text = cliTruncate(content, Math.max(cols - 8, 20));
         }
         break;
       }
       case 'summary': {
-        roleStyled = selected ? pc.bold(pc.magenta('summary')) : pc.magenta('summary');
-        preview = (msg as any).summary || '';
+        symbol = selected ? pc.white('§') : pc.dim('§');
+        const summary = ((msg as any).summary || '').replace(/\n/g, ' ');
+        text = pc.italic(cliTruncate(summary, Math.max(cols - 8, 20)));
         break;
       }
       case 'progress': {
-        roleStyled = selected ? pc.bold(pc.blue('progress')) : pc.blue('progress');
+        symbol = selected ? pc.white('⟳') : pc.dim('⟳');
         const data = (msg as any).data;
         if (data?.type === 'bash_progress') {
-          preview = `bash: ${(data.output || '').slice(0, 80)}`;
+          text = `bash ${cliTruncate((data.output || '').replace(/\n/g, ' '), Math.max(cols - 14, 20))}`;
         } else if (data?.type === 'agent_progress') {
-          preview = `agent: ${data.agentId}`;
+          text = `agent ${data.agentId || ''}`;
         } else if (data?.type === 'hook_progress') {
-          preview = `hook: ${data.hookName}`;
+          text = `hook ${data.hookName || ''}`;
         } else if (data?.type === 'mcp_progress') {
-          preview = `mcp: ${data.serverName}/${data.toolName}`;
+          text = `mcp ${data.serverName || ''}/${data.toolName || ''}`;
         } else {
-          preview = data?.type || 'progress';
+          text = data?.type || 'progress';
         }
         break;
       }
       default: {
-        roleStyled = pc.dim(`[${msg.type}]`);
+        // Internal types: file-history-snapshot, saved_hook_context, queue-operation, last-prompt, custom-title, agent-name
+        symbol = selected ? pc.white('·') : pc.dim('·');
         if (msg.type === 'saved_hook_context') {
-          preview = `hook: ${(msg as any).hookName || ''} (${(msg as any).hookEvent || ''})`;
+          text = `${msg.type} ${(msg as any).hookName || ''}`;
         } else if (msg.type === 'queue-operation') {
-          preview = (msg as any).operation || '';
+          text = `queue ${(msg as any).operation || ''}`;
         } else if (msg.type === 'last-prompt') {
-          preview = (msg as any).lastPrompt?.slice(0, 80) || '';
+          text = `last-prompt`;
+        } else if (msg.type === 'custom-title' as any) {
+          text = `title: ${(msg as any).customTitle || ''}`;
+        } else if (msg.type === 'agent-name' as any) {
+          text = `agent: ${(msg as any).agentName || ''}`;
+        } else {
+          text = msg.type;
         }
         break;
       }
     }
 
-    const timestamp =
-      'timestamp' in msg && (msg as any).timestamp ? pc.dim(formatRelativeTime((msg as any).timestamp)) : '';
-
-    preview = preview.replace(/\n/g, ' ');
-    const previewText = cliTruncate(preview, Math.max(cols - 6, 20));
-    const previewLine = selected ? pc.white(previewText) : pc.dim(previewText);
-
-    return [`${prefix} ${roleStyled}  ${timestamp}`, `${prefix} ${previewLine}`];
+    const styledText = selected ? pc.white(text) : pc.dim(text);
+    return [`${prefix} ${symbol} ${styledText}`];
   }
 
   // ─── Header / Footer Builders ───────────────────────────────────────
