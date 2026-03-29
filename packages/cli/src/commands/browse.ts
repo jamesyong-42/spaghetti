@@ -633,8 +633,10 @@ export async function browseCommand(api: SpaghettiAPI): Promise<void> {
     const bodyContent = ` ${fg256(textColor)}${previewText} `;
 
     return [
+      '',  // top margin
       bgLine256(headerContent, cols, bgColor),
       bgLine256(bodyContent, cols, bgColor),
+      '',  // bottom margin
     ];
   }
 
@@ -659,8 +661,10 @@ export async function browseCommand(api: SpaghettiAPI): Promise<void> {
     const bodyContent = ` ${fg256(textColor)}${previewText} `;
 
     return [
+      '',  // top margin
       bgLine256(headerContent, cols, bgColor),
       bgLine256(bodyContent, cols, bgColor),
+      '',  // bottom margin
     ];
   }
 
