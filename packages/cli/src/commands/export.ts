@@ -5,7 +5,7 @@
 import { writeFileSync } from 'node:fs';
 import type { SpaghettiAPI, SessionListItem, SessionMessage } from '@vibecook/spaghetti-core';
 import { theme } from '../lib/color.js';
-import { formatRelativeTime, formatDuration, formatTokens, totalTokens } from '../lib/format.js';
+import { formatDuration, formatTokens, totalTokens } from '../lib/format.js';
 import { resolveProject, suggestProjects } from '../lib/resolve.js';
 import { noProjectMatch, noSessionMatch } from '../lib/error.js';
 
@@ -84,11 +84,7 @@ function extractTextContent(msg: SessionMessage, includeTools: boolean): string 
   return '';
 }
 
-function exportSessionAsMarkdown(
-  session: SessionListItem,
-  messages: SessionMessage[],
-  includeTools: boolean,
-): string {
+function exportSessionAsMarkdown(session: SessionListItem, messages: SessionMessage[], includeTools: boolean): string {
   const lines: string[] = [];
 
   lines.push(`## Session: ${session.sessionId.slice(0, 8)}`);
@@ -240,8 +236,9 @@ function outputResult(content: string, outputPath: string | undefined): void {
   if (outputPath) {
     writeFileSync(outputPath, content, 'utf-8');
     process.stderr.write(
-      theme.success(`\n  Exported to ${outputPath}`) + '\n' +
-      theme.muted(`  ${(content.length / 1024).toFixed(1)} KB written\n\n`),
+      theme.success(`\n  Exported to ${outputPath}`) +
+        '\n' +
+        theme.muted(`  ${(content.length / 1024).toFixed(1)} KB written\n\n`),
     );
   } else {
     process.stdout.write(content + '\n');

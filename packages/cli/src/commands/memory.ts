@@ -29,7 +29,13 @@ export async function memoryCommand(
       const withMemory = projects.filter((p: any) => p.hasMemory);
 
       if (opts.json) {
-        process.stdout.write(JSON.stringify(withMemory.map((p: any) => ({ slug: p.slug, folderName: p.folderName, path: p.absolutePath })), null, 2) + '\n');
+        process.stdout.write(
+          JSON.stringify(
+            withMemory.map((p: any) => ({ slug: p.slug, folderName: p.folderName, path: p.absolutePath })),
+            null,
+            2,
+          ) + '\n',
+        );
         return;
       }
 
@@ -60,19 +66,24 @@ export async function memoryCommand(
   const memory = api.getProjectMemory(project.slug);
 
   if (opts.json) {
-    process.stdout.write(JSON.stringify({
-      project: project.folderName,
-      slug: project.slug,
-      path: project.absolutePath,
-      memory: memory,
-    }, null, 2) + '\n');
+    process.stdout.write(
+      JSON.stringify(
+        {
+          project: project.folderName,
+          slug: project.slug,
+          path: project.absolutePath,
+          memory: memory,
+        },
+        null,
+        2,
+      ) + '\n',
+    );
     return;
   }
 
   if (!memory) {
     process.stdout.write(
-      '\n  ' + theme.project(project.folderName) + '\n' +
-      theme.muted('  No MEMORY.md found for this project.\n\n'),
+      '\n  ' + theme.project(project.folderName) + '\n' + theme.muted('  No MEMORY.md found for this project.\n\n'),
     );
     return;
   }

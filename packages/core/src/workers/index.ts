@@ -22,9 +22,4 @@ export type {
   WorkerError,
 } from './worker-types.js';
 
-export {
-  type WorkerPoolOptions,
-  type WorkerPool,
-  createWorkerPool,
-  isWorkerThreadsAvailable,
-} from './worker-pool.js';
+export { type WorkerPoolOptions, type WorkerPool, createWorkerPool, isWorkerThreadsAvailable } from './worker-pool.js';

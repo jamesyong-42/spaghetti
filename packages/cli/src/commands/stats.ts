@@ -10,10 +10,7 @@ export interface StatsOptions {
   json?: boolean;
 }
 
-export async function statsCommand(
-  api: SpaghettiAPI,
-  opts: StatsOptions,
-): Promise<void> {
+export async function statsCommand(api: SpaghettiAPI, opts: StatsOptions): Promise<void> {
   const storeStats = api.getStats();
   const projects = api.getProjectList();
 

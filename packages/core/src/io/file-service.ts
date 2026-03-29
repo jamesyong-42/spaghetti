@@ -13,14 +13,16 @@ import {
   existsSync,
   statSync,
   mkdirSync,
-  unlinkSync,
   readdirSync,
+  openSync,
+  readSync,
+  closeSync,
   watch as fsWatch,
   type FSWatcher as NodeFSWatcher,
   type Stats,
 } from 'fs';
-import { readFile, writeFile, appendFile, unlink, readdir } from 'fs/promises';
-import { dirname, join, basename } from 'path';
+import { readFile, writeFile, appendFile, unlink } from 'fs/promises';
+import { dirname, join } from 'path';
 import chokidar, { type FSWatcher } from 'chokidar';
 import {
   readJsonlStreaming as readJsonlStreamingImpl,
@@ -143,7 +145,7 @@ export interface FileService extends EventEmitter {
       pattern?: string;
       maxFiles?: number;
       maxAgeDays?: number;
-    }
+    },
   ): Promise<number>;
 }
 
@@ -168,7 +170,7 @@ export class FileServiceImpl extends EventEmitter implements FileService {
           ? { stabilityThreshold: 300, pollInterval: 100 }
           : options.awaitWriteFinish === false
             ? false
-            : options.awaitWriteFinish ?? { stabilityThreshold: 300, pollInterval: 100 },
+            : (options.awaitWriteFinish ?? { stabilityThreshold: 300, pollInterval: 100 }),
       depth: options.depth,
     });
 
@@ -239,7 +241,7 @@ export class FileServiceImpl extends EventEmitter implements FileService {
 
       fileStats = {
         size: stats.size,
-        mtimeMs: 'mtimeMs' in stats ? stats.mtimeMs : (stats as Stats).mtime?.getTime() ?? 0,
+        mtimeMs: 'mtimeMs' in stats ? stats.mtimeMs : ((stats as Stats).mtime?.getTime() ?? 0),
         isDirectory: isDir,
       };
     }
@@ -316,10 +318,10 @@ export class FileServiceImpl extends EventEmitter implements FileService {
     if (!this.exists(path)) return null;
 
     try {
-      const fd = require('fs').openSync(path, 'r');
+      const fd = openSync(path, 'r');
       const buffer = Buffer.alloc(maxBytes);
-      const bytesRead = require('fs').readSync(fd, buffer, 0, maxBytes, 0);
-      require('fs').closeSync(fd);
+      const bytesRead = readSync(fd, buffer, 0, maxBytes, 0);
+      closeSync(fd);
 
       const content = buffer.subarray(0, bytesRead).toString('utf-8');
       const newlineIndex = content.indexOf('\n');
@@ -331,10 +333,10 @@ export class FileServiceImpl extends EventEmitter implements FileService {
   }
 
   readBytes(path: string, options: ReadBytesOptions): Buffer {
-    const fd = require('fs').openSync(path, 'r');
+    const fd = openSync(path, 'r');
     const buffer = Buffer.alloc(options.length);
-    require('fs').readSync(fd, buffer, 0, options.length, options.start);
-    require('fs').closeSync(fd);
+    readSync(fd, buffer, 0, options.length, options.start);
+    closeSync(fd);
     return buffer;
   }
 
@@ -540,7 +542,7 @@ export class FileServiceImpl extends EventEmitter implements FileService {
       pattern?: string;
       maxFiles?: number;
       maxAgeDays?: number;
-    }
+    },
   ): Promise<number> {
     const files = await this.scanDirectory(directory, { pattern: options.pattern });
     if (files.length === 0) return 0;

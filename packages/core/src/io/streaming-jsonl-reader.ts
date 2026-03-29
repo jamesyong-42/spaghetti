@@ -133,10 +133,7 @@ export function readJsonlStreaming<T>(
               result.processedLines++;
             } catch (error) {
               result.errorCount++;
-              options?.onError?.(
-                lineIndex,
-                error instanceof Error ? error.message : String(error),
-              );
+              options?.onError?.(lineIndex, error instanceof Error ? error.message : String(error));
             }
 
             lineIndex++;
@@ -161,10 +158,7 @@ export function readJsonlStreaming<T>(
           result.processedLines++;
         } catch (error) {
           result.errorCount++;
-          options?.onError?.(
-            lineIndex,
-            error instanceof Error ? error.message : String(error),
-          );
+          options?.onError?.(lineIndex, error instanceof Error ? error.message : String(error));
         }
       }
     }

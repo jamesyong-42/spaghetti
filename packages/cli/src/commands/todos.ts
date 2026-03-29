@@ -82,11 +82,17 @@ export async function todosCommand(
 
   // JSON output
   if (opts.json) {
-    process.stdout.write(JSON.stringify({
-      project: project.folderName,
-      sessionId: session.sessionId,
-      todos,
-    }, null, 2) + '\n');
+    process.stdout.write(
+      JSON.stringify(
+        {
+          project: project.folderName,
+          sessionId: session.sessionId,
+          todos,
+        },
+        null,
+        2,
+      ) + '\n',
+    );
     return;
   }
 

@@ -59,6 +59,11 @@ export function formatBar(value: number, max: number, width: number = 20): strin
 /**
  * Compute total tokens from a TokenUsageSummary-like object.
  */
-export function totalTokens(usage: { inputTokens: number; outputTokens: number; cacheCreationTokens: number; cacheReadTokens: number }): number {
+export function totalTokens(usage: {
+  inputTokens: number;
+  outputTokens: number;
+  cacheCreationTokens: number;
+  cacheReadTokens: number;
+}): number {
   return usage.inputTokens + usage.outputTokens + usage.cacheCreationTokens + usage.cacheReadTokens;
 }

@@ -2,7 +2,13 @@
  * SpaghettiAPI — Public interface for consuming Claude Code agent data
  */
 
-import type { SearchQuery, SearchResultSet, StoreStats, InitProgress, SegmentChangeBatch } from './data/segment-types.js';
+import type {
+  SearchQuery,
+  SearchResultSet,
+  StoreStats,
+  InitProgress,
+  SegmentChangeBatch,
+} from './data/segment-types.js';
 import type { ProjectSummaryData, SessionSummaryData, TokenUsageSummary } from './data/summary-types.js';
 import type { SessionMessage } from './types/index.js';
 
@@ -102,7 +108,13 @@ export interface SpaghettiAPI {
   getSessionSubagents(projectSlug: string, sessionId: string): SubagentListItem[];
 
   /** Get paginated subagent messages */
-  getSubagentMessages(projectSlug: string, sessionId: string, agentId: string, limit?: number, offset?: number): SubagentMessagePage;
+  getSubagentMessages(
+    projectSlug: string,
+    sessionId: string,
+    agentId: string,
+    limit?: number,
+    offset?: number,
+  ): SubagentMessagePage;
 
   /** Full-text search across all segments */
   search(query: SearchQuery): SearchResultSet;

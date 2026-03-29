@@ -33,13 +33,7 @@ export interface ProjectParseSink {
   onSession(slug: string, entry: SessionIndexEntry): void;
 
   /** Called for each message line parsed from a session JSONL file. */
-  onMessage(
-    slug: string,
-    sessionId: string,
-    message: SessionMessage,
-    index: number,
-    byteOffset: number,
-  ): void;
+  onMessage(slug: string, sessionId: string, message: SessionMessage, index: number, byteOffset: number): void;
 
   /** Called for each subagent transcript found in a session directory. */
   onSubagent(slug: string, sessionId: string, transcript: SubagentTranscript): void;
@@ -60,12 +54,7 @@ export interface ProjectParseSink {
   onPlan(slug: string, plan: PlanFile): void;
 
   /** Called after all messages for a session have been streamed. */
-  onSessionComplete(
-    slug: string,
-    sessionId: string,
-    messageCount: number,
-    lastBytePosition: number,
-  ): void;
+  onSessionComplete(slug: string, sessionId: string, messageCount: number, lastBytePosition: number): void;
 
   /** Called after all sessions for a project have been processed. */
   onProjectComplete(slug: string): void;

@@ -32,9 +32,7 @@ describe('UserError', () => {
 
 describe('noProjectMatch', () => {
   test('creates UserError with suggestions', () => {
-    const err = noProjectMatch('spag', [
-      { folderName: 'spaghetti', sessionCount: 10 },
-    ]);
+    const err = noProjectMatch('spag', [{ folderName: 'spaghetti', sessionCount: 10 }]);
     assert.ok(err instanceof UserError);
     assert.ok(err.message.includes('spag'));
     assert.ok(err.suggestion?.includes('spaghetti'));

@@ -4,7 +4,7 @@
 
 import type { SpaghettiAPI, SessionListItem } from '@vibecook/spaghetti-core';
 import { theme } from '../lib/color.js';
-import { formatTokens, formatRelativeTime, formatDuration, formatNumber, totalTokens } from '../lib/format.js';
+import { formatTokens, formatDuration, formatNumber, totalTokens } from '../lib/format.js';
 import { renderTable } from '../lib/table.js';
 import type { Column } from '../lib/table.js';
 import { resolveProject, suggestProjects } from '../lib/resolve.js';
@@ -24,9 +24,13 @@ function sortSessions(sessions: SessionListItem[], key: SortKey): SessionListIte
   const sorted = [...sessions];
   switch (key) {
     case 'recent':
-      return sorted.sort((a: SessionListItem, b: SessionListItem) => new Date(b.lastUpdate).getTime() - new Date(a.lastUpdate).getTime());
+      return sorted.sort(
+        (a: SessionListItem, b: SessionListItem) => new Date(b.lastUpdate).getTime() - new Date(a.lastUpdate).getTime(),
+      );
     case 'tokens':
-      return sorted.sort((a: SessionListItem, b: SessionListItem) => totalTokens(b.tokenUsage) - totalTokens(a.tokenUsage));
+      return sorted.sort(
+        (a: SessionListItem, b: SessionListItem) => totalTokens(b.tokenUsage) - totalTokens(a.tokenUsage),
+      );
     case 'messages':
       return sorted.sort((a: SessionListItem, b: SessionListItem) => b.messageCount - a.messageCount);
     case 'duration':
@@ -127,10 +131,7 @@ export async function sessionsCommand(
   }
 
   if (sessions.length === 0) {
-    process.stdout.write(
-      '\n  ' + theme.project(project.folderName) + '\n' +
-      theme.muted('  No sessions found.\n\n'),
-    );
+    process.stdout.write('\n  ' + theme.project(project.folderName) + '\n' + theme.muted('  No sessions found.\n\n'));
     return;
   }
 
@@ -202,9 +203,8 @@ export async function sessionsCommand(
     totalMsgs += s.messageCount;
   }
 
-  const showing = sessions.length < totalSessions
-    ? `showing ${sessions.length}/${totalSessions}`
-    : `${sessions.length} sessions`;
+  const showing =
+    sessions.length < totalSessions ? `showing ${sessions.length}/${totalSessions}` : `${sessions.length} sessions`;
 
   const footer = theme.muted(
     `  ${showing} \u00b7 ${formatNumber(totalMsgs)} messages \u00b7 ${formatTokens(totalTok)} tokens`,

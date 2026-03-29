@@ -55,18 +55,23 @@ export async function planCommand(
 
   // JSON output
   if (opts.json) {
-    process.stdout.write(JSON.stringify({
-      project: project.folderName,
-      sessionId: session.sessionId,
-      plan,
-    }, null, 2) + '\n');
+    process.stdout.write(
+      JSON.stringify(
+        {
+          project: project.folderName,
+          sessionId: session.sessionId,
+          plan,
+        },
+        null,
+        2,
+      ) + '\n',
+    );
     return;
   }
 
   if (!plan) {
     process.stdout.write(
-      '\n  ' + theme.project(project.folderName) + '\n' +
-      theme.muted('  No plan found for this session.\n\n'),
+      '\n  ' + theme.project(project.folderName) + '\n' + theme.muted('  No plan found for this session.\n\n'),
     );
     return;
   }

@@ -163,11 +163,7 @@ END;
 /**
  * Tables from previous schema versions that should be dropped during migration.
  */
-const LEGACY_TABLES = [
-  'segments',
-  'search_index',
-  'schema_version',
-];
+const LEGACY_TABLES = ['segments', 'search_index', 'schema_version'];
 
 /**
  * All tables in the current schema (used for drop-and-recreate).
@@ -207,18 +203,38 @@ export function initializeSchema(db: SqliteService): void {
   if (currentVersion !== SCHEMA_VERSION) {
     // Drop all legacy tables from previous schema versions
     for (const table of LEGACY_TABLES) {
-      try { db.exec(`DROP TABLE IF EXISTS ${table}`); } catch { /* ignore */ }
+      try {
+        db.exec(`DROP TABLE IF EXISTS ${table}`);
+      } catch {
+        /* ignore */
+      }
     }
 
     // Drop all current-schema tables (including triggers & virtual tables)
     for (const table of CURRENT_TABLES) {
-      try { db.exec(`DROP TABLE IF EXISTS ${table}`); } catch { /* ignore */ }
+      try {
+        db.exec(`DROP TABLE IF EXISTS ${table}`);
+      } catch {
+        /* ignore */
+      }
     }
 
     // Also drop triggers explicitly (some may survive the table drops)
-    try { db.exec('DROP TRIGGER IF EXISTS messages_ai'); } catch { /* ignore */ }
-    try { db.exec('DROP TRIGGER IF EXISTS messages_ad'); } catch { /* ignore */ }
-    try { db.exec('DROP TRIGGER IF EXISTS messages_au'); } catch { /* ignore */ }
+    try {
+      db.exec('DROP TRIGGER IF EXISTS messages_ai');
+    } catch {
+      /* ignore */
+    }
+    try {
+      db.exec('DROP TRIGGER IF EXISTS messages_ad');
+    } catch {
+      /* ignore */
+    }
+    try {
+      db.exec('DROP TRIGGER IF EXISTS messages_au');
+    } catch {
+      /* ignore */
+    }
 
     // Recreate schema_meta
     db.exec('CREATE TABLE IF NOT EXISTS schema_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)');

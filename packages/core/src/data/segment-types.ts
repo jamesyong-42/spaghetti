@@ -3,13 +3,31 @@
  */
 
 export type SegmentType =
-  | 'project' | 'project_memory' | 'session' | 'message' | 'subagent'
-  | 'tool_result' | 'file_history' | 'todo' | 'task' | 'plan'
-  | 'project_summary' | 'session_summary'
-  | 'config_settings' | 'config_plugins' | 'config_statsig' | 'config_ide'
-  | 'config_shell_snapshots' | 'config_cache' | 'config_statusline'
-  | 'analytics_stats_cache' | 'analytics_history' | 'analytics_telemetry'
-  | 'analytics_debug' | 'analytics_paste_cache' | 'analytics_session_env';
+  | 'project'
+  | 'project_memory'
+  | 'session'
+  | 'message'
+  | 'subagent'
+  | 'tool_result'
+  | 'file_history'
+  | 'todo'
+  | 'task'
+  | 'plan'
+  | 'project_summary'
+  | 'session_summary'
+  | 'config_settings'
+  | 'config_plugins'
+  | 'config_statsig'
+  | 'config_ide'
+  | 'config_shell_snapshots'
+  | 'config_cache'
+  | 'config_statusline'
+  | 'analytics_stats_cache'
+  | 'analytics_history'
+  | 'analytics_telemetry'
+  | 'analytics_debug'
+  | 'analytics_paste_cache'
+  | 'analytics_session_env';
 
 export type SegmentKey = string;
 
@@ -57,12 +75,28 @@ export interface SegmentChangeBatch {
 }
 
 export type FileCategory =
-  | 'session_jsonl' | 'sessions_index' | 'project_memory' | 'subagent_jsonl'
-  | 'tool_result' | 'file_history' | 'todo' | 'task' | 'plan'
-  | 'config_settings' | 'config_plugins' | 'config_statsig' | 'config_ide'
-  | 'config_shell_snapshots' | 'config_cache' | 'config_statusline'
-  | 'analytics_stats_cache' | 'analytics_history' | 'analytics_telemetry'
-  | 'analytics_debug' | 'analytics_paste_cache' | 'analytics_session_env'
+  | 'session_jsonl'
+  | 'sessions_index'
+  | 'project_memory'
+  | 'subagent_jsonl'
+  | 'tool_result'
+  | 'file_history'
+  | 'todo'
+  | 'task'
+  | 'plan'
+  | 'config_settings'
+  | 'config_plugins'
+  | 'config_statsig'
+  | 'config_ide'
+  | 'config_shell_snapshots'
+  | 'config_cache'
+  | 'config_statusline'
+  | 'analytics_stats_cache'
+  | 'analytics_history'
+  | 'analytics_telemetry'
+  | 'analytics_debug'
+  | 'analytics_paste_cache'
+  | 'analytics_session_env'
   | 'unknown';
 
 export interface FileClassification {

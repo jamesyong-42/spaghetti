@@ -3,9 +3,7 @@ import assert from 'node:assert';
 import { createListView } from '../lib/interactive-list.js';
 
 // Minimal renderItem: each item is 1 line
-const renderItem = (item: string, _idx: number, selected: boolean) => [
-  selected ? `> ${item}` : `  ${item}`,
-];
+const renderItem = (item: string, _idx: number, selected: boolean) => [selected ? `> ${item}` : `  ${item}`];
 
 describe('createListView', () => {
   test('getLines includes header, items, and footer', () => {
@@ -117,10 +115,7 @@ describe('createListView', () => {
 
 describe('viewport scrolling', () => {
   // 2-line items to test scroll
-  const tallRender = (item: string, _idx: number, selected: boolean) => [
-    selected ? `> ${item}` : `  ${item}`,
-    '  ---',
-  ];
+  const tallRender = (item: string, _idx: number, selected: boolean) => [selected ? `> ${item}` : `  ${item}`, '  ---'];
 
   test('scrolls down when selection exceeds viewport', () => {
     // 3 items x 2 lines = 6 lines needed, viewport is 4

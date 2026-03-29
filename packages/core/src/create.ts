@@ -53,13 +53,7 @@ export function createSpaghettiService(options?: SpaghettiServiceOptions): Spagh
   if (options?.dbPath) dataServiceOptions.dbPath = options.dbPath;
   if (options?.claudeDir) dataServiceOptions.claudeDir = options.claudeDir;
 
-  const dataService = new AgentDataServiceImpl(
-    fileService,
-    parser,
-    queryService,
-    ingestService,
-    dataServiceOptions,
-  );
+  const dataService = new AgentDataServiceImpl(fileService, parser, queryService, ingestService, dataServiceOptions);
 
   return createSpaghettiAppService(dataService);
 }

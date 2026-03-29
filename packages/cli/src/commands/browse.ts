@@ -13,17 +13,11 @@ import type {
   MessagePage,
 } from '@vibecook/spaghetti-core';
 import { createTUI, TUINotAvailableError } from '../lib/tui.js';
-import type { TUI, KeyEvent } from '../lib/tui.js';
+import type { KeyEvent } from '../lib/tui.js';
 import { createListView } from '../lib/interactive-list.js';
 import type { ListView } from '../lib/interactive-list.js';
 import { theme } from '../lib/color.js';
-import {
-  formatTokens,
-  formatRelativeTime,
-  formatNumber,
-  formatDuration,
-  totalTokens,
-} from '../lib/format.js';
+import { formatTokens, formatRelativeTime, formatNumber, formatDuration, totalTokens } from '../lib/format.js';
 import { renderMessage } from '../lib/message-render.js';
 import cliTruncate from 'cli-truncate';
 import pc from 'picocolors';
@@ -37,26 +31,53 @@ type ViewLevel = 'projects' | 'sessions' | 'messages' | 'detail';
 /** A display item is a regular message, a merged tool call, or extracted thinking */
 type DisplayItem =
   | { kind: 'message'; msg: SessionMessage }
-  | { kind: 'tool-call'; toolName: string; toolInput: Record<string, unknown>; toolUseId: string;
-      result: { content: string; isError: boolean } | null; sourceMsg: SessionMessage }
+  | {
+      kind: 'tool-call';
+      toolName: string;
+      toolInput: Record<string, unknown>;
+      toolUseId: string;
+      result: { content: string; isError: boolean } | null;
+      sourceMsg: SessionMessage;
+    }
   | { kind: 'thinking'; content: string; redacted: boolean; tokenEstimate: number; sourceMsg: SessionMessage };
 
 /** Tool visual categories for color-coding */
 type ToolCategory = 'file' | 'search' | 'shell' | 'agent' | 'nav' | 'web' | 'mcp' | 'other';
 
 const TOOL_CATEGORIES: Record<string, ToolCategory> = {
-  Read: 'file', Write: 'file', Edit: 'file', Glob: 'file',
-  Grep: 'search', WebSearch: 'web', WebFetch: 'web', ToolSearch: 'search',
-  Bash: 'shell', KillShell: 'shell',
-  Agent: 'agent', SendMessage: 'agent', TaskCreate: 'agent', TaskUpdate: 'agent',
-  TaskList: 'agent', TaskOutput: 'agent', TaskStop: 'agent', TaskGet: 'agent',
-  Task: 'agent', TodoWrite: 'agent',
-  Skill: 'nav', EnterPlanMode: 'nav', ExitPlanMode: 'nav',
-  EnterWorktree: 'nav', ExitWorktree: 'nav',
-  NotebookEdit: 'file', LSP: 'file',
+  Read: 'file',
+  Write: 'file',
+  Edit: 'file',
+  Glob: 'file',
+  Grep: 'search',
+  WebSearch: 'web',
+  WebFetch: 'web',
+  ToolSearch: 'search',
+  Bash: 'shell',
+  KillShell: 'shell',
+  Agent: 'agent',
+  SendMessage: 'agent',
+  TaskCreate: 'agent',
+  TaskUpdate: 'agent',
+  TaskList: 'agent',
+  TaskOutput: 'agent',
+  TaskStop: 'agent',
+  TaskGet: 'agent',
+  Task: 'agent',
+  TodoWrite: 'agent',
+  Skill: 'nav',
+  EnterPlanMode: 'nav',
+  ExitPlanMode: 'nav',
+  EnterWorktree: 'nav',
+  ExitWorktree: 'nav',
+  NotebookEdit: 'file',
+  LSP: 'file',
   AskUserQuestion: 'other',
-  CronCreate: 'other', CronDelete: 'other', CronList: 'other',
-  TeamCreate: 'other', TeamDelete: 'other',
+  CronCreate: 'other',
+  CronDelete: 'other',
+  CronList: 'other',
+  TeamCreate: 'other',
+  TeamDelete: 'other',
 };
 
 function getToolCategory(name: string): ToolCategory {
@@ -106,13 +127,14 @@ function toolInputSummary(name: string, input: Record<string, unknown>): string 
       return `→ ${input.to || ''}`;
     case 'LSP':
       return `${input.operation || ''} ${input.filePath || ''}`.trim();
-    default:
+    default: {
       if (name.startsWith('mcp__')) {
         const parts = name.split('__');
         return parts.length >= 3 ? parts[2] : name;
       }
       const keys = Object.keys(input);
       return keys.length > 0 ? `{${keys.join(', ')}}` : '';
+    }
   }
 }
 
@@ -137,11 +159,12 @@ function buildDisplayItems(msgs: SessionMessage[]): DisplayItem[] {
       if (Array.isArray(content)) {
         for (const block of content) {
           if (block.type === 'tool_result' && block.tool_use_id) {
-            const resultContent = typeof block.content === 'string'
-              ? block.content
-              : Array.isArray(block.content)
-                ? block.content.map((b: any) => b.text || '').join(' ')
-                : '';
+            const resultContent =
+              typeof block.content === 'string'
+                ? block.content
+                : Array.isArray(block.content)
+                  ? block.content.map((b: any) => b.text || '').join(' ')
+                  : '';
             resultMap.set(block.tool_use_id, {
               content: resultContent,
               isError: block.is_error === true,
@@ -221,8 +244,11 @@ function buildDisplayItems(msgs: SessionMessage[]): DisplayItem[] {
     } else if (msg.type === 'user') {
       // Check if this user message is purely tool results that are already merged
       const content = (msg as any).message?.content;
-      if (Array.isArray(content) && content.length > 0 &&
-          content.every((b: any) => b.type === 'tool_result' && emittedToolUseIds.has(b.tool_use_id))) {
+      if (
+        Array.isArray(content) &&
+        content.length > 0 &&
+        content.every((b: any) => b.type === 'tool_result' && emittedToolUseIds.has(b.tool_use_id))
+      ) {
         // All blocks are tool_results matching emitted tool-call items — skip
         continue;
       }
@@ -240,7 +266,7 @@ interface ViewState {
   project?: ProjectListItem;
   session?: SessionListItem;
   message?: SessionMessage;
-  displayItem?: DisplayItem;      // currently selected display item
+  displayItem?: DisplayItem; // currently selected display item
   projectIndex: number;
   sessionIndex: number;
   messageIndex: number;
@@ -255,19 +281,24 @@ const SEPARATOR = (cols: number) => pc.dim('─'.repeat(cols));
 // ─── Filter Categories ──────────────────────────────────────────────────
 
 interface FilterCategory {
-  key: string;       // '1'-'6' hotkey
-  label: string;     // display name
+  key: string; // '1'-'6' hotkey
+  label: string; // display name
   color: (s: string) => string;
-  types: string[];   // message types this category includes
+  types: string[]; // message types this category includes
 }
 
 const FILTER_CATEGORIES: FilterCategory[] = [
-  { key: '1', label: 'user',     color: pc.cyan,    types: ['user'] },
-  { key: '2', label: 'claude',   color: pc.green,   types: ['assistant'] },
+  { key: '1', label: 'user', color: pc.cyan, types: ['user'] },
+  { key: '2', label: 'claude', color: pc.green, types: ['assistant'] },
   { key: '3', label: 'thinking', color: pc.magenta, types: ['__thinking__'] },
-  { key: '4', label: 'tools',    color: pc.yellow,  types: ['__tool-call__'] },
-  { key: '5', label: 'system',   color: pc.red,     types: ['system', 'progress', 'summary'] },
-  { key: '6', label: 'internal', color: pc.dim,     types: ['file-history-snapshot', 'saved_hook_context', 'queue-operation', 'last-prompt'] },
+  { key: '4', label: 'tools', color: pc.yellow, types: ['__tool-call__'] },
+  { key: '5', label: 'system', color: pc.red, types: ['system', 'progress', 'summary'] },
+  {
+    key: '6',
+    label: 'internal',
+    color: pc.dim,
+    types: ['file-history-snapshot', 'saved_hook_context', 'queue-operation', 'last-prompt'],
+  },
 ];
 
 type FilterState = Record<string, boolean>; // key = category key ('1'-'6')
@@ -285,7 +316,7 @@ function applyDisplayFilters(allItems: DisplayItem[], filters: FilterState): Dis
       for (const t of cat.types) enabledTypes.add(t);
     }
   }
-  return allItems.filter(item => {
+  return allItems.filter((item) => {
     if (item.kind === 'tool-call') return enabledTypes.has('__tool-call__');
     if (item.kind === 'thinking') return enabledTypes.has('__thinking__');
     return enabledTypes.has(item.msg.type);
@@ -306,9 +337,9 @@ export async function browseCommand(api: SpaghettiAPI): Promise<void> {
 
   let projects: ProjectListItem[] = [];
   let sessions: SessionListItem[] = [];
-  let allMessages: SessionMessage[] = [];       // raw messages
-  let allDisplayItems: DisplayItem[] = [];      // processed (tool pairs merged)
-  let displayItems: DisplayItem[] = [];         // filtered view
+  let allMessages: SessionMessage[] = []; // raw messages
+  let allDisplayItems: DisplayItem[] = []; // processed (tool pairs merged)
+  let displayItems: DisplayItem[] = []; // filtered view
   let messagePage: MessagePage | null = null;
   let projectFirstPrompts: Map<string, string> = new Map();
   const filters: FilterState = createDefaultFilters();
@@ -324,10 +355,7 @@ export async function browseCommand(api: SpaghettiAPI): Promise<void> {
 
   function loadProjects(): void {
     projects = api.getProjectList();
-    projects.sort(
-      (a, b) =>
-        new Date(b.lastActiveAt).getTime() - new Date(a.lastActiveAt).getTime(),
-    );
+    projects.sort((a, b) => new Date(b.lastActiveAt).getTime() - new Date(a.lastActiveAt).getTime());
     projectFirstPrompts = new Map();
     for (const p of projects) {
       const sess = api.getSessionList(p.slug);
@@ -380,26 +408,18 @@ export async function browseCommand(api: SpaghettiAPI): Promise<void> {
 
   // ─── Renderers ──────────────────────────────────────────────────────
 
-  function renderProjectItem(
-    p: ProjectListItem,
-    _idx: number,
-    selected: boolean,
-  ): string[] {
+  function renderProjectItem(p: ProjectListItem, _idx: number, selected: boolean): string[] {
     const cols = tui.cols;
     const prefix = selected ? pc.cyan('▎') : ' ';
     const dot = pc.dim(' · ');
 
     // Line 1: name + branch
     const name = selected ? pc.bold(pc.white(p.folderName)) : pc.white(p.folderName);
-    const branch = p.latestGitBranch
-      ? (selected ? pc.cyan(p.latestGitBranch) : pc.dim(p.latestGitBranch))
-      : '';
+    const branch = p.latestGitBranch ? (selected ? pc.cyan(p.latestGitBranch) : pc.dim(p.latestGitBranch)) : '';
 
     // Line 2: first prompt (always subdued — it's context, not primary info)
     const prompt = projectFirstPrompts.get(p.slug) || '';
-    const promptLine = pc.dim(pc.italic(
-      cliTruncate(prompt ? `"${prompt}"` : '', Math.max(cols - 6, 20)),
-    ));
+    const promptLine = pc.dim(pc.italic(cliTruncate(prompt ? `"${prompt}"` : '', Math.max(cols - 6, 20))));
 
     // Line 3: stats with semantic coloring
     const sessions = (selected ? pc.white : pc.dim)(formatNumber(p.sessionCount));
@@ -416,26 +436,18 @@ export async function browseCommand(api: SpaghettiAPI): Promise<void> {
     ];
   }
 
-  function renderSessionItem(
-    s: SessionListItem,
-    idx: number,
-    selected: boolean,
-  ): string[] {
+  function renderSessionItem(s: SessionListItem, idx: number, selected: boolean): string[] {
     const cols = tui.cols;
     const prefix = selected ? pc.yellow('▎') : ' ';
     const dot = pc.dim(' · ');
 
     // Line 1: session number + branch
     const num = selected ? pc.bold(pc.white(`#${idx + 1}`)) : pc.white(`#${idx + 1}`);
-    const branch = s.gitBranch
-      ? (selected ? pc.yellow(s.gitBranch) : pc.dim(s.gitBranch))
-      : '';
+    const branch = s.gitBranch ? (selected ? pc.yellow(s.gitBranch) : pc.dim(s.gitBranch)) : '';
 
     // Line 2: first prompt
     const prompt = s.firstPrompt || '';
-    const promptLine = pc.dim(pc.italic(
-      cliTruncate(prompt ? `"${prompt}"` : '', Math.max(cols - 6, 20)),
-    ));
+    const promptLine = pc.dim(pc.italic(cliTruncate(prompt ? `"${prompt}"` : '', Math.max(cols - 6, 20))));
 
     // Line 3: stats with semantic coloring
     const msgs = (selected ? pc.white : pc.dim)(formatNumber(s.messageCount));
@@ -452,20 +464,13 @@ export async function browseCommand(api: SpaghettiAPI): Promise<void> {
     ];
   }
 
-  function renderDisplayItem(
-    item: DisplayItem,
-    _idx: number,
-    selected: boolean,
-  ): string[] {
+  function renderDisplayItem(item: DisplayItem, _idx: number, selected: boolean): string[] {
     if (item.kind === 'tool-call') return renderToolCallItem(item, selected);
     if (item.kind === 'thinking') return renderThinkingItem(item, selected);
     return renderMessageDisplayItem(item.msg, selected);
   }
 
-  function renderThinkingItem(
-    item: DisplayItem & { kind: 'thinking' },
-    selected: boolean,
-  ): string[] {
+  function renderThinkingItem(item: DisplayItem & { kind: 'thinking' }, selected: boolean): string[] {
     const cols = tui.cols;
     // Dim purple/magenta for thinking — visually distinct from claude's green
     const thinkColor = selected ? (s: string) => pc.bold(pc.magenta(s)) : pc.dim;
@@ -479,25 +484,17 @@ export async function browseCommand(api: SpaghettiAPI): Promise<void> {
     }
 
     const badge = thinkColor('thinking');
-    const tokensLabel = item.tokenEstimate > 0
-      ? pc.dim(`~${formatTokens(item.tokenEstimate)} tokens`)
-      : '';
+    const tokensLabel = item.tokenEstimate > 0 ? pc.dim(`~${formatTokens(item.tokenEstimate)} tokens`) : '';
 
     // Preview: first meaningful line of thinking content
-    const firstLine = item.content.split('\n').find(l => l.trim().length > 0) || '';
+    const firstLine = item.content.split('\n').find((l) => l.trim().length > 0) || '';
     const previewText = cliTruncate(firstLine.trim(), Math.max(cols - 6, 20));
     const preview = selected ? pc.italic(pc.white(previewText)) : pc.dim(pc.italic(previewText));
 
-    return [
-      `${prefix} ${badge}  ${tokensLabel}`,
-      `${prefix} ${preview}`,
-    ];
+    return [`${prefix} ${badge}  ${tokensLabel}`, `${prefix} ${preview}`];
   }
 
-  function renderToolCallItem(
-    item: DisplayItem & { kind: 'tool-call' },
-    selected: boolean,
-  ): string[] {
+  function renderToolCallItem(item: DisplayItem & { kind: 'tool-call' }, selected: boolean): string[] {
     const cols = tui.cols;
     const cat = getToolCategory(item.toolName);
     const colorFn = TOOL_CATEGORY_COLORS[cat];
@@ -507,8 +504,9 @@ export async function browseCommand(api: SpaghettiAPI): Promise<void> {
     const badge = selected ? pc.bold(colorFn(item.toolName)) : colorFn(item.toolName);
     const input = toolInputSummary(item.toolName, item.toolInput);
     const inputText = input
-      ? (selected ? pc.white(cliTruncate(input, Math.max(cols - item.toolName.length - 8, 20)))
-                  : pc.dim(cliTruncate(input, Math.max(cols - item.toolName.length - 8, 20))))
+      ? selected
+        ? pc.white(cliTruncate(input, Math.max(cols - item.toolName.length - 8, 20)))
+        : pc.dim(cliTruncate(input, Math.max(cols - item.toolName.length - 8, 20)))
       : '';
 
     // Line 2: result summary or pending
@@ -526,16 +524,10 @@ export async function browseCommand(api: SpaghettiAPI): Promise<void> {
       resultLine = pc.dim('→ (no result)');
     }
 
-    return [
-      `${prefix} ${badge}  ${inputText}`,
-      `${prefix} ${resultLine}`,
-    ];
+    return [`${prefix} ${badge}  ${inputText}`, `${prefix} ${resultLine}`];
   }
 
-  function renderMessageDisplayItem(
-    msg: SessionMessage,
-    selected: boolean,
-  ): string[] {
+  function renderMessageDisplayItem(msg: SessionMessage, selected: boolean): string[] {
     const cols = tui.cols;
     const prefix = selected ? pc.green('▎') : ' ';
 
@@ -609,18 +601,13 @@ export async function browseCommand(api: SpaghettiAPI): Promise<void> {
     }
 
     const timestamp =
-      'timestamp' in msg && (msg as any).timestamp
-        ? pc.dim(formatRelativeTime((msg as any).timestamp))
-        : '';
+      'timestamp' in msg && (msg as any).timestamp ? pc.dim(formatRelativeTime((msg as any).timestamp)) : '';
 
     preview = preview.replace(/\n/g, ' ');
     const previewText = cliTruncate(preview, Math.max(cols - 6, 20));
     const previewLine = selected ? pc.white(previewText) : pc.dim(previewText);
 
-    return [
-      `${prefix} ${roleStyled}  ${timestamp}`,
-      `${prefix} ${previewLine}`,
-    ];
+    return [`${prefix} ${roleStyled}  ${timestamp}`, `${prefix} ${previewLine}`];
   }
 
   // ─── Header / Footer Builders ───────────────────────────────────────
@@ -643,9 +630,7 @@ export async function browseCommand(api: SpaghettiAPI): Promise<void> {
       case 'messages': {
         const total = allDisplayItems.length;
         const shown = displayItems.length;
-        const countLabel = total === shown
-          ? pc.dim(` (${total})`)
-          : pc.dim(` (${shown}/${total})`);
+        const countLabel = total === shown ? pc.dim(` (${total})`) : pc.dim(` (${shown}/${total})`);
         breadcrumb =
           pc.dim(state.project!.folderName) +
           pc.dim(' › ') +
@@ -669,9 +654,8 @@ export async function browseCommand(api: SpaghettiAPI): Promise<void> {
             pc.dim(` ${toolInputSummary(di.toolName, di.toolInput).slice(0, 40)}`);
         } else if (di && di.kind === 'thinking') {
           const label = di.redacted ? 'Redacted Thinking' : 'Thinking';
-          const tokLabel = !di.redacted && di.tokenEstimate > 0
-            ? pc.dim(` ~${formatTokens(di.tokenEstimate)} tokens`)
-            : '';
+          const tokLabel =
+            !di.redacted && di.tokenEstimate > 0 ? pc.dim(` ~${formatTokens(di.tokenEstimate)} tokens`) : '';
           breadcrumb =
             pc.dim(state.project!.folderName) +
             pc.dim(' › ') +
@@ -697,13 +681,11 @@ export async function browseCommand(api: SpaghettiAPI): Promise<void> {
       }
     }
 
-    const lines = [
-      `  ${breadcrumb}`,
-    ];
+    const lines = [`  ${breadcrumb}`];
 
     // Filter chips — only on messages view
     if (state.level === 'messages') {
-      const chips = FILTER_CATEGORIES.map(cat => {
+      const chips = FILTER_CATEGORIES.map((cat) => {
         const on = filters[cat.key];
         if (on) {
           return `${pc.white(cat.key)}${pc.dim(':')}${cat.color(cat.label)}`;
@@ -743,10 +725,7 @@ export async function browseCommand(api: SpaghettiAPI): Promise<void> {
       }
     }
 
-    return [
-      `  ${SEPARATOR(cols - 4)}`,
-      `  ${hints}`,
-    ];
+    return [`  ${SEPARATOR(cols - 4)}`, `  ${hints}`];
   }
 
   // ─── View Setup ─────────────────────────────────────────────────────
@@ -913,9 +892,7 @@ export async function browseCommand(api: SpaghettiAPI): Promise<void> {
       lines.push(pc.dim('The model chose to redact this thinking block.'));
       lines.push(pc.dim('This is typically done for safety or privacy reasons.'));
     } else {
-      const tokLabel = item.tokenEstimate > 0
-        ? pc.dim(` (~${formatTokens(item.tokenEstimate)} tokens)`)
-        : '';
+      const tokLabel = item.tokenEstimate > 0 ? pc.dim(` (~${formatTokens(item.tokenEstimate)} tokens)`) : '';
       lines.push(pc.magenta(pc.bold('Thinking')) + tokLabel);
       lines.push('');
       for (const line of item.content.split('\n')) {
@@ -936,10 +913,7 @@ export async function browseCommand(api: SpaghettiAPI): Promise<void> {
       const dh = buildHeader();
       const df = buildFooter();
       const viewportHeight = tui.rows - dh.length - df.length;
-      const visible = detailLines.slice(
-        detailScrollOffset,
-        detailScrollOffset + viewportHeight,
-      );
+      const visible = detailLines.slice(detailScrollOffset, detailScrollOffset + viewportHeight);
       while (visible.length < viewportHeight) visible.push('');
       tui.render([...dh, ...visible.map((l) => `  ${l}`), ...df]);
       return;
@@ -1126,10 +1100,7 @@ export async function browseCommand(api: SpaghettiAPI): Promise<void> {
       case 'down':
         messageList.moveDown();
         state.messageIndex = messageList.getSelectedIndex();
-        if (
-          messagePage?.hasMore &&
-          state.messageIndex >= displayItems.length - LOAD_MORE_THRESHOLD
-        ) {
+        if (messagePage?.hasMore && state.messageIndex >= displayItems.length - LOAD_MORE_THRESHOLD) {
           loadMoreMessages();
         }
         fullRender();

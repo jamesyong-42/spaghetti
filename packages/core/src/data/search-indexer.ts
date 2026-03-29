@@ -30,15 +30,24 @@ class SearchIndexerImpl implements SearchIndexer {
     const base = { projectSlug: context?.projectSlug, sessionId: context?.sessionId };
 
     switch (type) {
-      case 'message': return this.extractMessage(data, base);
-      case 'session': return this.extractSession(data, base);
-      case 'project_memory': return this.extractProjectMemory(data, base);
-      case 'subagent': return this.extractSubagent(data, base);
-      case 'tool_result': return this.extractToolResult(data, base);
-      case 'plan': return this.extractPlan(data, base);
-      case 'todo': return this.extractTodo(data, base);
-      case 'analytics_history': return this.extractAnalyticsHistory(data, base);
-      default: return null;
+      case 'message':
+        return this.extractMessage(data, base);
+      case 'session':
+        return this.extractSession(data, base);
+      case 'project_memory':
+        return this.extractProjectMemory(data, base);
+      case 'subagent':
+        return this.extractSubagent(data, base);
+      case 'tool_result':
+        return this.extractToolResult(data, base);
+      case 'plan':
+        return this.extractPlan(data, base);
+      case 'todo':
+        return this.extractTodo(data, base);
+      case 'analytics_history':
+        return this.extractAnalyticsHistory(data, base);
+      default:
+        return null;
     }
   }
 
@@ -112,7 +121,10 @@ class SearchIndexerImpl implements SearchIndexer {
     return { ...base, textContent: truncate(textContent), tags: [] };
   }
 
-  private extractProjectMemory(data: unknown, base: { projectSlug?: string; sessionId?: string }): SearchIndexEntry | null {
+  private extractProjectMemory(
+    data: unknown,
+    base: { projectSlug?: string; sessionId?: string },
+  ): SearchIndexEntry | null {
     const memory = data as Record<string, unknown>;
     const content = memory.content;
     if (typeof content !== 'string' || !content) return null;
@@ -146,7 +158,10 @@ class SearchIndexerImpl implements SearchIndexer {
     return { ...base, textContent: truncate(textContent), tags };
   }
 
-  private extractToolResult(data: unknown, base: { projectSlug?: string; sessionId?: string }): SearchIndexEntry | null {
+  private extractToolResult(
+    data: unknown,
+    base: { projectSlug?: string; sessionId?: string },
+  ): SearchIndexEntry | null {
     const result = data as Record<string, unknown>;
     const content = result.content;
     if (typeof content !== 'string' || !content) return null;
@@ -178,7 +193,10 @@ class SearchIndexerImpl implements SearchIndexer {
     return { ...base, textContent: truncate(textContent), tags: ['todo'] };
   }
 
-  private extractAnalyticsHistory(data: unknown, base: { projectSlug?: string; sessionId?: string }): SearchIndexEntry | null {
+  private extractAnalyticsHistory(
+    data: unknown,
+    base: { projectSlug?: string; sessionId?: string },
+  ): SearchIndexEntry | null {
     const history = data as Record<string, unknown>;
     const textParts: string[] = [];
     const entries = history.entries;

@@ -9,10 +9,7 @@
 
 import { Worker } from 'node:worker_threads';
 import * as os from 'node:os';
-import type {
-  WorkerToMainMessage,
-  MainToWorkerMessage,
-} from './worker-types.js';
+import type { WorkerToMainMessage, MainToWorkerMessage } from './worker-types.js';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // INTERFACE
@@ -34,11 +31,7 @@ export interface WorkerPool {
    * @param onMessage - Callback for each message from any worker (main thread handles SQLite writes)
    * @returns Promise that resolves when ALL projects are complete
    */
-  parseProjects(
-    claudeDir: string,
-    slugs: string[],
-    onMessage: (msg: WorkerToMainMessage) => void,
-  ): Promise<void>;
+  parseProjects(claudeDir: string, slugs: string[], onMessage: (msg: WorkerToMainMessage) => void): Promise<void>;
 
   /** Shut down all workers. */
   shutdown(): void;
@@ -59,9 +52,7 @@ class WorkerPoolImpl implements WorkerPool {
     if (this.maxWorkers < 1) this.maxWorkers = 1;
 
     // Resolve worker script path relative to this file
-    this.workerScript =
-      options?.workerScript ??
-      new URL('./parse-worker.js', import.meta.url).pathname;
+    this.workerScript = options?.workerScript ?? new URL('./parse-worker.js', import.meta.url).pathname;
   }
 
   async parseProjects(
@@ -103,10 +94,7 @@ class WorkerPoolImpl implements WorkerPool {
           if (!hasRejected) {
             hasRejected = true;
             reject(
-              new Error(
-                `Failed to create worker thread: ${String(err)}. ` +
-                  `Worker script: ${this.workerScript}`,
-              ),
+              new Error(`Failed to create worker thread: ${String(err)}. ` + `Worker script: ${this.workerScript}`),
             );
           }
           return;
@@ -131,9 +119,7 @@ class WorkerPoolImpl implements WorkerPool {
           // If a worker reports an error, log but continue (graceful degradation)
           if (msg.type === 'worker-error') {
             completedCount++;
-            console.error(
-              `[worker-pool] Error parsing project "${msg.slug}": ${msg.error}`,
-            );
+            console.error(`[worker-pool] Error parsing project "${msg.slug}": ${msg.error}`);
             if (queue.length > 0) {
               assignNext(worker);
             } else if (completedCount >= totalCount) {

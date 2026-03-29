@@ -10,8 +10,7 @@ import cliTruncate from 'cli-truncate';
 
 // ─── Types ──────────────────────────────────────────────────────────────
 
-export type KeyEvent = 'up' | 'down' | 'enter' | 'escape' | 'q' | 'ctrl-c'
-  | '1' | '2' | '3' | '4' | '5' | '6';
+export type KeyEvent = 'up' | 'down' | 'enter' | 'escape' | 'q' | 'ctrl-c' | '1' | '2' | '3' | '4' | '5' | '6';
 
 export interface TUI {
   /** Clear screen and write lines */
@@ -100,9 +99,7 @@ export function createTUI(): TUI {
   const cols = process.stdout.columns ?? 80;
 
   if (rows < MIN_ROWS || cols < MIN_COLS) {
-    throw new TUINotAvailableError(
-      `terminal too small (${cols}x${rows}, need ${MIN_COLS}x${MIN_ROWS})`,
-    );
+    throw new TUINotAvailableError(`terminal too small (${cols}x${rows}, need ${MIN_COLS}x${MIN_ROWS})`);
   }
 
   let keyHandler: ((key: KeyEvent) => void) | null = null;

@@ -41,8 +41,10 @@ async function withService<T>(fn: (api: Awaited<ReturnType<typeof initService>>)
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     process.stderr.write(
-      theme.error('\nFailed to initialize: ') + msg + '\n' +
-      theme.muted('Is Claude Code installed? Expected data at ~/.claude\n\n'),
+      theme.error('\nFailed to initialize: ') +
+        msg +
+        '\n' +
+        theme.muted('Is Claude Code installed? Expected data at ~/.claude\n\n'),
     );
     if (process.argv.includes('--verbose') && err instanceof Error && err.stack) {
       process.stderr.write(theme.muted(err.stack + '\n'));
@@ -60,10 +62,7 @@ async function withService<T>(fn: (api: Awaited<ReturnType<typeof initService>>)
 export function createProgram(): Command {
   const program = new Command();
 
-  program
-    .name('spaghetti')
-    .version(VERSION, '-v, --version')
-    .description('Claude Code data explorer');
+  program.name('spaghetti').version(VERSION, '-v, --version').description('Claude Code data explorer');
 
   // Known commands with their aliases for unknown-command detection
   const knownCommands: Array<{ name: string; alias: string; description: string }> = [
@@ -80,61 +79,49 @@ export function createProgram(): Command {
   ];
 
   // Default action: dashboard (or catch unknown commands)
-  program
-    .argument('[args...]', '')
-    .action(async (args: string[]) => {
-      // If no arguments, show the dashboard
-      if (!args || args.length === 0) {
-        await withService((api) => dashboardCommand(api, VERSION));
-        return;
-      }
-
-      // If the first arg looks like a command (not starting with '-'), treat it as unknown
-      const attempted = args[0];
-      if (!attempted.startsWith('-')) {
-        // Check for a close match (simple prefix/substring matching)
-        const allNames = knownCommands.flatMap((c) =>
-          c.alias ? [c.name, c.alias] : [c.name],
-        );
-        const suggestion = allNames.find(
-          (name) => name.startsWith(attempted) || attempted.startsWith(name),
-        );
-
-        const lines: string[] = [];
-        lines.push('');
-        lines.push(theme.error(`Unknown command: "${attempted}"`));
-
-        if (suggestion) {
-          const cmd = knownCommands.find(
-            (c) => c.name === suggestion || c.alias === suggestion,
-          );
-          lines.push(
-            theme.warning(`Did you mean "${cmd ? cmd.name : suggestion}"?`),
-          );
-        }
-
-        lines.push('');
-        lines.push(theme.heading('Available commands:'));
-
-        for (const cmd of knownCommands) {
-          const aliasStr = cmd.alias ? ` (${cmd.alias})` : '';
-          const nameCol = `  ${cmd.name}${aliasStr}`;
-          lines.push(
-            `${theme.accent(nameCol.padEnd(20))}${theme.muted(cmd.description)}`,
-          );
-        }
-
-        lines.push('');
-        lines.push(theme.muted("Run 'spaghetti --help' for more info."));
-        lines.push('');
-
-        process.stderr.write(lines.join('\n'));
-        process.exit(1);
-      }
-
-      // Otherwise (e.g. unknown flag), show the dashboard
+  program.argument('[args...]', '').action(async (args: string[]) => {
+    // If no arguments, show the dashboard
+    if (!args || args.length === 0) {
       await withService((api) => dashboardCommand(api, VERSION));
-    });
+      return;
+    }
+
+    // If the first arg looks like a command (not starting with '-'), treat it as unknown
+    const attempted = args[0];
+    if (!attempted.startsWith('-')) {
+      // Check for a close match (simple prefix/substring matching)
+      const allNames = knownCommands.flatMap((c) => (c.alias ? [c.name, c.alias] : [c.name]));
+      const suggestion = allNames.find((name) => name.startsWith(attempted) || attempted.startsWith(name));
+
+      const lines: string[] = [];
+      lines.push('');
+      lines.push(theme.error(`Unknown command: "${attempted}"`));
+
+      if (suggestion) {
+        const cmd = knownCommands.find((c) => c.name === suggestion || c.alias === suggestion);
+        lines.push(theme.warning(`Did you mean "${cmd ? cmd.name : suggestion}"?`));
+      }
+
+      lines.push('');
+      lines.push(theme.heading('Available commands:'));
+
+      for (const cmd of knownCommands) {
+        const aliasStr = cmd.alias ? ` (${cmd.alias})` : '';
+        const nameCol = `  ${cmd.name}${aliasStr}`;
+        lines.push(`${theme.accent(nameCol.padEnd(20))}${theme.muted(cmd.description)}`);
+      }
+
+      lines.push('');
+      lines.push(theme.muted("Run 'spaghetti --help' for more info."));
+      lines.push('');
+
+      process.stderr.write(lines.join('\n'));
+      process.exit(1);
+    }
+
+    // Otherwise (e.g. unknown flag), show the dashboard
+    await withService((api) => dashboardCommand(api, VERSION));
+  });
 
   // Projects command
   const projectsCmd = new Command('projects')
@@ -289,13 +276,20 @@ export function createProgram(): Command {
     .argument('[session]', 'Session index (1=latest), "latest", or partial UUID')
     .argument('[agent]', 'Agent index to view messages')
     .option('--json', 'Output as JSON')
-    .action(async (projectArg: string | undefined, sessionArg: string | undefined, agentArg: string | undefined, cmdOpts: SubagentsOptions) => {
-      await withService((api) =>
-        subagentsCommand(api, projectArg, sessionArg, agentArg, {
-          json: cmdOpts.json,
-        }),
-      );
-    });
+    .action(
+      async (
+        projectArg: string | undefined,
+        sessionArg: string | undefined,
+        agentArg: string | undefined,
+        cmdOpts: SubagentsOptions,
+      ) => {
+        await withService((api) =>
+          subagentsCommand(api, projectArg, sessionArg, agentArg, {
+            json: cmdOpts.json,
+          }),
+        );
+      },
+    );
 
   program.addCommand(subagentsCmd);
 
@@ -344,12 +338,16 @@ export function createProgram(): Command {
   program
     .command('uninstall')
     .description('Show uninstall instructions')
-    .action(async () => { await uninstallCommand(); });
+    .action(async () => {
+      await uninstallCommand();
+    });
 
   program
     .command('update')
     .description('Check for updates and install the latest version')
-    .action(async () => { await updateCommand(); });
+    .action(async () => {
+      await updateCommand();
+    });
 
   return program;
 }

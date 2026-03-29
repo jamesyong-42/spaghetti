@@ -90,14 +90,19 @@ export async function messagesCommand(
   const OVER_FETCH_MULTIPLIER = 3;
   const MAX_RETRIES = 2;
 
-  let page = api.getSessionMessages(project.slug, session.sessionId, displayLimit * OVER_FETCH_MULTIPLIER, offset);
+  const page = api.getSessionMessages(project.slug, session.sessionId, displayLimit * OVER_FETCH_MULTIPLIER, offset);
   let displayMessages = filterDisplayableMessages(page.messages);
   let totalRaw = page.total;
   let lastHasMore = page.hasMore;
   let fetchOffset = offset + page.messages.length;
 
   for (let retry = 0; retry < MAX_RETRIES && displayMessages.length < displayLimit && lastHasMore; retry++) {
-    const morePage = api.getSessionMessages(project.slug, session.sessionId, displayLimit * OVER_FETCH_MULTIPLIER, fetchOffset);
+    const morePage = api.getSessionMessages(
+      project.slug,
+      session.sessionId,
+      displayLimit * OVER_FETCH_MULTIPLIER,
+      fetchOffset,
+    );
     displayMessages = displayMessages.concat(filterDisplayableMessages(morePage.messages));
     totalRaw = morePage.total;
     lastHasMore = morePage.hasMore;

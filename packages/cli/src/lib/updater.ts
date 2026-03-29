@@ -23,7 +23,6 @@ import pc from 'picocolors';
 const SPAGHETTI_DIR = join(homedir(), '.spaghetti');
 const UPDATE_FILE = join(SPAGHETTI_DIR, 'update-check.json');
 const CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000; // 24 hours (like truffle)
-const GITHUB_REPO = 'jamesyong-42/spaghetti';
 const NPM_PACKAGE = '@vibecook/spaghetti';
 
 interface UpdateCheckData {
@@ -45,7 +44,9 @@ export function getVersion(): string {
       const _require = createRequire(import.meta.url);
       const pkg = _require('../../package.json') as { version: string };
       return pkg.version || '0.0.0';
-    } catch {}
+    } catch {
+      /* ignore */
+    }
   }
   return '0.0.0';
 }
@@ -65,7 +66,9 @@ function readUpdateData(): UpdateCheckData | null {
     if (existsSync(UPDATE_FILE)) {
       return JSON.parse(readFileSync(UPDATE_FILE, 'utf-8')) as UpdateCheckData;
     }
-  } catch {}
+  } catch {
+    /* ignore */
+  }
   return null;
 }
 
@@ -75,7 +78,9 @@ function writeUpdateData(data: UpdateCheckData): void {
       mkdirSync(SPAGHETTI_DIR, { recursive: true });
     }
     writeFileSync(UPDATE_FILE, JSON.stringify(data, null, 2));
-  } catch {}
+  } catch {
+    /* ignore */
+  }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -96,9 +101,7 @@ export function checkForUpdates(): void {
     if (data?.updateApplied && data.appliedVersion) {
       if (data.appliedVersion === currentVersion) {
         // Successfully updated — show once
-        process.stderr.write(
-          `  ${pc.green('✔')} Updated to ${pc.bold(`v${data.appliedVersion}`)}\n`,
-        );
+        process.stderr.write(`  ${pc.green('✔')} Updated to ${pc.bold(`v${data.appliedVersion}`)}\n`);
       }
       writeUpdateData({ ...data, updateApplied: false });
     }
@@ -107,7 +110,7 @@ export function checkForUpdates(): void {
     if (data?.updateAvailable && data.latestVersion && isNewer(data.latestVersion, currentVersion)) {
       process.stderr.write(
         pc.dim(`  Update available: ${currentVersion} → ${pc.bold(pc.cyan(data.latestVersion))}`) +
-        pc.dim(`  Run ${pc.cyan('spaghetti update')} to upgrade\n`),
+          pc.dim(`  Run ${pc.cyan('spaghetti update')} to upgrade\n`),
       );
     }
 
@@ -170,7 +173,9 @@ function spawnBackgroundChecker(currentVersion: string): void {
       env: { ...process.env },
     });
     child.unref();
-  } catch {}
+  } catch {
+    /* ignore */
+  }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

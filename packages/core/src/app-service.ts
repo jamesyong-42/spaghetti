@@ -14,7 +14,13 @@ import type {
   SubagentMessagePage,
 } from './api.js';
 import type { ClaudeCodeAgentDataService } from './data/agent-data-service.js';
-import type { SearchQuery, SearchResultSet, StoreStats, InitProgress, SegmentChangeBatch } from './data/segment-types.js';
+import type {
+  SearchQuery,
+  SearchResultSet,
+  StoreStats,
+  InitProgress,
+  SegmentChangeBatch,
+} from './data/segment-types.js';
 import type { SessionSummaryData, ProjectSummaryData } from './data/summary-types.js';
 
 class SpaghettiAppService extends EventEmitter implements SpaghettiAPI {
@@ -88,7 +94,13 @@ class SpaghettiAppService extends EventEmitter implements SpaghettiAPI {
     return this.dataService.getSessionSubagents(projectSlug, sessionId);
   }
 
-  getSubagentMessages(projectSlug: string, sessionId: string, agentId: string, limit = 30, offset = 0): SubagentMessagePage {
+  getSubagentMessages(
+    projectSlug: string,
+    sessionId: string,
+    agentId: string,
+    limit = 30,
+    offset = 0,
+  ): SubagentMessagePage {
     const result = this.dataService.getSubagentMessages(projectSlug, sessionId, agentId, limit, offset);
     return {
       messages: result.segments.map((s) => s.data),

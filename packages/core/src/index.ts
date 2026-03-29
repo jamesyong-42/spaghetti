@@ -16,7 +16,11 @@ export * from './data/segment-types.js';
 export * from './data/summary-types.js';
 export { createSearchIndexer, type SearchIndexer, type SearchIndexEntry } from './data/search-indexer.js';
 export { createSegmentStore, type SegmentStore } from './data/segment-store.js';
-export { type ClaudeCodeAgentDataService, AgentDataServiceImpl, type AgentDataServiceOptions } from './data/agent-data-service.js';
+export {
+  type ClaudeCodeAgentDataService,
+  AgentDataServiceImpl,
+  type AgentDataServiceOptions,
+} from './data/agent-data-service.js';
 
 // Schema
 export { SCHEMA_VERSION, initializeSchema } from './data/schema.js';

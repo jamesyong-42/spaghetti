@@ -3,38 +3,38 @@
  */
 
 export type TelemetryEventName =
-  | "tengu_claudeai_mcp_eligibility"
-  | "tengu_config_cache_stats"
-  | "tengu_context_size"
-  | "tengu_continue"
-  | "tengu_dir_search"
-  | "tengu_exit"
-  | "tengu_file_history_snapshot_success"
-  | "tengu_init"
-  | "tengu_input_command"
-  | "tengu_mcp_cli_status"
-  | "tengu_mcp_ide_server_connection_failed"
-  | "tengu_mcp_ide_server_connection_succeeded"
-  | "tengu_mcp_server_connection_failed"
-  | "tengu_mcp_server_connection_succeeded"
-  | "tengu_mcp_servers"
-  | "tengu_node_warning"
-  | "tengu_notification_method_used"
-  | "tengu_paste_text"
-  | "tengu_prompt_suggestion_init"
-  | "tengu_repl_hook_finished"
-  | "tengu_ripgrep_availability"
-  | "tengu_run_hook"
-  | "tengu_session_forked_branches_fetched"
-  | "tengu_shell_set_cwd"
-  | "tengu_startup_manual_model_config"
-  | "tengu_startup_telemetry"
-  | "tengu_status_line_mount"
-  | "tengu_timer"
-  | "tengu_trust_dialog_shown"
-  | "tengu_native_auto_updater_fail"
-  | "tengu_native_auto_updater_start"
-  | "tengu_version_check_failure";
+  | 'tengu_claudeai_mcp_eligibility'
+  | 'tengu_config_cache_stats'
+  | 'tengu_context_size'
+  | 'tengu_continue'
+  | 'tengu_dir_search'
+  | 'tengu_exit'
+  | 'tengu_file_history_snapshot_success'
+  | 'tengu_init'
+  | 'tengu_input_command'
+  | 'tengu_mcp_cli_status'
+  | 'tengu_mcp_ide_server_connection_failed'
+  | 'tengu_mcp_ide_server_connection_succeeded'
+  | 'tengu_mcp_server_connection_failed'
+  | 'tengu_mcp_server_connection_succeeded'
+  | 'tengu_mcp_servers'
+  | 'tengu_node_warning'
+  | 'tengu_notification_method_used'
+  | 'tengu_paste_text'
+  | 'tengu_prompt_suggestion_init'
+  | 'tengu_repl_hook_finished'
+  | 'tengu_ripgrep_availability'
+  | 'tengu_run_hook'
+  | 'tengu_session_forked_branches_fetched'
+  | 'tengu_shell_set_cwd'
+  | 'tengu_startup_manual_model_config'
+  | 'tengu_startup_telemetry'
+  | 'tengu_status_line_mount'
+  | 'tengu_timer'
+  | 'tengu_trust_dialog_shown'
+  | 'tengu_native_auto_updater_fail'
+  | 'tengu_native_auto_updater_start'
+  | 'tengu_version_check_failure';
 
 export interface TelemetryEnv {
   platform: string;
@@ -76,7 +76,7 @@ export interface TelemetryEventData {
 }
 
 export interface TelemetryEvent {
-  event_type: "ClaudeCodeInternalEvent";
+  event_type: 'ClaudeCodeInternalEvent';
   event_data: TelemetryEventData;
 }
 

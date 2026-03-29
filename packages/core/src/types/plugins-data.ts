@@ -3,7 +3,7 @@
  */
 
 export interface InstalledPluginEntry {
-  scope: "user";
+  scope: 'user';
   installPath: string;
   version: string;
   installedAt: string;
@@ -17,7 +17,7 @@ export interface InstalledPluginsFile {
 }
 
 export interface MarketplaceSource {
-  source: "github";
+  source: 'github';
   repo: string;
 }
 

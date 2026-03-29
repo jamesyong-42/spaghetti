@@ -50,10 +50,7 @@ function renderRecentActivity(projects: ProjectListItem[]): string {
   }
 
   // Find the longest project name for alignment
-  const maxNameLen = Math.min(
-    Math.max(...recent.map((p) => p.folderName.length)),
-    30,
-  );
+  const maxNameLen = Math.min(Math.max(...recent.map((p) => p.folderName.length)), 30);
 
   for (const p of recent) {
     const name = theme.project(p.folderName.padEnd(maxNameLen));

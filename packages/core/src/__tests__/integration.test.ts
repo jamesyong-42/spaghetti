@@ -133,7 +133,9 @@ describe('@vibecook/spaghetti-core integration', () => {
     assert.strictEqual(page.offset, 0, 'Offset should be 0');
 
     console.log(`\n  -- Messages for session ${firstSessionId.substring(0, 12)}… --`);
-    console.log(`  Page: ${page.messages.length} messages (total: ${page.total}, offset: ${page.offset}, hasMore: ${page.hasMore})`);
+    console.log(
+      `  Page: ${page.messages.length} messages (total: ${page.total}, offset: ${page.offset}, hasMore: ${page.hasMore})`,
+    );
 
     if (page.messages.length > 0) {
       const first = page.messages[0] as unknown as Record<string, unknown>;

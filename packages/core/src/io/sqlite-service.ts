@@ -3,7 +3,7 @@
  */
 
 import Database from 'better-sqlite3';
-import { existsSync, mkdirSync } from 'fs';
+import { existsSync, mkdirSync, statSync } from 'fs';
 import { dirname } from 'path';
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -126,20 +126,28 @@ export class SqliteServiceImpl implements SqliteService {
   }
 
   run(sql: string, ...params: unknown[]): RunResult {
-    const result = this.getDb().prepare(sql).run(...params);
+    const result = this.getDb()
+      .prepare(sql)
+      .run(...params);
     return { changes: result.changes, lastInsertRowid: result.lastInsertRowid };
   }
 
   get<T>(sql: string, ...params: unknown[]): T | undefined {
-    return this.getDb().prepare(sql).get(...params) as T | undefined;
+    return this.getDb()
+      .prepare(sql)
+      .get(...params) as T | undefined;
   }
 
   all<T>(sql: string, ...params: unknown[]): T[] {
-    return this.getDb().prepare(sql).all(...params) as T[];
+    return this.getDb()
+      .prepare(sql)
+      .all(...params) as T[];
   }
 
   iterate<T>(sql: string, ...params: unknown[]): IterableIterator<T> {
-    return this.getDb().prepare(sql).iterate(...params) as IterableIterator<T>;
+    return this.getDb()
+      .prepare(sql)
+      .iterate(...params) as IterableIterator<T>;
   }
 
   prepare<T = unknown>(sql: string): PreparedStatement<T> {
@@ -164,14 +172,14 @@ export class SqliteServiceImpl implements SqliteService {
   tableExists(tableName: string): boolean {
     const result = this.get<{ count: number }>(
       `SELECT COUNT(*) as count FROM sqlite_master WHERE type='table' AND name=?`,
-      tableName
+      tableName,
     );
     return (result?.count ?? 0) > 0;
   }
 
   getTables(): string[] {
     const rows = this.all<{ name: string }>(
-      `SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name`
+      `SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name`,
     );
     return rows.map((r) => r.name);
   }
@@ -187,7 +195,6 @@ export class SqliteServiceImpl implements SqliteService {
   getFileSize(): number {
     if (!this.config) return 0;
     try {
-      const { statSync } = require('fs');
       const stats = statSync(this.config.path);
       return stats.size;
     } catch {

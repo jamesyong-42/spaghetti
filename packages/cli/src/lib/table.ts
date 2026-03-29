@@ -23,11 +23,7 @@ function pad(str: string, width: number, align: 'left' | 'right' = 'left'): stri
   return str + ' '.repeat(diff);
 }
 
-export function renderTable(
-  data: Record<string, unknown>[],
-  columns: Column[],
-  opts?: { width?: number },
-): string {
+export function renderTable(data: Record<string, unknown>[], columns: Column[], opts?: { width?: number }): string {
   const termWidth = opts?.width ?? getTerminalWidth();
 
   // Calculate column widths
@@ -47,7 +43,7 @@ export function renderTable(
   // If total width exceeds terminal, shrink the widest auto-sized column
   const gap = 2; // space between columns
   const totalGap = gap * (columns.length - 1);
-  let totalWidth = colWidths.reduce((a, b) => a + b, 0) + totalGap;
+  const totalWidth = colWidths.reduce((a, b) => a + b, 0) + totalGap;
 
   if (totalWidth > termWidth) {
     // Find the widest column without a fixed width and shrink it
@@ -65,14 +61,10 @@ export function renderTable(
     }
   }
 
-  totalWidth = colWidths.reduce((a, b) => a + b, 0) + totalGap;
-
   const lines: string[] = [];
 
   // Header
-  const headerCells = columns.map((col, i) =>
-    pad(theme.label(col.label), colWidths[i], col.align),
-  );
+  const headerCells = columns.map((col, i) => pad(theme.label(col.label), colWidths[i], col.align));
   lines.push(headerCells.join('  '));
 
   // Separator

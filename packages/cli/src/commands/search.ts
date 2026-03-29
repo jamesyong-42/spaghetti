@@ -17,11 +17,7 @@ export interface SearchOptions {
   json?: boolean;
 }
 
-export async function searchCommand(
-  api: SpaghettiAPI,
-  query: string,
-  opts: SearchOptions,
-): Promise<void> {
+export async function searchCommand(api: SpaghettiAPI, query: string, opts: SearchOptions): Promise<void> {
   // Resolve project scope if provided
   let projectSlug: string | undefined;
 
@@ -54,9 +50,7 @@ export async function searchCommand(
   }
 
   if (results.results.length === 0) {
-    process.stdout.write(
-      '\n  ' + theme.muted(`No results for "${query}"`) + '\n\n',
-    );
+    process.stdout.write('\n  ' + theme.muted(`No results for "${query}"`) + '\n\n');
     return;
   }
 
@@ -64,10 +58,7 @@ export async function searchCommand(
   const lines: string[] = [];
 
   lines.push('');
-  lines.push(
-    `  ${theme.heading('Search:')} ${theme.accent(query)}` +
-    theme.muted(` (${results.total} results)`),
-  );
+  lines.push(`  ${theme.heading('Search:')} ${theme.accent(query)}` + theme.muted(` (${results.total} results)`));
   lines.push('');
 
   // Group results by project

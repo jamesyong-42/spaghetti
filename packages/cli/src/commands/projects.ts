@@ -23,13 +23,18 @@ function sortProjects(projects: ProjectListItem[], key: SortKey): ProjectListIte
   const sorted = [...projects];
   switch (key) {
     case 'active':
-      return sorted.sort((a: ProjectListItem, b: ProjectListItem) => new Date(b.lastActiveAt).getTime() - new Date(a.lastActiveAt).getTime());
+      return sorted.sort(
+        (a: ProjectListItem, b: ProjectListItem) =>
+          new Date(b.lastActiveAt).getTime() - new Date(a.lastActiveAt).getTime(),
+      );
     case 'sessions':
       return sorted.sort((a: ProjectListItem, b: ProjectListItem) => b.sessionCount - a.sessionCount);
     case 'messages':
       return sorted.sort((a: ProjectListItem, b: ProjectListItem) => b.messageCount - a.messageCount);
     case 'tokens':
-      return sorted.sort((a: ProjectListItem, b: ProjectListItem) => totalTokens(b.tokenUsage) - totalTokens(a.tokenUsage));
+      return sorted.sort(
+        (a: ProjectListItem, b: ProjectListItem) => totalTokens(b.tokenUsage) - totalTokens(a.tokenUsage),
+      );
     case 'name':
       return sorted.sort((a: ProjectListItem, b: ProjectListItem) => a.folderName.localeCompare(b.folderName));
     default:

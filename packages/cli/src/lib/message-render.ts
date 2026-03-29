@@ -69,10 +69,11 @@ function renderCompact(msg: SessionMessage, width: number, opts?: RenderOptions)
         }
       }
 
-      const text = textBlocks.map((b: any) => b.text).join(' ').replace(/\n/g, ' ');
-      const tokens = payload.usage
-        ? formatTokens(payload.usage.input_tokens + payload.usage.output_tokens)
-        : '';
+      const text = textBlocks
+        .map((b: any) => b.text)
+        .join(' ')
+        .replace(/\n/g, ' ');
+      const tokens = payload.usage ? formatTokens(payload.usage.input_tokens + payload.usage.output_tokens) : '';
       const toolCount = toolBlocks.length;
       const toolInfo = toolCount > 0 && !opts?.noTools ? theme.muted(` [${toolCount} tools]`) : '';
       const tokInfo = tokens ? theme.muted(` (${tokens})`) : '';

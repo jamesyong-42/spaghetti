@@ -154,11 +154,6 @@ interface SearchFtsRow {
   rank: number;
 }
 
-interface TypeCountRow {
-  table_name: string;
-  count: number;
-}
-
 // ═══════════════════════════════════════════════════════════════════════════
 // IMPLEMENTATION
 // ═══════════════════════════════════════════════════════════════════════════
@@ -221,7 +216,8 @@ class QueryServiceImpl implements QueryService {
   }
 
   getSessionSummaries(projectSlug: string): SessionSummaryData[] {
-    const rows = this.db.all<SessionSummaryRow>(`
+    const rows = this.db.all<SessionSummaryRow>(
+      `
       SELECT
         s.id,
         s.project_slug,
@@ -243,7 +239,9 @@ class QueryServiceImpl implements QueryService {
         COALESCE(s.has_task, 0) as has_task
       FROM sessions s
       WHERE s.project_slug = ?
-    `, projectSlug);
+    `,
+      projectSlug,
+    );
 
     return rows.map((row) => this.toSessionSummary(row));
   }
@@ -260,18 +258,28 @@ class QueryServiceImpl implements QueryService {
   ): { messages: unknown[]; total: number; offset: number; hasMore: boolean } {
     const countRow = this.db.get<CountRow>(
       'SELECT COUNT(*) as count FROM messages WHERE project_slug = ? AND session_id = ?',
-      slug, sessionId,
+      slug,
+      sessionId,
     );
     const total = countRow?.count ?? 0;
 
     const rows = this.db.all<MessageDataRow>(
       'SELECT data FROM messages WHERE project_slug = ? AND session_id = ? ORDER BY msg_index LIMIT ? OFFSET ?',
-      slug, sessionId, limit, offset,
+      slug,
+      sessionId,
+      limit,
+      offset,
     );
 
-    const messages = rows.map((r) => {
-      try { return JSON.parse(r.data); } catch { return null; }
-    }).filter((m) => m !== null);
+    const messages = rows
+      .map((r) => {
+        try {
+          return JSON.parse(r.data);
+        } catch {
+          return null;
+        }
+      })
+      .filter((m) => m !== null);
 
     return {
       messages,
@@ -291,7 +299,8 @@ class QueryServiceImpl implements QueryService {
   ): Array<{ agentId: string; agentType: string; messageCount: number }> {
     const rows = this.db.all<SubagentRow>(
       'SELECT agent_id, agent_type, message_count FROM subagents WHERE project_slug = ? AND session_id = ?',
-      slug, sessionId,
+      slug,
+      sessionId,
     );
     return rows.map((r) => ({
       agentId: r.agent_id,
@@ -309,7 +318,9 @@ class QueryServiceImpl implements QueryService {
   ): { messages: unknown[]; total: number; offset: number; hasMore: boolean } {
     const row = this.db.get<SubagentMessagesRow>(
       'SELECT messages FROM subagents WHERE project_slug = ? AND session_id = ? AND agent_id = ?',
-      slug, sessionId, agentId,
+      slug,
+      sessionId,
+      agentId,
     );
 
     if (!row) {
@@ -339,18 +350,14 @@ class QueryServiceImpl implements QueryService {
   // ─────────────────────────────────────────────────────────────────────────
 
   getProjectMemory(slug: string): string | null {
-    const row = this.db.get<MemoryRow>(
-      'SELECT content FROM project_memories WHERE project_slug = ?', slug,
-    );
+    const row = this.db.get<MemoryRow>('SELECT content FROM project_memories WHERE project_slug = ?', slug);
     return row?.content ?? null;
   }
 
   getSessionTodos(slug: string, sessionId: string): unknown[] {
     // slug unused in todos table — match by session_id
     void slug;
-    const rows = this.db.all<TodoRow>(
-      'SELECT items FROM todos WHERE session_id = ?', sessionId,
-    );
+    const rows = this.db.all<TodoRow>('SELECT items FROM todos WHERE session_id = ?', sessionId);
     const result: unknown[] = [];
     for (const row of rows) {
       try {
@@ -367,12 +374,14 @@ class QueryServiceImpl implements QueryService {
     // Look up the session's plan_slug, then fetch the plan
     void slug;
     const sessionRow = this.db.get<{ plan_slug: string | null }>(
-      'SELECT plan_slug FROM sessions WHERE id = ?', sessionId,
+      'SELECT plan_slug FROM sessions WHERE id = ?',
+      sessionId,
     );
     if (!sessionRow?.plan_slug) return null;
 
     const planRow = this.db.get<PlanRow>(
-      'SELECT slug, title, content, size FROM plans WHERE slug = ?', sessionRow.plan_slug,
+      'SELECT slug, title, content, size FROM plans WHERE slug = ?',
+      sessionRow.plan_slug,
     );
     if (!planRow) return null;
     return { slug: planRow.slug, title: planRow.title, content: planRow.content, size: planRow.size };
@@ -396,7 +405,9 @@ class QueryServiceImpl implements QueryService {
   getToolResult(slug: string, sessionId: string, toolUseId: string): string | null {
     const row = this.db.get<ToolResultRow>(
       'SELECT content FROM tool_results WHERE project_slug = ? AND session_id = ? AND tool_use_id = ?',
-      slug, sessionId, toolUseId,
+      slug,
+      sessionId,
+      toolUseId,
     );
     return row?.content ?? null;
   }
@@ -437,7 +448,8 @@ class QueryServiceImpl implements QueryService {
        FROM search_fts
        JOIN messages m ON m.id = search_fts.rowid
        WHERE search_fts MATCH ? ${whereClause}`,
-      matchExpr, ...whereParams,
+      matchExpr,
+      ...whereParams,
     );
     const total = countRow?.count ?? 0;
 
@@ -451,7 +463,10 @@ class QueryServiceImpl implements QueryService {
        WHERE search_fts MATCH ? ${whereClause}
        ORDER BY rank
        LIMIT ? OFFSET ?`,
-      matchExpr, ...whereParams, limit, offset,
+      matchExpr,
+      ...whereParams,
+      limit,
+      offset,
     );
 
     return {

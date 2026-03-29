@@ -12,12 +12,7 @@ export {
   createProjectParser,
 } from './project-parser.js';
 
-export {
-  type ConfigParserOptions,
-  type ConfigParser,
-  ConfigParserImpl,
-  createConfigParser,
-} from './config-parser.js';
+export { type ConfigParserOptions, type ConfigParser, ConfigParserImpl, createConfigParser } from './config-parser.js';
 
 export {
   type AnalyticsParserOptions,

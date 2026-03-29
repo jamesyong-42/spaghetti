@@ -54,11 +54,7 @@ export function createListView<T>(config: ListConfig<T>): ListView<T> {
       usedLines += itemLines.length;
     }
     while (usedLines > config.viewportHeight && scrollOffset < selectedIndex) {
-      const removedLines = config.renderItem(
-        items[scrollOffset],
-        scrollOffset,
-        scrollOffset === selectedIndex,
-      );
+      const removedLines = config.renderItem(items[scrollOffset], scrollOffset, scrollOffset === selectedIndex);
       usedLines -= removedLines.length;
       scrollOffset++;
     }

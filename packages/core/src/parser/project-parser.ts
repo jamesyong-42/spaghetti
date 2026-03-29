@@ -100,12 +100,7 @@ export class ProjectParserImpl implements ProjectParser {
     }
   }
 
-  parseProjectStreaming(
-    claudeDir: string,
-    slug: string,
-    sink: ProjectParseSink,
-    options?: ProjectParserOptions,
-  ): void {
+  parseProjectStreaming(claudeDir: string, slug: string, sink: ProjectParseSink, options?: ProjectParserOptions): void {
     const planIndex = this.buildPlanIndex(claudeDir);
 
     // Emit all plans first (same as parseAllProjectsStreaming)
@@ -121,7 +116,7 @@ export class ProjectParserImpl implements ProjectParser {
     slug: string,
     sink: ProjectParseSink,
     options: ProjectParserOptions | undefined,
-    planIndex: Map<string, PlanFile>,
+    _planIndex: Map<string, PlanFile>,
   ): void {
     const projectDir = path.join(claudeDir, 'projects', slug);
     const sessionsIndex = this.parseSessionsIndex(projectDir);
@@ -150,7 +145,7 @@ export class ProjectParserImpl implements ProjectParser {
           const canonicalPath = path.join(projectDir, `${sessionId}.jsonl`);
           const filePath = this.fileService.exists(canonicalPath)
             ? canonicalPath
-            : (entry.fullPath && this.fileService.exists(entry.fullPath))
+            : entry.fullPath && this.fileService.exists(entry.fullPath)
               ? entry.fullPath
               : canonicalPath;
           let messageCount = 0;
@@ -269,9 +264,10 @@ export class ProjectParserImpl implements ProjectParser {
 
     const messages = skipMessages ? [] : this.parseSessionMessages(projectDir, sessionId, entry.fullPath);
 
-    const planSlug = messages.length > 0
-      ? this.extractPlanSlugFromMessages(messages, planIndex)
-      : this.peekPlanSlug(projectDir, sessionId, planIndex);
+    const planSlug =
+      messages.length > 0
+        ? this.extractPlanSlugFromMessages(messages, planIndex)
+        : this.peekPlanSlug(projectDir, sessionId, planIndex);
 
     return {
       sessionId,
@@ -282,25 +278,19 @@ export class ProjectParserImpl implements ProjectParser {
       fileHistory: this.parseFileHistory(claudeDir, sessionId),
       todos: this.parseTodos(claudeDir, sessionId),
       task: this.parseTask(claudeDir, sessionId),
-      plan: planSlug ? planIndex.get(planSlug) ?? null : null,
+      plan: planSlug ? (planIndex.get(planSlug) ?? null) : null,
     };
   }
 
   private parseSessionsIndex(projectDir: string): SessionsIndex {
     try {
-      const index = this.fileService.readJsonSync<SessionsIndex>(
-        path.join(projectDir, 'sessions-index.json'),
-      );
+      const index = this.fileService.readJsonSync<SessionsIndex>(path.join(projectDir, 'sessions-index.json'));
       if (index && index.entries.length > 0) {
         // The sessions-index.json may be stale — it can list sessions whose
         // JSONL files no longer exist, and miss JSONL files that do exist on
         // disk.  Merge any on-disk JSONL files that the index doesn't know
         // about so we never silently drop messages.
-        const merged = this.mergeWithDiscoveredEntries(
-          index.entries,
-          projectDir,
-          index.originalPath,
-        );
+        const merged = this.mergeWithDiscoveredEntries(index.entries, projectDir, index.originalPath);
         return { ...index, entries: merged };
       }
       if (index?.originalPath) {
@@ -403,7 +393,7 @@ export class ProjectParserImpl implements ProjectParser {
       const canonicalPath = path.join(projectDir, `${sessionId}.jsonl`);
       const filePath = this.fileService.exists(canonicalPath)
         ? canonicalPath
-        : (fullPath && this.fileService.exists(fullPath))
+        : fullPath && this.fileService.exists(fullPath)
           ? fullPath
           : canonicalPath;
       const result = this.fileService.readJsonlSync<SessionMessage>(filePath);
@@ -476,9 +466,7 @@ export class ProjectParserImpl implements ProjectParser {
 
   private parseProjectMemory(projectSlug: string, projectDir: string): ProjectMemory | null {
     try {
-      const content = this.fileService.readFileSync(
-        path.join(projectDir, 'memory', 'MEMORY.md'),
-      );
+      const content = this.fileService.readFileSync(path.join(projectDir, 'memory', 'MEMORY.md'));
       return { projectSlug, content };
     } catch {
       return null;
@@ -607,10 +595,7 @@ export class ProjectParserImpl implements ProjectParser {
     return index;
   }
 
-  private extractPlanSlugFromMessages(
-    messages: SessionMessage[],
-    planIndex: Map<string, PlanFile>,
-  ): string | null {
+  private extractPlanSlugFromMessages(messages: SessionMessage[], planIndex: Map<string, PlanFile>): string | null {
     for (const msg of messages) {
       const raw = msg as unknown as Record<string, unknown>;
       const slug = raw.slug;
@@ -621,11 +606,7 @@ export class ProjectParserImpl implements ProjectParser {
     return null;
   }
 
-  private peekPlanSlug(
-    projectDir: string,
-    sessionId: string,
-    planIndex: Map<string, PlanFile>,
-  ): string | null {
+  private peekPlanSlug(projectDir: string, sessionId: string, planIndex: Map<string, PlanFile>): string | null {
     if (planIndex.size === 0) return null;
 
     try {

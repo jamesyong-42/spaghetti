@@ -58,29 +58,34 @@ export async function subagentsCommand(
   if (agentIndex !== undefined) {
     const idx = parseInt(agentIndex, 10);
     if (isNaN(idx) || idx < 1 || idx > subagents.length) {
-      throw new UserError(
-        `Invalid agent index: ${agentIndex}`,
-        `  Valid range: 1-${subagents.length}`,
-      );
+      throw new UserError(`Invalid agent index: ${agentIndex}`, `  Valid range: 1-${subagents.length}`);
     }
 
     const agent = subagents[idx - 1]!;
     const msgPage = api.getSubagentMessages(project.slug, session.sessionId, agent.agentId, 1000, 0);
 
     if (opts.json) {
-      process.stdout.write(JSON.stringify({
-        project: project.folderName,
-        sessionId: session.sessionId,
-        agent,
-        messages: msgPage,
-      }, null, 2) + '\n');
+      process.stdout.write(
+        JSON.stringify(
+          {
+            project: project.folderName,
+            sessionId: session.sessionId,
+            agent,
+            messages: msgPage,
+          },
+          null,
+          2,
+        ) + '\n',
+      );
       return;
     }
 
     const width = getTerminalWidth();
     const lines: string[] = [];
     lines.push('');
-    lines.push(`  ${theme.project(project.folderName)} ${theme.muted('›')} ${theme.accent('Subagent')} ${theme.muted(`#${idx}`)}`);
+    lines.push(
+      `  ${theme.project(project.folderName)} ${theme.muted('›')} ${theme.accent('Subagent')} ${theme.muted(`#${idx}`)}`,
+    );
     lines.push(`  ${theme.label('Agent ID:')} ${theme.muted(agent.agentId.slice(0, 12))}`);
     lines.push(`  ${theme.label('Type:')} ${agent.agentType}`);
     lines.push(`  ${theme.label('Messages:')} ${formatNumber(agent.messageCount)}`);
@@ -96,11 +101,17 @@ export async function subagentsCommand(
 
   // List mode: show table of subagents
   if (opts.json) {
-    process.stdout.write(JSON.stringify({
-      project: project.folderName,
-      sessionId: session.sessionId,
-      subagents,
-    }, null, 2) + '\n');
+    process.stdout.write(
+      JSON.stringify(
+        {
+          project: project.folderName,
+          sessionId: session.sessionId,
+          subagents,
+        },
+        null,
+        2,
+      ) + '\n',
+    );
     return;
   }
 
@@ -156,7 +167,9 @@ export async function subagentsCommand(
 
   lines.push(table);
   lines.push('');
-  lines.push(`  ${theme.muted(`${subagents.length} subagent${subagents.length === 1 ? '' : 's'} · Use \`spaghetti sub ${project.folderName} ${sessionInput ?? '1'} <#>\` to view messages`)}`);
+  lines.push(
+    `  ${theme.muted(`${subagents.length} subagent${subagents.length === 1 ? '' : 's'} · Use \`spaghetti sub ${project.folderName} ${sessionInput ?? '1'} <#>\` to view messages`)}`,
+  );
   lines.push('');
 
   process.stdout.write(lines.join('\n') + '\n');

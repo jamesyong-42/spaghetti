@@ -150,10 +150,10 @@ function extractTokens(message: SessionMessage): {
   if (!usage) return defaults;
 
   return {
-    inputTokens: (typeof usage.input_tokens === 'number') ? usage.input_tokens : 0,
-    outputTokens: (typeof usage.output_tokens === 'number') ? usage.output_tokens : 0,
-    cacheCreationTokens: (typeof usage.cache_creation_input_tokens === 'number') ? usage.cache_creation_input_tokens : 0,
-    cacheReadTokens: (typeof usage.cache_read_input_tokens === 'number') ? usage.cache_read_input_tokens : 0,
+    inputTokens: typeof usage.input_tokens === 'number' ? usage.input_tokens : 0,
+    outputTokens: typeof usage.output_tokens === 'number' ? usage.output_tokens : 0,
+    cacheCreationTokens: typeof usage.cache_creation_input_tokens === 'number' ? usage.cache_creation_input_tokens : 0,
+    cacheReadTokens: typeof usage.cache_read_input_tokens === 'number' ? usage.cache_read_input_tokens : 0,
   };
 }
 
@@ -162,7 +162,7 @@ function extractTokens(message: SessionMessage): {
  */
 function extractMsgType(message: SessionMessage): string {
   const msg = message as unknown as Record<string, unknown>;
-  return (typeof msg.type === 'string') ? msg.type : 'unknown';
+  return typeof msg.type === 'string' ? msg.type : 'unknown';
 }
 
 /**
@@ -170,7 +170,7 @@ function extractMsgType(message: SessionMessage): string {
  */
 function extractUuid(message: SessionMessage): string | null {
   const msg = message as unknown as Record<string, unknown>;
-  return (typeof msg.uuid === 'string') ? msg.uuid : null;
+  return typeof msg.uuid === 'string' ? msg.uuid : null;
 }
 
 /**
@@ -178,7 +178,7 @@ function extractUuid(message: SessionMessage): string | null {
  */
 function extractTimestamp(message: SessionMessage): string | null {
   const msg = message as unknown as Record<string, unknown>;
-  return (typeof msg.timestamp === 'string') ? msg.timestamp : null;
+  return typeof msg.timestamp === 'string' ? msg.timestamp : null;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -380,18 +380,12 @@ class IngestServiceImpl implements IngestService {
       entry.modified,
       entry.fileMtime,
       null, // plan_slug — set later if found
-      0,    // has_task — set later if found
+      0, // has_task — set later if found
       now,
     );
   }
 
-  onMessage(
-    slug: string,
-    sessionId: string,
-    message: SessionMessage,
-    index: number,
-    byteOffset: number,
-  ): void {
+  onMessage(slug: string, sessionId: string, message: SessionMessage, index: number, byteOffset: number): void {
     const msgType = extractMsgType(message);
     const uuid = extractUuid(message);
     const timestamp = extractTimestamp(message);
@@ -432,13 +426,7 @@ class IngestServiceImpl implements IngestService {
 
   onToolResult(slug: string, sessionId: string, toolResult: PersistedToolResult): void {
     const now = Date.now();
-    this.stmtInsertToolResult.run(
-      slug,
-      sessionId,
-      toolResult.toolUseId,
-      toolResult.content,
-      now,
-    );
+    this.stmtInsertToolResult.run(slug, sessionId, toolResult.toolUseId, toolResult.content, now);
   }
 
   onFileHistory(sessionId: string, history: FileHistorySession): void {
@@ -453,13 +441,7 @@ class IngestServiceImpl implements IngestService {
 
   onTask(sessionId: string, task: TaskEntry): void {
     const now = Date.now();
-    this.stmtInsertTask.run(
-      sessionId,
-      task.hasHighwatermark ? 1 : 0,
-      task.highwatermark,
-      task.lockExists ? 1 : 0,
-      now,
-    );
+    this.stmtInsertTask.run(sessionId, task.hasHighwatermark ? 1 : 0, task.highwatermark, task.lockExists ? 1 : 0, now);
 
     // Also update the session's has_task flag
     this.db.run('UPDATE sessions SET has_task = 1 WHERE id = ?', sessionId);
@@ -470,12 +452,7 @@ class IngestServiceImpl implements IngestService {
     this.stmtInsertPlan.run(slug, plan.title, plan.content, plan.size, now);
   }
 
-  onSessionComplete(
-    _slug: string,
-    _sessionId: string,
-    _messageCount: number,
-    _lastBytePosition: number,
-  ): void {
+  onSessionComplete(_slug: string, _sessionId: string, _messageCount: number, _lastBytePosition: number): void {
     // No-op for now. Could be used to update byte_position on source_files.
   }
 
@@ -497,9 +474,7 @@ class IngestServiceImpl implements IngestService {
   }
 
   getAllFingerprints(): SourceFingerprint[] {
-    const rows = this.db.all<SourceFileRow>(
-      'SELECT path, mtime_ms, size, byte_position FROM source_files',
-    );
+    const rows = this.db.all<SourceFileRow>('SELECT path, mtime_ms, size, byte_position FROM source_files');
     return rows.map((row) => this.rowToFingerprint(row));
   }
 
@@ -555,9 +530,19 @@ class IngestServiceImpl implements IngestService {
 
   deleteAllData(): void {
     const tables = [
-      'messages', 'subagents', 'tool_results', 'todos', 'tasks',
-      'plans', 'sessions', 'project_memories', 'projects',
-      'file_history', 'config', 'analytics', 'source_files',
+      'messages',
+      'subagents',
+      'tool_results',
+      'todos',
+      'tasks',
+      'plans',
+      'sessions',
+      'project_memories',
+      'projects',
+      'file_history',
+      'config',
+      'analytics',
+      'source_files',
     ];
     for (const table of tables) {
       this.db.exec(`DELETE FROM ${table}`);

@@ -37,12 +37,7 @@ import type { TodoFile } from './todos.js';
 import type { TaskEntry } from './tasks.js';
 import type { PlanFile } from './plans-data.js';
 
-import type {
-  SettingsFile,
-  StatusLineCommandFile,
-  StatsCacheFile,
-  HistoryFile,
-} from './toplevel-files-data.js';
+import type { SettingsFile, StatusLineCommandFile, StatsCacheFile, HistoryFile } from './toplevel-files-data.js';
 import type { PluginsDirectory } from './plugins-data.js';
 import type { StatsigDirectory } from './statsig-data.js';
 import type { IdeDirectory } from './ide-data.js';

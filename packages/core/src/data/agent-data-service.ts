@@ -10,33 +10,53 @@ import * as path from 'node:path';
 import { existsSync, mkdirSync } from 'node:fs';
 import { EventEmitter } from 'events';
 import type {
-  SegmentType, SegmentKey, Segment, SegmentChangeBatch, InitProgress,
-  PaginatedSegmentQuery, PaginatedSegmentResult,
-  SearchQuery, SearchResultSet, StoreStats,
+  SegmentType,
+  SegmentKey,
+  Segment,
+  SegmentChangeBatch,
+  InitProgress,
+  PaginatedSegmentQuery,
+  PaginatedSegmentResult,
+  SearchQuery,
+  SearchResultSet,
+  StoreStats,
 } from './segment-types.js';
 import type { SessionSummaryData, ProjectSummaryData } from './summary-types.js';
 import type {
-  Project, Session, SessionMessage, AgentConfig, AgentAnalytic,
-  SessionsIndex, SessionIndexEntry, SubagentTranscript,
-  PersistedToolResult, FileHistorySession, TodoFile, TaskEntry, PlanFile,
+  Project,
+  Session,
+  SessionMessage,
+  AgentConfig,
+  AgentAnalytic,
+  SessionsIndex,
+  SessionIndexEntry,
+  SubagentTranscript,
+  PersistedToolResult,
+  FileHistorySession,
+  TodoFile,
+  TaskEntry,
+  PlanFile,
 } from '../types/index.js';
 import type { QueryService } from './query-service.js';
 import type { IngestService } from './ingest-service.js';
-import type { ClaudeCodeParser, ClaudeCodeParserOptions } from '../parser/claude-code-parser.js';
+import type { ClaudeCodeParser } from '../parser/claude-code-parser.js';
 import type { FileService } from '../io/index.js';
-import {
-  createWorkerPool,
-  isWorkerThreadsAvailable,
-  type WorkerToMainMessage,
-} from '../workers/index.js';
+import { createWorkerPool, isWorkerThreadsAvailable, type WorkerToMainMessage } from '../workers/index.js';
 
 // Re-export types used by app-service
 export {
-  type SegmentType, type SegmentKey, type Segment,
-  type SegmentChangeBatch, type InitProgress,
-  type PaginatedSegmentQuery, type PaginatedSegmentResult,
-  type SearchQuery, type SearchResultSet, type StoreStats,
-  segmentKey, parseSegmentKey,
+  type SegmentType,
+  type SegmentKey,
+  type Segment,
+  type SegmentChangeBatch,
+  type InitProgress,
+  type PaginatedSegmentQuery,
+  type PaginatedSegmentResult,
+  type SearchQuery,
+  type SearchResultSet,
+  type StoreStats,
+  segmentKey,
+  parseSegmentKey,
 } from './segment-types.js';
 
 export type { SearchIndexEntry } from './search-indexer.js';
@@ -61,7 +81,12 @@ export interface ClaudeCodeAgentDataService extends EventEmitter {
   getProjectSlugs(): string[];
   getProject(slug: string): Segment<Project> | null;
   getProjectSessions(slug: string): Segment<Session>[];
-  getSessionMessages(slug: string, sessionId: string, limit: number, offset: number): PaginatedSegmentResult<SessionMessage>;
+  getSessionMessages(
+    slug: string,
+    sessionId: string,
+    limit: number,
+    offset: number,
+  ): PaginatedSegmentResult<SessionMessage>;
   getConfig(): AgentConfig;
   getAnalytics(): AgentAnalytic;
 
@@ -73,8 +98,17 @@ export interface ClaudeCodeAgentDataService extends EventEmitter {
   getSessionPlan(slug: string, sessionId: string): unknown | null;
   getSessionTask(slug: string, sessionId: string): unknown | null;
   getPersistedToolResult(slug: string, sessionId: string, toolUseId: string): string | null;
-  getSessionSubagents(slug: string, sessionId: string): Array<{ agentId: string; agentType: string; messageCount: number }>;
-  getSubagentMessages(slug: string, sessionId: string, agentId: string, limit: number, offset: number): PaginatedSegmentResult<SessionMessage>;
+  getSessionSubagents(
+    slug: string,
+    sessionId: string,
+  ): Array<{ agentId: string; agentType: string; messageCount: number }>;
+  getSubagentMessages(
+    slug: string,
+    sessionId: string,
+    agentId: string,
+    limit: number,
+    offset: number,
+  ): PaginatedSegmentResult<SessionMessage>;
 
   search(query: SearchQuery): SearchResultSet;
   rebuild(): Promise<void>;
@@ -216,12 +250,11 @@ export class AgentDataServiceImpl extends EventEmitter implements ClaudeCodeAgen
     this.emitProgress('parsing', `Parsing ${totalProjects} projects...`, 0, totalProjects);
 
     // Wrap the ingest service with a progress-emitting proxy
-    const self = this;
     const progressSink: typeof this.ingestService = Object.create(this.ingestService);
-    progressSink.onProjectComplete = function(slug: string) {
-      self.ingestService.onProjectComplete(slug);
+    progressSink.onProjectComplete = (slug: string) => {
+      this.ingestService.onProjectComplete(slug);
       completedProjects++;
-      self.emitProgress('parsing', `Parsed ${slug}`, completedProjects, totalProjects);
+      this.emitProgress('parsing', `Parsed ${slug}`, completedProjects, totalProjects);
     };
 
     // Use streaming parser to ingest all data directly into SQLite
@@ -366,7 +399,9 @@ export class AgentDataServiceImpl extends EventEmitter implements ClaudeCodeAgen
     }
   }
 
-  private async performWarmStart(existingFingerprints: Array<{ path: string; mtimeMs: number; size: number; bytePosition?: number }>): Promise<void> {
+  private async performWarmStart(
+    existingFingerprints: Array<{ path: string; mtimeMs: number; size: number; bytePosition?: number }>,
+  ): Promise<void> {
     this.emitProgress('reconciling', 'Warm start: checking for changes...');
 
     // Check which files have changed since last parse
@@ -401,9 +436,12 @@ export class AgentDataServiceImpl extends EventEmitter implements ClaudeCodeAgen
     // Re-parse only from disk files. Use a MERGE strategy: re-ingest from
     // disk (which uses UPSERT) without deleting first. This preserves
     // recovered legacy data that has no corresponding disk files.
-    this.emitProgress('parsing', needsRecovery
-      ? 'Recovery re-parse: fixing projects with missing messages...'
-      : `Re-parsing: ${changedFiles.length} changed, ${removedFiles.length} removed files...`);
+    this.emitProgress(
+      'parsing',
+      needsRecovery
+        ? 'Recovery re-parse: fixing projects with missing messages...'
+        : `Re-parsing: ${changedFiles.length} changed, ${removedFiles.length} removed files...`,
+    );
 
     this.ingestService.beginTransaction();
     try {
@@ -495,8 +533,16 @@ export class AgentDataServiceImpl extends EventEmitter implements ClaudeCodeAgen
     this.ready = false;
     this.cachedConfig = null;
     this.cachedAnalytics = null;
-    try { this.ingestService.close(); } catch { /* ignore */ }
-    try { this.queryService.close(); } catch { /* ignore */ }
+    try {
+      this.ingestService.close();
+    } catch {
+      /* ignore */
+    }
+    try {
+      this.queryService.close();
+    } catch {
+      /* ignore */
+    }
   }
 
   isReady(): boolean {
@@ -625,7 +671,10 @@ export class AgentDataServiceImpl extends EventEmitter implements ClaudeCodeAgen
     return this.queryService.getToolResult(slug, sessionId, toolUseId);
   }
 
-  getSessionSubagents(slug: string, sessionId: string): Array<{ agentId: string; agentType: string; messageCount: number }> {
+  getSessionSubagents(
+    slug: string,
+    sessionId: string,
+  ): Array<{ agentId: string; agentType: string; messageCount: number }> {
     return this.queryService.getSessionSubagents(slug, sessionId);
   }
 

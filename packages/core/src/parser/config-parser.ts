@@ -68,19 +68,16 @@ export class ConfigParserImpl implements ConfigParser {
   }
 
   private parseSettings(claudeDir: string): SettingsFile {
-    return this.readJsonSafe<SettingsFile>(
-      path.join(claudeDir, 'settings.json'),
-      { permissions: { allow: [] } },
-    );
+    return this.readJsonSafe<SettingsFile>(path.join(claudeDir, 'settings.json'), { permissions: { allow: [] } });
   }
 
   private parsePlugins(claudeDir: string): PluginsDirectory {
     const pluginsDir = path.join(claudeDir, 'plugins');
 
-    const installedPlugins = this.readJsonSafe<InstalledPluginsFile>(
-      path.join(pluginsDir, 'installed_plugins.json'),
-      { version: 2, plugins: {} },
-    );
+    const installedPlugins = this.readJsonSafe<InstalledPluginsFile>(path.join(pluginsDir, 'installed_plugins.json'), {
+      version: 2,
+      plugins: {},
+    });
     const knownMarketplaces = this.readJsonSafe<KnownMarketplacesFile>(
       path.join(pluginsDir, 'known_marketplaces.json'),
       {},
@@ -122,23 +119,29 @@ export class ConfigParserImpl implements ConfigParser {
                   );
                   if (manifest) entry.manifest = manifest;
 
-                  const mcpConfig = this.fileService.readJsonSync<McpConfigFile>(
-                    path.join(versionPath, '.mcp.json'),
-                  );
+                  const mcpConfig = this.fileService.readJsonSync<McpConfigFile>(path.join(versionPath, '.mcp.json'));
                   if (mcpConfig) entry.mcpConfig = mcpConfig;
 
                   try {
                     const orphanedContent = this.fileService.readFileSync(path.join(versionPath, '.orphaned_at'));
                     const ts = parseInt(orphanedContent.trim(), 10);
                     if (!isNaN(ts)) entry.orphanedAt = ts;
-                  } catch { /* optional */ }
+                  } catch {
+                    /* optional */
+                  }
 
                   entries.push(entry);
-                } catch { /* skip bad version dir */ }
+                } catch {
+                  /* skip bad version dir */
+                }
               }
-            } catch { /* skip bad plugin dir */ }
+            } catch {
+              /* skip bad plugin dir */
+            }
           }
-        } catch { /* skip bad marketplace dir */ }
+        } catch {
+          /* skip bad marketplace dir */
+        }
       }
     } catch {
       // cache dir doesn't exist
@@ -189,7 +192,9 @@ export class ConfigParserImpl implements ConfigParser {
           } else if (fileName.startsWith('statsig.stable_id.')) {
             result.stableId = this.fileService.readJsonSync<StatsigStableId>(filePath) ?? undefined;
           }
-        } catch { /* skip bad statsig file */ }
+        } catch {
+          /* skip bad statsig file */
+        }
       }
     } catch {
       // statsig dir doesn't exist

@@ -9,7 +9,10 @@ import pc from 'picocolors';
  * These are displayed cleanly without stack traces.
  */
 export class UserError extends Error {
-  constructor(message: string, public suggestion?: string) {
+  constructor(
+    message: string,
+    public suggestion?: string,
+  ) {
     super(message);
     this.name = 'UserError';
   }
@@ -56,7 +59,9 @@ export function noProjectMatch(
   if (suggestions.length > 0) {
     sugText =
       '\n  Did you mean?\n' +
-      suggestions.map((s) => `    ${pc.bold(pc.cyan(s.folderName))} ${pc.dim(`(${s.sessionCount} sessions)`)}`).join('\n');
+      suggestions
+        .map((s) => `    ${pc.bold(pc.cyan(s.folderName))} ${pc.dim(`(${s.sessionCount} sessions)`)}`)
+        .join('\n');
   } else {
     sugText = pc.dim('  Run `spaghetti projects` to see all projects.');
   }
