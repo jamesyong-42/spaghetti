@@ -554,23 +554,61 @@ export async function browseCommand(api: SpaghettiAPI): Promise<void> {
     ];
   }
 
-  // ─── Per-Type Message Renderers ─────────────────────────────────────
+  // ─── ANSI 256-Color Helpers ─────────────────────────────────────────
 
-  /** Pad a string with spaces to fill the full width, then apply bg color */
-  function bgLine(text: string, width: number, bgFn: (s: string) => string): string {
-    // We need to measure visible length (without ANSI codes) to pad correctly
-    const visLen = stripAnsi(text).length;
-    const pad = Math.max(0, width - visLen);
-    return bgFn(text + ' '.repeat(pad));
-  }
+  const RESET = '\x1b[0m';
+  /** Set 256-color foreground */
+  const fg256 = (n: number) => `\x1b[38;5;${n}m`;
+  /** Set 256-color background */
+  const bg256 = (n: number) => `\x1b[48;5;${n}m`;
+  const BOLD = '\x1b[1m';
+
+  // Color palette for message blocks
+  const COLORS = {
+    // User block — cool blue tones
+    userBg: 235,           // dark gray (#262626)
+    userBgSelected: 236,   // slightly lighter (#303030)
+    userLabel: 75,         // steel blue (#5fafff)
+    userLabelDim: 67,      // muted blue (#5f87af)
+    userText: 252,         // light gray (#d0d0d0)
+    userTextSelected: 255, // white
+
+    // Claude block — warm amber tones
+    claudeBg: 233,           // very dark gray (#121212)
+    claudeBgSelected: 234,   // slightly lighter (#1c1c1c)
+    claudeLabel: 214,        // amber (#ffaf00)
+    claudeLabelDim: 172,     // muted amber (#d78700)
+    claudeText: 250,         // light gray (#bcbcbc)
+    claudeTextSelected: 255, // white
+
+    // Shared
+    timestamp: 242,        // medium gray (#6c6c6c)
+  };
 
   /** Strip ANSI escape codes for length measurement */
   function stripAnsi(s: string): string {
     return s.replace(/\x1b\[[0-9;]*m/g, '');
   }
 
+  /** Pad text with spaces and wrap in a 256-color bg */
+  function bgLine256(text: string, width: number, bgColor: number): string {
+    const visLen = stripAnsi(text).length;
+    const pad = Math.max(0, width - visLen);
+    return `${bg256(bgColor)}${text}${' '.repeat(pad)}${RESET}`;
+  }
+
+  /** Pad a string with spaces to fill the full width, then apply bg color */
+  function bgLine(text: string, width: number, bgFn: (s: string) => string): string {
+    const visLen = stripAnsi(text).length;
+    const pad = Math.max(0, width - visLen);
+    return bgFn(text + ' '.repeat(pad));
+  }
+
   function renderUserItem(msg: SessionMessage, selected: boolean): string[] {
     const cols = tui.cols;
+    const bgColor = selected ? COLORS.userBgSelected : COLORS.userBg;
+    const labelColor = selected ? COLORS.userLabel : COLORS.userLabelDim;
+    const textColor = selected ? COLORS.userTextSelected : COLORS.userText;
 
     let preview = '';
     const content = (msg as any).message.content;
@@ -584,28 +622,28 @@ export async function browseCommand(api: SpaghettiAPI): Promise<void> {
     const timestamp =
       'timestamp' in msg && (msg as any).timestamp ? formatRelativeTime((msg as any).timestamp) : '';
 
-    // Dark blue-ish bg (using dim + bgBlack for dark feel, cyan accents)
-    const bg = selected ? (s: string) => pc.bgBlack(pc.cyan(s)) : (s: string) => pc.bgBlack(s);
-    const label = selected ? pc.bold(pc.cyan('USER')) : pc.cyan('USER');
-    const timeStr = pc.dim(timestamp);
-
     // Header: timestamp left, USER label right-aligned
-    const headerLeft = ` ${timeStr}`;
-    const headerRight = `${label} `;
-    const headerGap = Math.max(1, cols - stripAnsi(headerLeft).length - stripAnsi(headerRight).length);
-    const headerContent = `${headerLeft}${' '.repeat(headerGap)}${headerRight}`;
+    const timeRaw = ` ${fg256(COLORS.timestamp)}${timestamp}`;
+    const labelRaw = `${selected ? BOLD : ''}${fg256(labelColor)}USER${RESET}`;
+    const headerLeftVis = ` ${timestamp}`;
+    const headerRightVis = `USER `;
+    const headerGap = Math.max(1, cols - headerLeftVis.length - headerRightVis.length);
+    const headerContent = `${timeRaw}${' '.repeat(headerGap)}${labelRaw} `;
 
     const previewText = cliTruncate(preview, Math.max(cols - 4, 10));
-    const bodyContent = ` ${selected ? pc.white(previewText) : previewText} `;
+    const bodyContent = ` ${fg256(textColor)}${previewText} `;
 
     return [
-      bgLine(headerContent, cols, bg),
-      bgLine(bodyContent, cols, bg),
+      bgLine256(headerContent, cols, bgColor),
+      bgLine256(bodyContent, cols, bgColor),
     ];
   }
 
   function renderAssistantItem(msg: SessionMessage, selected: boolean): string[] {
     const cols = tui.cols;
+    const bgColor = selected ? COLORS.claudeBgSelected : COLORS.claudeBg;
+    const labelColor = selected ? COLORS.claudeLabel : COLORS.claudeLabelDim;
+    const textColor = selected ? COLORS.claudeTextSelected : COLORS.claudeText;
 
     const blocks = (msg as any).message.content || [];
     const textBlocks = blocks.filter((b: any) => b.type === 'text');
@@ -615,18 +653,14 @@ export async function browseCommand(api: SpaghettiAPI): Promise<void> {
     const timestamp =
       'timestamp' in msg && (msg as any).timestamp ? formatRelativeTime((msg as any).timestamp) : '';
 
-    // Dark warm bg (bgBlack with yellow accents for Claude brand)
-    const bg = selected ? (s: string) => pc.bgBlack(pc.yellow(s)) : (s: string) => pc.bgBlack(s);
-    const label = selected ? pc.bold(pc.yellow('CLAUDE')) : pc.yellow('CLAUDE');
-    const timeStr = pc.dim(timestamp);
-    const headerContent = ` ${label}  ${timeStr} `;
+    const headerContent = ` ${selected ? BOLD : ''}${fg256(labelColor)}CLAUDE${RESET}  ${fg256(COLORS.timestamp)}${timestamp} `;
 
     const previewText = cliTruncate(preview, Math.max(cols - 4, 10));
-    const bodyContent = ` ${selected ? pc.white(previewText) : previewText} `;
+    const bodyContent = ` ${fg256(textColor)}${previewText} `;
 
     return [
-      bgLine(headerContent, cols, bg),
-      bgLine(bodyContent, cols, bg),
+      bgLine256(headerContent, cols, bgColor),
+      bgLine256(bodyContent, cols, bgColor),
     ];
   }
 
