@@ -444,9 +444,16 @@ export async function browseCommand(api: SpaghettiAPI): Promise<void> {
     const prefix = selected ? pc.yellow('▎') : ' ';
     const dot = pc.dim(' · ');
 
-    // Line 1: session number + branch
+    // Line 1: session number + branch ... session ID right-aligned
     const num = selected ? pc.bold(pc.white(`#${idx + 1}`)) : pc.white(`#${idx + 1}`);
     const branch = s.gitBranch ? (selected ? pc.yellow(s.gitBranch) : pc.dim(s.gitBranch)) : '';
+    const shortId = pc.dim(s.sessionId.slice(0, 8));
+    const leftPart = `${prefix} ${num}  ${branch}`;
+    // Rough visible width estimate (strip ANSI for padding)
+    const leftLen = `  #${idx + 1}  ${s.gitBranch || ''}`.length + 2;
+    const rightLen = 8; // short ID length
+    const gap = Math.max(1, cols - leftLen - rightLen - 2);
+    const line1 = `${leftPart}${' '.repeat(gap)}${shortId}`;
 
     // Line 2: first prompt
     const prompt = s.firstPrompt || '';
@@ -460,7 +467,7 @@ export async function browseCommand(api: SpaghettiAPI): Promise<void> {
     const stats = `${msgs} ${pc.dim('msgs')}${dot}${tokens} ${pc.dim('tokens')}${dot}${duration}${dot}${time}`;
 
     return [
-      `${prefix} ${num}  ${branch}`,
+      line1,
       `${prefix} ${promptLine}`,
       `${prefix} ${stats}`,
       '', // breathing room between cards
