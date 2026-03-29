@@ -1,0 +1,74 @@
+<h2>Interactive List Layout</h2>
+<p class="subtitle">How should projects/sessions appear in the interactive TUI?</p>
+
+<div class="options">
+  <div class="option" data-choice="a" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>Table with Highlighted Row</h3>
+      <p>Same columnar layout as current <code>spag p</code>, but the selected row is highlighted</p>
+      <div class="mockup" style="margin-top: 12px;">
+        <div class="mockup-header">spag p (interactive)</div>
+        <div class="mockup-body" style="font-family: monospace; font-size: 13px; line-height: 1.6; background: #0a0a0a; color: #888; padding: 16px;">
+          <div style="color: #555;">  #  Project          Sessions  Messages  Tokens    Last Active</div>
+          <div style="color: #555;">  ─────────────────────────────────────────────────────────────</div>
+          <div style="color: #555;">  1  spaghetti              12       847    1.2M    2 hours ago</div>
+          <div style="background: #1a3a5c; color: #7cb3ff; padding: 2px 4px; border-radius: 3px;">  2  jabali-editor           8       523    890K    5 hours ago</div>
+          <div style="color: #555;">  3  voyager-tools           5       312    450K    1 day ago</div>
+          <div style="color: #555;">  4  study-portfolio         3       189    210K    3 days ago</div>
+          <div style="color: #555;">  5  duke-courses            2        94    120K    1 week ago</div>
+          <div style="margin-top: 12px; color: #444; font-size: 11px;">  ↑↓ navigate  Enter select  q quit</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="option" data-choice="b" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>Simplified List</h3>
+      <p>Project name prominent, stats dimmed to the right. No box drawing. Modern selector style.</p>
+      <div class="mockup" style="margin-top: 12px;">
+        <div class="mockup-header">spag p (interactive)</div>
+        <div class="mockup-body" style="font-family: monospace; font-size: 13px; line-height: 1.8; background: #0a0a0a; color: #888; padding: 16px;">
+          <div style="color: #555;">  spaghetti           12 sessions  847 msgs  1.2M tokens  2h ago</div>
+          <div style="padding: 2px 4px; border-radius: 3px;"><span style="color: #7cb3ff;">&#9654;</span> <span style="color: #fff;">jabali-editor</span>        <span style="color: #555;">8 sessions  523 msgs  890K tokens  5h ago</span></div>
+          <div style="color: #555;">  voyager-tools         5 sessions  312 msgs  450K tokens  1d ago</div>
+          <div style="color: #555;">  study-portfolio       3 sessions  189 msgs  210K tokens  3d ago</div>
+          <div style="color: #555;">  duke-courses          2 sessions   94 msgs  120K tokens  1w ago</div>
+          <div style="margin-top: 12px; color: #444; font-size: 11px;">  ↑↓ navigate  Enter select  q quit</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="option" data-choice="c" onclick="toggleSelect(this)">
+    <div class="letter">C</div>
+    <div class="content">
+      <h3>Card-Style Rows</h3>
+      <p>Two lines per project: name + branch on top, stats below. More breathing room.</p>
+      <div class="mockup" style="margin-top: 12px;">
+        <div class="mockup-header">spag p (interactive)</div>
+        <div class="mockup-body" style="font-family: monospace; font-size: 13px; line-height: 1.5; background: #0a0a0a; color: #888; padding: 16px;">
+          <div style="color: #555; margin-bottom: 4px;">
+            <div>  spaghetti</div>
+            <div style="color: #444; font-size: 11px;">  12 sessions  &#183;  847 msgs  &#183;  1.2M tokens  &#183;  2 hours ago</div>
+          </div>
+          <div style="background: #1a3a5c; padding: 4px; border-radius: 3px; margin-bottom: 4px; border-left: 2px solid #7cb3ff;">
+            <div style="color: #fff;">  jabali-editor <span style="color: #555; font-size: 11px;">main</span></div>
+            <div style="color: #7cb3ff; font-size: 11px;">  8 sessions  &#183;  523 msgs  &#183;  890K tokens  &#183;  5 hours ago</div>
+          </div>
+          <div style="color: #555; margin-bottom: 4px;">
+            <div>  voyager-tools</div>
+            <div style="color: #444; font-size: 11px;">  5 sessions  &#183;  312 msgs  &#183;  450K tokens  &#183;  1 day ago</div>
+          </div>
+          <div style="color: #555; margin-bottom: 4px;">
+            <div>  study-portfolio</div>
+            <div style="color: #444; font-size: 11px;">  3 sessions  &#183;  189 msgs  &#183;  210K tokens  &#183;  3 days ago</div>
+          </div>
+          <div style="margin-top: 12px; color: #444; font-size: 11px;">  ↑↓ navigate  Enter select  q quit</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>

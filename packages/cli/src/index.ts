@@ -27,6 +27,7 @@ import { exportCommand } from './commands/export.js';
 import type { ExportOptions } from './commands/export.js';
 import { theme } from './lib/color.js';
 import { uninstallCommand } from './commands/uninstall.js';
+import { updateCommand } from './lib/updater.js';
 import { createRequire } from 'node:module';
 
 const _require = createRequire(import.meta.url);
@@ -344,6 +345,11 @@ export function createProgram(): Command {
     .command('uninstall')
     .description('Show uninstall instructions')
     .action(async () => { await uninstallCommand(); });
+
+  program
+    .command('update')
+    .description('Check for updates and install the latest version')
+    .action(async () => { await updateCommand(); });
 
   return program;
 }

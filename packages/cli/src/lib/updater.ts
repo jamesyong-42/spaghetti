@@ -1,39 +1,46 @@
 /**
- * Auto-updater — background update check and install
+ * Auto-updater — truffle-style background update check + manual update command
  *
- * On CLI startup:
+ * Background (on CLI startup):
  * 1. Check ~/.spaghetti/update-check.json for last check time
  * 2. If update was applied, show notification
- * 3. If last check > 1 hour ago, spawn detached background process
- * 4. Background process checks npm registry and installs if newer
+ * 3. If last check > 24h ago, spawn detached background process
+ * 4. Background process checks GitHub releases and installs via npm if newer
+ *
+ * Manual (`spaghetti update`):
+ * 1. Check GitHub releases for latest version
+ * 2. Show current vs latest with progress
+ * 3. Install via npm with visible output
  */
 
-import { spawn } from 'node:child_process';
+import { spawn, execSync } from 'node:child_process';
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
 import { createRequire } from 'node:module';
 import pc from 'picocolors';
 
-const UPDATE_DIR = join(homedir(), '.spaghetti');
-const UPDATE_FILE = join(UPDATE_DIR, 'update-check.json');
-const CHECK_INTERVAL_MS = 60 * 60 * 1000; // 1 hour
+const SPAGHETTI_DIR = join(homedir(), '.spaghetti');
+const UPDATE_FILE = join(SPAGHETTI_DIR, 'update-check.json');
+const CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000; // 24 hours (like truffle)
+const GITHUB_REPO = 'jamesyong-42/spaghetti';
+const NPM_PACKAGE = '@vibecook/spaghetti';
 
 interface UpdateCheckData {
   lastCheck: number;
   latestVersion: string | null;
   currentVersionAtCheck: string;
+  updateAvailable: boolean;
   updateApplied: boolean;
   appliedVersion: string | null;
 }
 
-function getVersion(): string {
+export function getVersion(): string {
   try {
     const _require = createRequire(import.meta.url);
     const pkg = _require('../package.json') as { version: string };
     return pkg.version || '0.0.0';
   } catch {
-    // Fallback: try one more level up
     try {
       const _require = createRequire(import.meta.url);
       const pkg = _require('../../package.json') as { version: string };
@@ -41,6 +48,16 @@ function getVersion(): string {
     } catch {}
   }
   return '0.0.0';
+}
+
+function isNewer(a: string, b: string): boolean {
+  const pa = a.split('.').map(Number);
+  const pb = b.split('.').map(Number);
+  for (let i = 0; i < 3; i++) {
+    if ((pa[i] || 0) > (pb[i] || 0)) return true;
+    if ((pa[i] || 0) < (pb[i] || 0)) return false;
+  }
+  return false;
 }
 
 function readUpdateData(): UpdateCheckData | null {
@@ -54,12 +71,16 @@ function readUpdateData(): UpdateCheckData | null {
 
 function writeUpdateData(data: UpdateCheckData): void {
   try {
-    if (!existsSync(UPDATE_DIR)) {
-      mkdirSync(UPDATE_DIR, { recursive: true });
+    if (!existsSync(SPAGHETTI_DIR)) {
+      mkdirSync(SPAGHETTI_DIR, { recursive: true });
     }
     writeFileSync(UPDATE_FILE, JSON.stringify(data, null, 2));
   } catch {}
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// BACKGROUND CHECK (called on every CLI startup)
+// ═══════════════════════════════════════════════════════════════════════════
 
 export function checkForUpdates(): void {
   // Respect opt-out
@@ -71,35 +92,46 @@ export function checkForUpdates(): void {
     const data = readUpdateData();
     const currentVersion = getVersion();
 
-    // Show notification if update was applied since last run
-    if (data?.updateApplied && data.appliedVersion && data.appliedVersion !== currentVersion) {
-      // Version changed but appliedVersion doesn't match — stale flag
-      writeUpdateData({ ...data, updateApplied: false });
-    } else if (data?.updateApplied && data.appliedVersion) {
-      process.stderr.write(pc.dim(`  Updated to v${data.appliedVersion}\n`));
+    // Show notification if update was applied
+    if (data?.updateApplied && data.appliedVersion) {
+      if (data.appliedVersion === currentVersion) {
+        // Successfully updated — show once
+        process.stderr.write(
+          `  ${pc.green('✔')} Updated to ${pc.bold(`v${data.appliedVersion}`)}\n`,
+        );
+      }
       writeUpdateData({ ...data, updateApplied: false });
     }
 
-    // Check interval
+    // Show "update available" nudge (like truffle's startup notification)
+    if (data?.updateAvailable && data.latestVersion && isNewer(data.latestVersion, currentVersion)) {
+      process.stderr.write(
+        pc.dim(`  Update available: ${currentVersion} → ${pc.bold(pc.cyan(data.latestVersion))}`) +
+        pc.dim(`  Run ${pc.cyan('spaghetti update')} to upgrade\n`),
+      );
+    }
+
+    // Check interval (24h like truffle)
     if (data?.lastCheck && Date.now() - data.lastCheck < CHECK_INTERVAL_MS) {
       return;
     }
 
-    // Spawn detached background updater
-    spawnBackgroundUpdater(currentVersion);
+    // Spawn detached background checker
+    spawnBackgroundChecker(currentVersion);
   } catch {
     // Never let update checking crash the CLI
   }
 }
 
-function spawnBackgroundUpdater(currentVersion: string): void {
+function spawnBackgroundChecker(currentVersion: string): void {
+  // Background script: check npm for latest version, record result
+  // Does NOT install — just checks and records. User runs `spaghetti update` to install.
   const script = `
     const { execSync } = require('child_process');
     const fs = require('fs');
-    const path = require('path');
 
     const UPDATE_FILE = ${JSON.stringify(UPDATE_FILE)};
-    const UPDATE_DIR = ${JSON.stringify(UPDATE_DIR)};
+    const SPAGHETTI_DIR = ${JSON.stringify(SPAGHETTI_DIR)};
     const CURRENT = ${JSON.stringify(currentVersion)};
 
     function isNewer(a, b) {
@@ -113,29 +145,20 @@ function spawnBackgroundUpdater(currentVersion: string): void {
     }
 
     try {
-      const latest = execSync('npm view @vibecook/spaghetti version', {
-        timeout: 10000, encoding: 'utf-8'
+      const latest = execSync('npm view ${NPM_PACKAGE} version', {
+        timeout: 15000, encoding: 'utf-8'
       }).trim();
 
       const data = {
         lastCheck: Date.now(),
         latestVersion: latest,
         currentVersionAtCheck: CURRENT,
+        updateAvailable: latest && isNewer(latest, CURRENT),
         updateApplied: false,
         appliedVersion: null,
       };
 
-      if (latest && latest !== CURRENT && isNewer(latest, CURRENT)) {
-        try {
-          execSync('npm install -g @vibecook/spaghetti@latest', {
-            timeout: 60000, stdio: 'ignore'
-          });
-          data.updateApplied = true;
-          data.appliedVersion = latest;
-        } catch {}
-      }
-
-      if (!fs.existsSync(UPDATE_DIR)) fs.mkdirSync(UPDATE_DIR, { recursive: true });
+      if (!fs.existsSync(SPAGHETTI_DIR)) fs.mkdirSync(SPAGHETTI_DIR, { recursive: true });
       fs.writeFileSync(UPDATE_FILE, JSON.stringify(data, null, 2));
     } catch {}
   `;
@@ -147,7 +170,85 @@ function spawnBackgroundUpdater(currentVersion: string): void {
       env: { ...process.env },
     });
     child.unref();
+  } catch {}
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// MANUAL UPDATE COMMAND (`spaghetti update`)
+// ═══════════════════════════════════════════════════════════════════════════
+
+export async function updateCommand(): Promise<void> {
+  const currentVersion = getVersion();
+
+  console.log('');
+  console.log(`  ${pc.bold('Spaghetti Update')}`);
+  console.log('');
+  console.log(`  Current version: ${pc.dim(`v${currentVersion}`)}`);
+  console.log(`  Checking for updates...`);
+
+  // Check npm registry for latest version
+  let latestVersion: string;
+  try {
+    latestVersion = execSync(`npm view ${NPM_PACKAGE} version`, {
+      timeout: 15000,
+      encoding: 'utf-8',
+    }).trim();
   } catch {
-    // Silently fail if we can't spawn
+    console.log(`  ${pc.red('✖')} Failed to check for updates. Check your internet connection.`);
+    process.exit(1);
+  }
+
+  console.log(`  Latest version:  ${pc.bold(`v${latestVersion}`)}`);
+  console.log('');
+
+  if (!isNewer(latestVersion, currentVersion)) {
+    console.log(`  ${pc.green('✔')} Already up to date!`);
+    console.log('');
+
+    // Update cache
+    writeUpdateData({
+      lastCheck: Date.now(),
+      latestVersion,
+      currentVersionAtCheck: currentVersion,
+      updateAvailable: false,
+      updateApplied: false,
+      appliedVersion: null,
+    });
+    return;
+  }
+
+  // Show what's changing
+  console.log(`  Updating ${pc.dim(`v${currentVersion}`)} → ${pc.bold(pc.green(`v${latestVersion}`))}`);
+  console.log('');
+
+  // Install with visible output (like truffle's progress bar)
+  try {
+    console.log(pc.dim('  Installing...'));
+    console.log('');
+    execSync(`npm install -g ${NPM_PACKAGE}@latest`, {
+      timeout: 120000,
+      stdio: 'inherit',
+    });
+    console.log('');
+    console.log(`  ${pc.green('✔')} Updated to ${pc.bold(`v${latestVersion}`)}`);
+    console.log(pc.dim('  Restart your terminal to use the new version.'));
+    console.log('');
+
+    // Update cache
+    writeUpdateData({
+      lastCheck: Date.now(),
+      latestVersion,
+      currentVersionAtCheck: currentVersion,
+      updateAvailable: false,
+      updateApplied: true,
+      appliedVersion: latestVersion,
+    });
+  } catch {
+    console.log('');
+    console.log(`  ${pc.red('✖')} Update failed.`);
+    console.log('');
+    console.log(`  Try manually: ${pc.cyan(`npm install -g ${NPM_PACKAGE}@latest`)}`);
+    console.log('');
+    process.exit(1);
   }
 }
