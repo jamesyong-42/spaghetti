@@ -372,28 +372,39 @@ export async function browseCommand(api: SpaghettiAPI): Promise<void> {
     sessions = api.getSessionList(project.slug);
   }
 
+  // Track the lowest offset we've loaded — we load from the END and paginate backward
+  let loadedOffsetLow = 0;
+
   function loadMessages(project: ProjectListItem, session: SessionListItem): void {
-    messagePage = api.getSessionMessages(project.slug, session.sessionId, PAGE_SIZE, 0);
+    // First, get total count by fetching a minimal page
+    const probe = api.getSessionMessages(project.slug, session.sessionId, 1, 0);
+    const total = probe.total;
+
+    // Load the last PAGE_SIZE messages (most recent)
+    const startOffset = Math.max(0, total - PAGE_SIZE);
+    messagePage = api.getSessionMessages(project.slug, session.sessionId, PAGE_SIZE, startOffset);
+    loadedOffsetLow = startOffset;
     allMessages = messagePage.messages;
     allDisplayItems = buildDisplayItems(allMessages);
     displayItems = applyDisplayFilters(allDisplayItems, filters);
   }
 
   function loadMoreMessages(): void {
-    if (!messagePage || !messagePage.hasMore || !state.project || !state.session) return;
-    const nextPage = api.getSessionMessages(
+    // Load OLDER messages (lower offset) since list is reversed (latest at top)
+    if (loadedOffsetLow <= 0 || !state.project || !state.session) return;
+    const nextOffset = Math.max(0, loadedOffsetLow - PAGE_SIZE);
+    const fetchSize = loadedOffsetLow - nextOffset;
+    if (fetchSize <= 0) return;
+
+    const olderPage = api.getSessionMessages(
       state.project.slug,
       state.session.sessionId,
-      PAGE_SIZE,
-      messagePage.offset + messagePage.messages.length,
+      fetchSize,
+      nextOffset,
     );
-    messagePage = {
-      messages: [...messagePage.messages, ...nextPage.messages],
-      total: nextPage.total,
-      offset: 0,
-      hasMore: nextPage.hasMore,
-    };
-    allMessages = messagePage.messages;
+    loadedOffsetLow = nextOffset;
+    // Prepend older messages (they come before in chronological order)
+    allMessages = [...olderPage.messages, ...allMessages];
     allDisplayItems = buildDisplayItems(allMessages);
     displayItems = applyDisplayFilters(allDisplayItems, filters);
     if (messageList) {
@@ -1134,7 +1145,8 @@ export async function browseCommand(api: SpaghettiAPI): Promise<void> {
       case 'down':
         messageList.moveDown();
         state.messageIndex = messageList.getSelectedIndex();
-        if (messagePage?.hasMore && state.messageIndex >= displayItems.length - LOAD_MORE_THRESHOLD) {
+        // Load older messages when scrolling near the bottom (reversed list = older items)
+        if (loadedOffsetLow > 0 && state.messageIndex >= displayItems.length - LOAD_MORE_THRESHOLD) {
           loadMoreMessages();
         }
         fullRender();
