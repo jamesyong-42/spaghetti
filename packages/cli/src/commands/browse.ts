@@ -556,16 +556,23 @@ export async function browseCommand(api: SpaghettiAPI): Promise<void> {
 
   // ─── Per-Type Message Renderers ─────────────────────────────────────
 
+  /** Pad a string with spaces to fill the full width, then apply bg color */
+  function bgLine(text: string, width: number, bgFn: (s: string) => string): string {
+    // We need to measure visible length (without ANSI codes) to pad correctly
+    const visLen = stripAnsi(text).length;
+    const pad = Math.max(0, width - visLen);
+    return bgFn(text + ' '.repeat(pad));
+  }
+
+  /** Strip ANSI escape codes for length measurement */
+  function stripAnsi(s: string): string {
+    return s.replace(/\x1b\[[0-9;]*m/g, '');
+  }
+
   function renderUserItem(msg: SessionMessage, selected: boolean): string[] {
     const cols = tui.cols;
-    const prefix = selected ? pc.cyan('▎') : ' ';
-
-    // Pill badge style — ALL CAPS, colored background feel via inverse/bold
-    const badge = selected
-      ? pc.bold(pc.inverse(pc.cyan(' USER ')))
-      : pc.inverse(pc.cyan(' USER '));
-    const timestamp =
-      'timestamp' in msg && (msg as any).timestamp ? pc.dim(formatRelativeTime((msg as any).timestamp)) : '';
+    const blockWidth = Math.min(Math.floor(cols * 0.65), cols - 4);
+    const leftPad = cols - blockWidth;
 
     // Extract text content
     let preview = '';
@@ -576,36 +583,52 @@ export async function browseCommand(api: SpaghettiAPI): Promise<void> {
       if (textBlock && 'text' in textBlock) preview = textBlock.text;
     }
     preview = preview.replace(/\n/g, ' ');
-    const previewText = cliTruncate(preview, Math.max(cols - 10, 20));
-    const previewLine = selected ? pc.white(previewText) : pc.dim(previewText);
 
+    const timestamp =
+      'timestamp' in msg && (msg as any).timestamp ? formatRelativeTime((msg as any).timestamp) : '';
+
+    // Right-aligned block with blue bg
+    const bg = selected ? pc.bgBlue : pc.bgBlue;
+    const textColor = selected ? pc.bold : (s: string) => s;
+    const label = textColor(pc.white('USER'));
+    const timeStr = pc.white(pc.dim(timestamp));
+    const headerContent = ` ${label}  ${timeStr} `;
+
+    const previewText = cliTruncate(preview, Math.max(blockWidth - 4, 10));
+    const bodyContent = ` ${pc.white(previewText)} `;
+
+    const padStr = ' '.repeat(leftPad);
     return [
-      `${prefix} ${badge}  ${timestamp}`,
-      `${prefix}     ${previewLine}`,
+      `${padStr}${bgLine(headerContent, blockWidth, bg)}`,
+      `${padStr}${bgLine(bodyContent, blockWidth, bg)}`,
     ];
   }
 
   function renderAssistantItem(msg: SessionMessage, selected: boolean): string[] {
     const cols = tui.cols;
-    const prefix = selected ? pc.yellow('▎') : ' ';
-
-    // Pill badge — Claude Code brand color (amber/orange → pc.yellow)
-    const badge = selected
-      ? pc.bold(pc.inverse(pc.yellow(' CLAUDE ')))
-      : pc.inverse(pc.yellow(' CLAUDE '));
-    const timestamp =
-      'timestamp' in msg && (msg as any).timestamp ? pc.dim(formatRelativeTime((msg as any).timestamp)) : '';
+    const blockWidth = Math.min(Math.floor(cols * 0.65), cols - 4);
 
     const blocks = (msg as any).message.content || [];
     const textBlocks = blocks.filter((b: any) => b.type === 'text');
     let preview = textBlocks.map((b: any) => b.text).join(' ');
     preview = preview.replace(/\n/g, ' ');
-    const previewText = cliTruncate(preview, Math.max(cols - 10, 20));
-    const previewLine = selected ? pc.white(previewText) : pc.dim(previewText);
+
+    const timestamp =
+      'timestamp' in msg && (msg as any).timestamp ? formatRelativeTime((msg as any).timestamp) : '';
+
+    // Left-aligned block with dark bg (using bgBlack for subtle dark fill)
+    const bg = pc.bgWhite;
+    const textColor = selected ? pc.bold : (s: string) => s;
+    const label = textColor(pc.black('CLAUDE'));
+    const timeStr = pc.black(pc.dim(timestamp));
+    const headerContent = ` ${label}  ${timeStr} `;
+
+    const previewText = cliTruncate(preview, Math.max(blockWidth - 4, 10));
+    const bodyContent = ` ${pc.black(previewText)} `;
 
     return [
-      `${prefix} ${badge}  ${timestamp}`,
-      `${prefix}     ${previewLine}`,
+      bgLine(headerContent, blockWidth, bg),
+      bgLine(bodyContent, blockWidth, bg),
     ];
   }
 
