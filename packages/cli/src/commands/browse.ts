@@ -622,13 +622,12 @@ export async function browseCommand(api: SpaghettiAPI): Promise<void> {
     const timestamp =
       'timestamp' in msg && (msg as any).timestamp ? formatRelativeTime((msg as any).timestamp) : '';
 
-    // Header: timestamp left, USER label right-aligned
-    const timeRaw = ` ${fg256(COLORS.timestamp)}${timestamp}`;
-    const labelRaw = `${selected ? BOLD : ''}${fg256(labelColor)}USER${RESET}`;
-    const headerLeftVis = ` ${timestamp}`;
-    const headerRightVis = `USER `;
-    const headerGap = Math.max(1, cols - headerLeftVis.length - headerRightVis.length);
-    const headerContent = `${timeRaw}${' '.repeat(headerGap)}${labelRaw} `;
+    // Header: timestamp right-aligned, just left of USER label
+    const timeVis = timestamp;
+    const labelVis = 'USER';
+    const rightVis = `${timeVis}  ${labelVis} `;
+    const leftPad = Math.max(1, cols - rightVis.length);
+    const headerContent = `${' '.repeat(leftPad)}${fg256(COLORS.timestamp)}${timestamp}  ${selected ? BOLD : ''}${fg256(labelColor)}${labelVis} `;
 
     const previewText = cliTruncate(preview, Math.max(cols - 4, 10));
     const bodyContent = ` ${fg256(textColor)}${previewText} `;
@@ -653,7 +652,8 @@ export async function browseCommand(api: SpaghettiAPI): Promise<void> {
     const timestamp =
       'timestamp' in msg && (msg as any).timestamp ? formatRelativeTime((msg as any).timestamp) : '';
 
-    const headerContent = ` ${selected ? BOLD : ''}${fg256(labelColor)}CLAUDE${RESET}  ${fg256(COLORS.timestamp)}${timestamp} `;
+    // No RESET mid-line — fg changes only, bg256 wraps the whole line
+    const headerContent = ` ${selected ? BOLD : ''}${fg256(labelColor)}CLAUDE  ${fg256(COLORS.timestamp)}${timestamp} `;
 
     const previewText = cliTruncate(preview, Math.max(cols - 4, 10));
     const bodyContent = ` ${fg256(textColor)}${previewText} `;
