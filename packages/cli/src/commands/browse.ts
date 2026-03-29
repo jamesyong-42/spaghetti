@@ -571,10 +571,7 @@ export async function browseCommand(api: SpaghettiAPI): Promise<void> {
 
   function renderUserItem(msg: SessionMessage, selected: boolean): string[] {
     const cols = tui.cols;
-    const blockWidth = Math.min(Math.floor(cols * 0.65), cols - 4);
-    const leftPad = cols - blockWidth;
 
-    // Extract text content
     let preview = '';
     const content = (msg as any).message.content;
     if (typeof content === 'string') preview = content;
@@ -587,26 +584,28 @@ export async function browseCommand(api: SpaghettiAPI): Promise<void> {
     const timestamp =
       'timestamp' in msg && (msg as any).timestamp ? formatRelativeTime((msg as any).timestamp) : '';
 
-    // Right-aligned block with blue bg
-    const bg = selected ? pc.bgBlue : pc.bgBlue;
-    const textColor = selected ? pc.bold : (s: string) => s;
-    const label = textColor(pc.white('USER'));
-    const timeStr = pc.white(pc.dim(timestamp));
-    const headerContent = ` ${label}  ${timeStr} `;
+    // Dark blue-ish bg (using dim + bgBlack for dark feel, cyan accents)
+    const bg = selected ? (s: string) => pc.bgBlack(pc.cyan(s)) : (s: string) => pc.bgBlack(s);
+    const label = selected ? pc.bold(pc.cyan('USER')) : pc.cyan('USER');
+    const timeStr = pc.dim(timestamp);
 
-    const previewText = cliTruncate(preview, Math.max(blockWidth - 4, 10));
-    const bodyContent = ` ${pc.white(previewText)} `;
+    // Header: timestamp left, USER label right-aligned
+    const headerLeft = ` ${timeStr}`;
+    const headerRight = `${label} `;
+    const headerGap = Math.max(1, cols - stripAnsi(headerLeft).length - stripAnsi(headerRight).length);
+    const headerContent = `${headerLeft}${' '.repeat(headerGap)}${headerRight}`;
 
-    const padStr = ' '.repeat(leftPad);
+    const previewText = cliTruncate(preview, Math.max(cols - 4, 10));
+    const bodyContent = ` ${selected ? pc.white(previewText) : previewText} `;
+
     return [
-      `${padStr}${bgLine(headerContent, blockWidth, bg)}`,
-      `${padStr}${bgLine(bodyContent, blockWidth, bg)}`,
+      bgLine(headerContent, cols, bg),
+      bgLine(bodyContent, cols, bg),
     ];
   }
 
   function renderAssistantItem(msg: SessionMessage, selected: boolean): string[] {
     const cols = tui.cols;
-    const blockWidth = Math.min(Math.floor(cols * 0.65), cols - 4);
 
     const blocks = (msg as any).message.content || [];
     const textBlocks = blocks.filter((b: any) => b.type === 'text');
@@ -616,19 +615,18 @@ export async function browseCommand(api: SpaghettiAPI): Promise<void> {
     const timestamp =
       'timestamp' in msg && (msg as any).timestamp ? formatRelativeTime((msg as any).timestamp) : '';
 
-    // Left-aligned block with dark bg (using bgBlack for subtle dark fill)
-    const bg = pc.bgWhite;
-    const textColor = selected ? pc.bold : (s: string) => s;
-    const label = textColor(pc.black('CLAUDE'));
-    const timeStr = pc.black(pc.dim(timestamp));
+    // Dark warm bg (bgBlack with yellow accents for Claude brand)
+    const bg = selected ? (s: string) => pc.bgBlack(pc.yellow(s)) : (s: string) => pc.bgBlack(s);
+    const label = selected ? pc.bold(pc.yellow('CLAUDE')) : pc.yellow('CLAUDE');
+    const timeStr = pc.dim(timestamp);
     const headerContent = ` ${label}  ${timeStr} `;
 
-    const previewText = cliTruncate(preview, Math.max(blockWidth - 4, 10));
-    const bodyContent = ` ${pc.black(previewText)} `;
+    const previewText = cliTruncate(preview, Math.max(cols - 4, 10));
+    const bodyContent = ` ${selected ? pc.white(previewText) : previewText} `;
 
     return [
-      bgLine(headerContent, blockWidth, bg),
-      bgLine(bodyContent, blockWidth, bg),
+      bgLine(headerContent, cols, bg),
+      bgLine(bodyContent, cols, bg),
     ];
   }
 
