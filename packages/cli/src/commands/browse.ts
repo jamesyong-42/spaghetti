@@ -565,24 +565,24 @@ export async function browseCommand(api: SpaghettiAPI): Promise<void> {
 
   // Color palette for message blocks
   const COLORS = {
-    // User block — cool blue tones
-    userBg: 235,           // dark gray (#262626)
-    userBgSelected: 236,   // slightly lighter (#303030)
-    userLabel: 75,         // steel blue (#5fafff)
-    userLabelDim: 67,      // muted blue (#5f87af)
-    userText: 252,         // light gray (#d0d0d0)
-    userTextSelected: 255, // white
+    // User block — teal/mint tones
+    userBg: 233,           // #121212
+    userBgSelected: 236,   // #303030
+    userLabel: 79,         // #5fd7af
+    userLabelDim: 36,      // #00af87
+    userText: 36,          // #00af87
+    userTextSelected: 79,  // #5fd7af
 
-    // Claude block — warm amber tones
-    claudeBg: 233,           // very dark gray (#121212)
-    claudeBgSelected: 234,   // slightly lighter (#1c1c1c)
-    claudeLabel: 214,        // amber (#ffaf00)
-    claudeLabelDim: 172,     // muted amber (#d78700)
-    claudeText: 250,         // light gray (#bcbcbc)
-    claudeTextSelected: 255, // white
+    // Claude block — warm peach/amber tones
+    claudeBg: 233,           // #121212
+    claudeBgSelected: 235,   // #262626
+    claudeLabel: 216,        // #ffaf87
+    claudeLabelDim: 173,     // #d7875f
+    claudeText: 173,         // #d7875f
+    claudeTextSelected: 216, // #ffaf87
 
     // Shared
-    timestamp: 242,        // medium gray (#6c6c6c)
+    timestamp: 248,        // #a8a8a8
   };
 
   /** Strip ANSI escape codes for length measurement */
