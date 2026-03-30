@@ -46,9 +46,9 @@ export function BootView({ version, progress, elapsed, error, onQuit }: BootView
 
   const innerWidth = cols - 2;
   const titleText = ` Spaghetti v${version} `;
-  const titlePad = innerWidth - titleText.length - 2;
-  const topBorder = `╭${titleText}${'─'.repeat(Math.max(titlePad, 0))}╮`;
-  const bottomBorder = `╰${'─'.repeat(innerWidth)}╯`;
+  const titleFill = cols - 2 - titleText.length;
+  const topBorder = `╭${titleText}${'─'.repeat(Math.max(titleFill, 0))}╮`;
+  const bottomBorder = `╰${'─'.repeat(Math.max(cols - 2, 0))}╯`;
 
   // Wordmark
   const wm = [

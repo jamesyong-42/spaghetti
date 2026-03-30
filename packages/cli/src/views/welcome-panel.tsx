@@ -73,10 +73,12 @@ export function WelcomePanel({ stats, dataPath, dataSize, initMs }: WelcomePanel
   const leftWidth = showRight ? innerWidth - rightWidth - 3 : innerWidth; // 3 = " │ "
 
   // Build the title bar: ╭ Spaghetti v0.2.2 ────...─╮
+  // Total width = cols. ╭ and ╮ each take 1 column.
+  // So fill = cols - 2 (for ╭╮) - titleText.length
   const titleText = ` Spaghetti v${VERSION} `;
-  const titlePad = innerWidth - titleText.length - 2; // -2 for ╭╮
-  const topBorder = `╭${titleText}${'─'.repeat(Math.max(titlePad, 0))}╮`;
-  const bottomBorder = `╰${'─'.repeat(innerWidth)}╯`;
+  const titleFill = cols - 2 - titleText.length;
+  const topBorder = `╭${titleText}${'─'.repeat(Math.max(titleFill, 0))}╮`;
+  const bottomBorder = `╰${'─'.repeat(Math.max(cols - 2, 0))}╯`;
   const emptyLine = `│${' '.repeat(innerWidth)}│`;
 
   // Build content lines — each is exactly innerWidth chars inside │...│
