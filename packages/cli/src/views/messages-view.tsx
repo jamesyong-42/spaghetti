@@ -378,13 +378,13 @@ interface ScrollBarProps {
   viewportHeight: number;
   scrollOffset: number;
   totalItems: number;
+  totalMessageCount: number; // total from API, not just loaded
   getItemHeight: (item: DisplayItem) => number;
   items: DisplayItem[];
 }
 
-function ScrollBar({ viewportHeight, scrollOffset, totalItems, getItemHeight: getH, items }: ScrollBarProps): React.ReactElement {
+function ScrollBar({ viewportHeight, scrollOffset, totalItems, totalMessageCount, getItemHeight: getH, items }: ScrollBarProps): React.ReactElement {
   if (totalItems === 0) {
-    // Empty track
     const track = Array.from({ length: viewportHeight }, () => ' ');
     return (
       <Box flexDirection="column" width={1}>
@@ -393,19 +393,28 @@ function ScrollBar({ viewportHeight, scrollOffset, totalItems, getItemHeight: ge
     );
   }
 
-  // Calculate total content height in lines
-  let totalLines = 0;
-  for (const item of items) totalLines += getH(item);
+  // Calculate loaded content height in lines
+  let loadedLines = 0;
+  for (const item of items) loadedLines += getH(item);
+
+  // Estimate total content height based on total message count.
+  // Use average line height from loaded items to project the full height.
+  const avgHeight = loadedLines / totalItems;
+  const estimatedTotalLines = Math.round(avgHeight * totalMessageCount);
 
   // Calculate scroll position in lines
   let scrolledLines = 0;
   for (let i = 0; i < scrollOffset && i < items.length; i++) {
     scrolledLines += getH(items[i]);
   }
+  // Offset scrolledLines by the unloaded portion (items before loadedOffsetLow)
+  const unloadedItems = totalMessageCount - totalItems;
+  const unloadedLines = Math.round(unloadedItems * avgHeight);
+  scrolledLines += unloadedLines;
 
-  const ratio = totalLines > viewportHeight ? scrolledLines / (totalLines - viewportHeight) : 0;
-  const thumbHeight = Math.max(1, Math.round((viewportHeight / totalLines) * viewportHeight));
-  const thumbStart = Math.round(ratio * (viewportHeight - thumbHeight));
+  const ratio = estimatedTotalLines > viewportHeight ? scrolledLines / (estimatedTotalLines - viewportHeight) : 0;
+  const thumbHeight = Math.max(1, Math.round((viewportHeight / Math.max(estimatedTotalLines, viewportHeight)) * viewportHeight));
+  const thumbStart = Math.min(Math.round(ratio * (viewportHeight - thumbHeight)), viewportHeight - thumbHeight);
 
   const trackChars: string[] = [];
   for (let i = 0; i < viewportHeight; i++) {
@@ -591,6 +600,7 @@ export function MessagesView({ project, session, sessionIndex, initialIndex }: M
             viewportHeight={viewportLines}
             scrollOffset={scrollOffset}
             totalItems={displayItems.length}
+            totalMessageCount={totalCount}
             getItemHeight={getItemHeight}
             items={displayItems}
           />
