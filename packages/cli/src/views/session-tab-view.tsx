@@ -11,6 +11,7 @@ import type { ProjectListItem, SessionListItem, SubagentListItem } from '@vibeco
 import { useViewNav } from './context.js';
 import { useApi } from './shell.js';
 import { TabBar } from './tab-bar.js';
+import { HRule } from './chrome.js';
 import { MessagesView } from './messages-view.js';
 import { formatNumber } from '../lib/format.js';
 import type { ViewEntry } from './types.js';
@@ -245,20 +246,18 @@ export function SessionTabView({ project, session, sessionIndex }: SessionTabVie
   const subagentsViewportItems = Math.max(1, Math.floor(viewportHeight / 3));
   const subagentsMaxScroll = Math.max(0, subagentsCount - subagentsViewportItems);
 
-  // Tab switching with left/right arrows
-  // Esc: only handled here when NOT on Messages tab (tab 0).
-  // When Messages tab is active, MessagesView's own Esc handler calls nav.pop().
-  useInput((input, key) => {
+  // Tab switching — always active (works on all tabs including Messages)
+  useInput((_input, key) => {
     if (key.leftArrow) {
       setActiveTab((prev) => Math.max(0, prev - 1));
-      return;
-    }
-    if (key.rightArrow) {
+    } else if (key.rightArrow) {
       setActiveTab((prev) => Math.min(TABS.length - 1, prev + 1));
-      return;
     }
+  }, { isActive: !nav.searchMode });
 
-    // Handle keys for non-Messages tabs
+  // Key handling for non-Messages tabs (Todos, Plan, Subagents)
+  // When Messages tab is active, MessagesView handles its own keys.
+  useInput((_input, key) => {
     if (activeTab === 1) {
       // Todos tab — scroll only
       if (key.upArrow) {
@@ -331,6 +330,7 @@ export function SessionTabView({ project, session, sessionIndex }: SessionTabVie
       {activeTab === 0 && (
         <MessagesView project={project} session={session} sessionIndex={sessionIndex} />
       )}
+      {activeTab !== 0 && <HRule />}
       {activeTab === 1 && (
         <TodosPanel
           projectSlug={project.slug}

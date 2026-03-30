@@ -10,6 +10,7 @@ import { Box, Text, useInput, useStdout } from 'ink';
 import type { ProjectListItem } from '@vibecook/spaghetti-core';
 import { useViewNav } from './context.js';
 import { useApi } from './shell.js';
+import { HRule } from './chrome.js';
 import { TabBar } from './tab-bar.js';
 import { SessionsView } from './sessions-view.js';
 
@@ -106,6 +107,7 @@ export function ProjectTabView({ project }: ProjectTabViewProps): React.ReactEle
         onTabChange={setActiveTab}
         breadcrumb={project.folderName}
       />
+      <HRule />
       {activeTab === 0 ? (
         <SessionsView project={project} />
       ) : (

@@ -14,6 +14,7 @@ import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react'
 import { Box, Text, useInput, useStdout } from 'ink';
 import type { ProjectListItem, SessionListItem, SessionMessage } from '@vibecook/spaghetti-core';
 import { useViewNav } from './context.js';
+import { HRule } from './chrome.js';
 import { useApi } from './shell.js';
 import { useListNavigation } from './hooks.js';
 import { formatTokens, formatRelativeTime, formatDuration } from '../lib/format.js';
@@ -494,6 +495,7 @@ export function MessagesView({ project, session, sessionIndex, initialIndex }: M
   return (
     <Box flexDirection="column">
       <Text>  {filterChipsLine}</Text>
+      <HRule />
       {displayItems.length === 0 ? (
         <Box flexDirection="column" height={viewportLines}>
           <Box paddingLeft={2} marginTop={1}>
