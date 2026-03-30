@@ -321,9 +321,6 @@ export type FilterState = Record<string, boolean>;
 export function createDefaultFilters(): FilterState {
   const filters: FilterState = {};
   for (const cat of FILTER_CATEGORIES) filters[cat.key] = true;
-  // System and internal are noisy — off by default
-  filters['5'] = false;
-  filters['6'] = false;
   return filters;
 }
 
