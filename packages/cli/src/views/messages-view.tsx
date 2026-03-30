@@ -372,6 +372,57 @@ function getItemHeight(item: DisplayItem): number {
   return 1;
 }
 
+// ─── ScrollBar ────────────────────────────────────────────────────────
+
+interface ScrollBarProps {
+  viewportHeight: number;
+  scrollOffset: number;
+  totalItems: number;
+  getItemHeight: (item: DisplayItem) => number;
+  items: DisplayItem[];
+}
+
+function ScrollBar({ viewportHeight, scrollOffset, totalItems, getItemHeight: getH, items }: ScrollBarProps): React.ReactElement {
+  if (totalItems === 0) {
+    // Empty track
+    const track = Array.from({ length: viewportHeight }, () => ' ');
+    return (
+      <Box flexDirection="column" width={1}>
+        {track.map((_, i) => <Text key={i} dimColor> </Text>)}
+      </Box>
+    );
+  }
+
+  // Calculate total content height in lines
+  let totalLines = 0;
+  for (const item of items) totalLines += getH(item);
+
+  // Calculate scroll position in lines
+  let scrolledLines = 0;
+  for (let i = 0; i < scrollOffset && i < items.length; i++) {
+    scrolledLines += getH(items[i]);
+  }
+
+  const ratio = totalLines > viewportHeight ? scrolledLines / (totalLines - viewportHeight) : 0;
+  const thumbHeight = Math.max(1, Math.round((viewportHeight / totalLines) * viewportHeight));
+  const thumbStart = Math.round(ratio * (viewportHeight - thumbHeight));
+
+  const trackChars: string[] = [];
+  for (let i = 0; i < viewportHeight; i++) {
+    if (i >= thumbStart && i < thumbStart + thumbHeight) {
+      trackChars.push('\x1b[38;5;245m\u2588\x1b[0m'); // █ gray
+    } else {
+      trackChars.push('\x1b[38;5;238m\u2502\x1b[0m');  // │ dim
+    }
+  }
+
+  return (
+    <Box flexDirection="column" width={1}>
+      {trackChars.map((ch, i) => <Text key={i}>{ch}</Text>)}
+    </Box>
+  );
+}
+
 // ─── MessagesView ──────────────────────────────────────────────────────
 
 export interface MessagesViewProps {
@@ -520,18 +571,29 @@ export function MessagesView({ project, session, sessionIndex, initialIndex }: M
           </Box>
         </Box>
       ) : (
-        <Box flexDirection="column" height={viewportLines}>
-          {visibleItems.map(({ item, index }) => (
-            <DisplayItemRenderer
-              key={`${index}-${item.kind}`}
-              item={item}
-              selected={index === selectedIndex}
-              cols={cols}
-            />
-          ))}
-          {padLines > 0 && (
-            <Box height={padLines} />
-          )}
+        <Box height={viewportLines}>
+          {/* Message content — leave 1 col for scrollbar */}
+          <Box flexDirection="column" flexGrow={1}>
+            {visibleItems.map(({ item, index }) => (
+              <DisplayItemRenderer
+                key={`${index}-${item.kind}`}
+                item={item}
+                selected={index === selectedIndex}
+                cols={cols - 1}
+              />
+            ))}
+            {padLines > 0 && (
+              <Box height={padLines} />
+            )}
+          </Box>
+          {/* Scrollbar track */}
+          <ScrollBar
+            viewportHeight={viewportLines}
+            scrollOffset={scrollOffset}
+            totalItems={displayItems.length}
+            getItemHeight={getItemHeight}
+            items={displayItems}
+          />
         </Box>
       )}
     </Box>
