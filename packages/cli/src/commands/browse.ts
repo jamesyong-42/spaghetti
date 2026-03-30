@@ -571,7 +571,7 @@ export async function browseCommand(api: SpaghettiAPI): Promise<void> {
 
     // Status indicator: ✓ success, ✗ error
     let status: string;
-    let resultHint = '';
+    let resultHint: string;
     if (item.result) {
       if (item.result.isError) {
         status = pc.red('✗');
@@ -633,6 +633,7 @@ export async function browseCommand(api: SpaghettiAPI): Promise<void> {
 
   /** Strip ANSI escape codes for length measurement */
   function stripAnsi(s: string): string {
+    // eslint-disable-next-line no-control-regex
     return s.replace(/\x1b\[[0-9;]*m/g, '');
   }
 
@@ -643,12 +644,6 @@ export async function browseCommand(api: SpaghettiAPI): Promise<void> {
     return `${bg256(bgColor)}${text}${' '.repeat(pad)}${RESET}`;
   }
 
-  /** Pad a string with spaces to fill the full width, then apply bg color */
-  function bgLine(text: string, width: number, bgFn: (s: string) => string): string {
-    const visLen = stripAnsi(text).length;
-    const pad = Math.max(0, width - visLen);
-    return bgFn(text + ' '.repeat(pad));
-  }
 
   function renderUserItem(msg: SessionMessage, selected: boolean): string[] {
     const cols = tui.cols;
