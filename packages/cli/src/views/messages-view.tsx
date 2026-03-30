@@ -394,10 +394,11 @@ export function MessagesView({ project, session, sessionIndex, initialIndex }: M
   const countLabel = total === shown ? `(${total})` : `(${shown}/${total})`;
   const subtitle = `${buildFilterChips(filters)}  ${countLabel}`;
 
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- nav.setSubtitle is stable (React setState)
   useEffect(() => {
     nav.setSubtitle(subtitle);
     return () => { nav.setSubtitle(null); };
-  }, [subtitle, nav]);
+  }, [subtitle]);
 
   // Key handling
   useInput((input, key) => {
