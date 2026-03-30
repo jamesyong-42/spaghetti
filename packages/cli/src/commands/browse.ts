@@ -442,12 +442,7 @@ export async function browseCommand(api: SpaghettiAPI): Promise<void> {
     const fetchSize = loadedOffsetLow - nextOffset;
     if (fetchSize <= 0) return;
 
-    const olderPage = api.getSessionMessages(
-      state.project.slug,
-      state.session.sessionId,
-      fetchSize,
-      nextOffset,
-    );
+    const olderPage = api.getSessionMessages(state.project.slug, state.session.sessionId, fetchSize, nextOffset);
     loadedOffsetLow = nextOffset;
     // Prepend older messages (they come before in chronological order)
     allMessages = [...olderPage.messages, ...allMessages];
@@ -590,14 +585,12 @@ export async function browseCommand(api: SpaghettiAPI): Promise<void> {
     // Calculate available width for input text
     const fixedWidth = cat.length + item.toolName.length + 10; // spaces + status
     const inputText = input
-      ? (selected
-          ? pc.white(cliTruncate(input, Math.max(cols - fixedWidth - 20, 10)))
-          : pc.dim(cliTruncate(input, Math.max(cols - fixedWidth - 20, 10))))
+      ? selected
+        ? pc.white(cliTruncate(input, Math.max(cols - fixedWidth - 20, 10)))
+        : pc.dim(cliTruncate(input, Math.max(cols - fixedWidth - 20, 10)))
       : '';
 
-    return [
-      `${prefix} ${catLabel} ${badge}  ${inputText}  ${status} ${resultHint}`,
-    ];
+    return [`${prefix} ${catLabel} ${badge}  ${inputText}  ${status} ${resultHint}`];
   }
 
   // ─── ANSI 256-Color Helpers ─────────────────────────────────────────
@@ -612,23 +605,23 @@ export async function browseCommand(api: SpaghettiAPI): Promise<void> {
   // Color palette for message blocks
   const COLORS = {
     // User block — teal/mint tones
-    userBg: 233,           // #121212
-    userBgSelected: 236,   // #303030
-    userLabel: 79,         // #5fd7af
-    userLabelDim: 36,      // #00af87
-    userText: 36,          // #00af87
-    userTextSelected: 79,  // #5fd7af
+    userBg: 233, // #121212
+    userBgSelected: 236, // #303030
+    userLabel: 79, // #5fd7af
+    userLabelDim: 36, // #00af87
+    userText: 36, // #00af87
+    userTextSelected: 79, // #5fd7af
 
     // Claude block — warm peach/amber tones
-    claudeBg: 233,           // #121212
-    claudeBgSelected: 235,   // #262626
-    claudeLabel: 216,        // #ffaf87
-    claudeLabelDim: 173,     // #d7875f
-    claudeText: 173,         // #d7875f
+    claudeBg: 233, // #121212
+    claudeBgSelected: 235, // #262626
+    claudeLabel: 216, // #ffaf87
+    claudeLabelDim: 173, // #d7875f
+    claudeText: 173, // #d7875f
     claudeTextSelected: 216, // #ffaf87
 
     // Shared
-    timestamp: 248,        // #a8a8a8
+    timestamp: 248, // #a8a8a8
   };
 
   /** Strip ANSI escape codes for length measurement */
@@ -643,7 +636,6 @@ export async function browseCommand(api: SpaghettiAPI): Promise<void> {
     const pad = Math.max(0, width - visLen);
     return `${bg256(bgColor)}${text}${' '.repeat(pad)}${RESET}`;
   }
-
 
   function renderUserItem(msg: SessionMessage, selected: boolean): string[] {
     const cols = tui.cols;
@@ -660,8 +652,7 @@ export async function browseCommand(api: SpaghettiAPI): Promise<void> {
     }
     preview = preview.replace(/\n/g, ' ');
 
-    const timestamp =
-      'timestamp' in msg && (msg as any).timestamp ? formatRelativeTime((msg as any).timestamp) : '';
+    const timestamp = 'timestamp' in msg && (msg as any).timestamp ? formatRelativeTime((msg as any).timestamp) : '';
 
     // Header: timestamp right-aligned, just left of USER label
     const timeVis = timestamp;
@@ -674,10 +665,10 @@ export async function browseCommand(api: SpaghettiAPI): Promise<void> {
     const bodyContent = ` ${fg256(textColor)}${previewText} `;
 
     return [
-      '',  // top margin
+      '', // top margin
       bgLine256(headerContent, cols, bgColor),
       bgLine256(bodyContent, cols, bgColor),
-      '',  // bottom margin
+      '', // bottom margin
     ];
   }
 
@@ -692,8 +683,7 @@ export async function browseCommand(api: SpaghettiAPI): Promise<void> {
     let preview = textBlocks.map((b: any) => b.text).join(' ');
     preview = preview.replace(/\n/g, ' ');
 
-    const timestamp =
-      'timestamp' in msg && (msg as any).timestamp ? formatRelativeTime((msg as any).timestamp) : '';
+    const timestamp = 'timestamp' in msg && (msg as any).timestamp ? formatRelativeTime((msg as any).timestamp) : '';
 
     // No RESET mid-line — fg changes only, bg256 wraps the whole line
     const headerContent = ` ${selected ? BOLD : ''}${fg256(labelColor)}CLAUDE  ${fg256(COLORS.timestamp)}${timestamp} `;
@@ -702,10 +692,10 @@ export async function browseCommand(api: SpaghettiAPI): Promise<void> {
     const bodyContent = ` ${fg256(textColor)}${previewText} `;
 
     return [
-      '',  // top margin
+      '', // top margin
       bgLine256(headerContent, cols, bgColor),
       bgLine256(bodyContent, cols, bgColor),
-      '',  // bottom margin
+      '', // bottom margin
     ];
   }
 
@@ -739,9 +729,10 @@ export async function browseCommand(api: SpaghettiAPI): Promise<void> {
           text = `stop hook (${(msg as any).hookCount || 0} hooks)`;
         } else {
           symbol = selected ? pc.white('◆') : pc.dim('◆');
-          const content = 'content' in msg && typeof (msg as any).content === 'string'
-            ? (msg as any).content.replace(/\n/g, ' ')
-            : subtype || 'system';
+          const content =
+            'content' in msg && typeof (msg as any).content === 'string'
+              ? (msg as any).content.replace(/\n/g, ' ')
+              : subtype || 'system';
           text = cliTruncate(content, Math.max(cols - 8, 20));
         }
         break;
@@ -777,9 +768,9 @@ export async function browseCommand(api: SpaghettiAPI): Promise<void> {
           text = `queue ${(msg as any).operation || ''}`;
         } else if (msg.type === 'last-prompt') {
           text = `last-prompt`;
-        } else if (msg.type === 'custom-title' as any) {
+        } else if (msg.type === ('custom-title' as any)) {
           text = `title: ${(msg as any).customTitle || ''}`;
-        } else if (msg.type === 'agent-name' as any) {
+        } else if (msg.type === ('agent-name' as any)) {
           text = `agent: ${(msg as any).agentName || ''}`;
         } else {
           text = msg.type;
