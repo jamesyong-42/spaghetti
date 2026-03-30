@@ -270,7 +270,7 @@ export function Shell({ api }: ShellProps): React.ReactElement {
     <ApiProvider value={api}>
       <ViewNavProvider value={nav}>
         <Box flexDirection="column">
-          {!isRoot && <Header breadcrumb={breadcrumb} />}
+          {!isRoot && top.type !== 'project-tabs' && top.type !== 'session-tabs' && <Header breadcrumb={breadcrumb} />}
           <Box flexGrow={1} flexDirection="column">
             <TopView />
           </Box>

@@ -493,6 +493,7 @@ export function MessagesView({ project, session, sessionIndex, initialIndex }: M
 
   return (
     <Box flexDirection="column">
+      <Text>  {filterChipsLine}</Text>
       {displayItems.length === 0 ? (
         <Box flexDirection="column" height={viewportLines}>
           <Box paddingLeft={2} marginTop={1}>

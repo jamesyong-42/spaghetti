@@ -317,15 +317,17 @@ export function SessionTabView({ project, session, sessionIndex }: SessionTabVie
     }
   }, { isActive: activeTab !== 0 && !nav.searchMode });
 
+  // Build breadcrumb for the tab bar
+  const tabBreadcrumb = `${project.folderName} \u203A #${sessionIndex + 1}`;
+
   return (
     <Box flexDirection="column">
       <TabBar
         tabs={[...TABS]}
         activeIndex={activeTab}
         onTabChange={setActiveTab}
+        breadcrumb={tabBreadcrumb}
       />
-      <Text dimColor>{'  ' + '\u2500'.repeat(70)}</Text>
-      <Text> </Text>
       {activeTab === 0 && (
         <MessagesView project={project} session={session} sessionIndex={sessionIndex} />
       )}

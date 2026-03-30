@@ -104,9 +104,8 @@ export function ProjectTabView({ project }: ProjectTabViewProps): React.ReactEle
         tabs={[...TABS]}
         activeIndex={activeTab}
         onTabChange={setActiveTab}
+        breadcrumb={project.folderName}
       />
-      <Text dimColor>{'  ' + '\u2500'.repeat(70)}</Text>
-      <Text> </Text>
       {activeTab === 0 ? (
         <SessionsView project={project} />
       ) : (
