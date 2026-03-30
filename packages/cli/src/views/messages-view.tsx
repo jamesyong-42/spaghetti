@@ -104,7 +104,8 @@ function UserItem({ msg, selected, cols }: { msg: SessionMessage; selected: bool
     const textBlock = content.find((b: any) => b.type === 'text');
     if (textBlock && 'text' in textBlock) preview = textBlock.text;
   }
-  preview = preview.replace(/\n/g, ' ');
+  // Collapse newlines to spaces for wrapping
+  preview = preview.replace(/\n+/g, ' ').replace(/\s+/g, ' ').trim();
 
   const timestamp = 'timestamp' in msg && (msg as any).timestamp ? formatRelativeTime((msg as any).timestamp) : '';
 
@@ -114,15 +115,29 @@ function UserItem({ msg, selected, cols }: { msg: SessionMessage; selected: bool
   const leftPad = Math.max(1, cols - rightVis.length);
   const headerContent = `${' '.repeat(leftPad)}${fg256(COLORS.timestamp)}${timestamp}  ${selected ? BOLD : ''}${fg256(labelColor)}${labelVis} `;
 
-  const maxPreview = Math.max(cols - 4, 10);
-  const previewText = preview.length > maxPreview ? preview.slice(0, maxPreview - 1) + '\u2026' : preview;
-  const bodyContent = ` ${fg256(textColor)}${previewText} `;
+  // Split preview into up to 3 lines
+  const lineWidth = Math.max(cols - 4, 10);
+  const bodyLines: string[] = [];
+  let remaining = preview;
+  for (let i = 0; i < 3; i++) {
+    if (!remaining) break;
+    if (remaining.length <= lineWidth || i === 2) {
+      bodyLines.push(remaining.length > lineWidth ? remaining.slice(0, lineWidth - 1) + '\u2026' : remaining);
+      break;
+    }
+    bodyLines.push(remaining.slice(0, lineWidth));
+    remaining = remaining.slice(lineWidth);
+  }
+  // Pad to exactly 3 body lines for consistent height
+  while (bodyLines.length < 3) bodyLines.push('');
 
   return (
     <Box flexDirection="column">
       <Text> </Text>
       <Text>{bgLine256(headerContent, cols, bgColor)}</Text>
-      <Text>{bgLine256(bodyContent, cols, bgColor)}</Text>
+      {bodyLines.map((line, i) => (
+        <Text key={i}>{bgLine256(` ${fg256(textColor)}${line} `, cols, bgColor)}</Text>
+      ))}
       <Text> </Text>
     </Box>
   );
@@ -136,21 +151,35 @@ function AssistantItem({ msg, selected, cols }: { msg: SessionMessage; selected:
   const blocks = (msg as any).message.content || [];
   const textBlocks = blocks.filter((b: any) => b.type === 'text');
   let preview = textBlocks.map((b: any) => b.text).join(' ');
-  preview = preview.replace(/\n/g, ' ');
+  preview = preview.replace(/\n+/g, ' ').replace(/\s+/g, ' ').trim();
 
   const timestamp = 'timestamp' in msg && (msg as any).timestamp ? formatRelativeTime((msg as any).timestamp) : '';
 
   const headerContent = ` ${selected ? BOLD : ''}${fg256(labelColor)}\u258C CLAUDE  ${fg256(COLORS.timestamp)}${timestamp} `;
 
-  const maxPreview = Math.max(cols - 4, 10);
-  const previewText = preview.length > maxPreview ? preview.slice(0, maxPreview - 1) + '\u2026' : preview;
-  const bodyContent = ` ${fg256(textColor)}${previewText} `;
+  // Split preview into up to 2 lines
+  const lineWidth = Math.max(cols - 4, 10);
+  const bodyLines: string[] = [];
+  let remaining = preview;
+  for (let i = 0; i < 2; i++) {
+    if (!remaining) break;
+    if (remaining.length <= lineWidth || i === 1) {
+      bodyLines.push(remaining.length > lineWidth ? remaining.slice(0, lineWidth - 1) + '\u2026' : remaining);
+      break;
+    }
+    bodyLines.push(remaining.slice(0, lineWidth));
+    remaining = remaining.slice(lineWidth);
+  }
+  // Pad to exactly 2 body lines for consistent height
+  while (bodyLines.length < 2) bodyLines.push('');
 
   return (
     <Box flexDirection="column">
       <Text> </Text>
       <Text>{bgLine256(headerContent, cols, bgColor)}</Text>
-      <Text>{bgLine256(bodyContent, cols, bgColor)}</Text>
+      {bodyLines.map((line, i) => (
+        <Text key={i}>{bgLine256(` ${fg256(textColor)}${line} `, cols, bgColor)}</Text>
+      ))}
       <Text> </Text>
     </Box>
   );
@@ -318,7 +347,8 @@ function getItemHeight(item: DisplayItem): number {
   if (item.kind === 'tool-call') return 1;
   if (item.kind === 'thinking') return 1;
   if (item.kind === 'message') {
-    if (item.msg.type === 'user' || item.msg.type === 'assistant') return 4; // top margin + header + body + bottom margin
+    if (item.msg.type === 'user') return 6;      // margin + header + 3 body + margin
+    if (item.msg.type === 'assistant') return 5;  // margin + header + 2 body + margin
     return 1; // system/other single line
   }
   return 1;
