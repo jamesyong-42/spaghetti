@@ -149,13 +149,41 @@ function toolResultSummary(content: string): string {
   return content.replace(/\n/g, ' ').slice(0, 60);
 }
 
+/** Extract tool-use-id from a <task-notification> XML string */
+function extractTaskNotificationToolId(text: string): string | null {
+  const match = text.match(/<tool-use-id>([^<]+)<\/tool-use-id>/);
+  return match ? match[1] : null;
+}
+
+/** Check if a user message is a task-notification */
+function isTaskNotification(msg: SessionMessage): boolean {
+  if (msg.type !== 'user') return false;
+  const content = (msg as any).message?.content;
+  const text = typeof content === 'string' ? content : '';
+  return text.includes('<task-notification>');
+}
+
+/** Check if an assistant message is echoing a task-notification */
+function isTaskNotificationEcho(msg: SessionMessage): boolean {
+  if (msg.type !== 'assistant') return false;
+  const blocks = (msg as any).message?.content || [];
+  const textBlocks = blocks.filter((b: any) => b.type === 'text');
+  const text = textBlocks.map((b: any) => b.text || '').join('');
+  return text.includes('<task-notification>');
+}
+
 /** Convert raw messages into display items, merging tool_use + tool_result pairs */
 function buildDisplayItems(msgs: SessionMessage[]): DisplayItem[] {
   // First pass: collect all tool_results keyed by tool_use_id
+  // Also collect task-notification results (Agent tool returns via XML)
   const resultMap = new Map<string, { content: string; isError: boolean }>();
+  const taskNotificationToolIds = new Set<string>();
+
   for (const msg of msgs) {
     if (msg.type === 'user') {
       const content = (msg as any).message?.content;
+
+      // Standard tool_result blocks
       if (Array.isArray(content)) {
         for (const block of content) {
           if (block.type === 'tool_result' && block.tool_use_id) {
@@ -170,6 +198,18 @@ function buildDisplayItems(msgs: SessionMessage[]): DisplayItem[] {
               isError: block.is_error === true,
             });
           }
+        }
+      }
+
+      // Task-notification messages (Agent tool results as plain text XML)
+      if (typeof content === 'string' && content.includes('<task-notification>')) {
+        const toolId = extractTaskNotificationToolId(content);
+        if (toolId) {
+          taskNotificationToolIds.add(toolId);
+          // Extract the output-file or content as the result
+          const outputMatch = content.match(/<output-file>([^<]*)<\/output-file>/);
+          const resultText = outputMatch ? `agent result → ${outputMatch[1]}` : 'agent completed';
+          resultMap.set(toolId, { content: resultText, isError: false });
         }
       }
     }
@@ -193,6 +233,9 @@ function buildDisplayItems(msgs: SessionMessage[]): DisplayItem[] {
     const msg = msgs[i];
 
     if (msg.type === 'assistant') {
+      // Skip assistant messages that are just echoing task-notifications
+      if (isTaskNotificationEcho(msg)) continue;
+
       const blocks = (msg as any).message?.content || [];
       const textBlocks = blocks.filter((b: any) => b.type === 'text');
       const thinkingBlocks = blocks.filter((b: any) => b.type === 'thinking' || b.type === 'redacted_thinking');
@@ -249,7 +292,10 @@ function buildDisplayItems(msgs: SessionMessage[]): DisplayItem[] {
         content.length > 0 &&
         content.every((b: any) => b.type === 'tool_result' && emittedToolUseIds.has(b.tool_use_id))
       ) {
-        // All blocks are tool_results matching emitted tool-call items — skip
+        continue;
+      }
+      // Skip task-notification messages (merged into Agent tool-call items)
+      if (isTaskNotification(msg)) {
         continue;
       }
       items.push({ kind: 'message', msg });
