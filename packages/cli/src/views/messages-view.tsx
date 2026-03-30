@@ -464,22 +464,32 @@ export function MessagesView({ project, session, sessionIndex, initialIndex }: M
   const shown = displayItems.length;
   const countLabel = total === shown ? `(${total})` : `(${shown}/${total})`;
 
+  // Pad remaining viewport lines so the footer stays fixed at the bottom
+  const padLines = Math.max(0, viewportLines - usedLines);
+
   return (
     <Box flexDirection="column">
       <Text>  {subtitle}  {countLabel}</Text>
       {displayItems.length === 0 ? (
-        <Box paddingLeft={2} marginTop={1}>
-          <Text dimColor>No messages match current filters.</Text>
+        <Box flexDirection="column" height={viewportLines}>
+          <Box paddingLeft={2} marginTop={1}>
+            <Text dimColor>No messages match current filters.</Text>
+          </Box>
         </Box>
       ) : (
-        visibleItems.map(({ item, index }) => (
-          <DisplayItemRenderer
-            key={`${index}-${item.kind}`}
-            item={item}
-            selected={index === selectedIndex}
-            cols={cols}
-          />
-        ))
+        <Box flexDirection="column" height={viewportLines}>
+          {visibleItems.map(({ item, index }) => (
+            <DisplayItemRenderer
+              key={`${index}-${item.kind}`}
+              item={item}
+              selected={index === selectedIndex}
+              cols={cols}
+            />
+          ))}
+          {padLines > 0 && (
+            <Box height={padLines} />
+          )}
+        </Box>
       )}
     </Box>
   );
