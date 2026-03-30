@@ -123,7 +123,7 @@ export function DetailView({ item }: DetailViewProps): React.ReactElement {
     } else if (key.escape) {
       nav.pop();
     }
-  }, { isActive: !nav.commandMode });
+  }, { isActive: !nav.searchMode });
 
   const visibleLines = contentLines.slice(scrollOffset, scrollOffset + viewportHeight);
 

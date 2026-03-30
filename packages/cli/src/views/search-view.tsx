@@ -252,7 +252,7 @@ export function SearchView({ query }: SearchViewProps): React.ReactElement {
     } else if (key.escape) {
       nav.pop();
     }
-  }, { isActive: !nav.commandMode });
+  }, { isActive: !nav.searchMode });
 
   // Empty state
   if (results.length === 0) {

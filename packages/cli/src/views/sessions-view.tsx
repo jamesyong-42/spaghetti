@@ -9,7 +9,7 @@ import { useViewNav } from './context.js';
 import { useApi } from './shell.js';
 import { useListNavigation } from './hooks.js';
 import { formatTokens, formatRelativeTime, formatNumber, formatDuration, totalTokens } from '../lib/format.js';
-import { MessagesView } from './messages-view.js';
+import { SessionTabView } from './session-tab-view.js';
 import type { ViewEntry } from './types.js';
 
 // ─── SessionCard ───────────────────────────────────────────────────────
@@ -95,8 +95,8 @@ export function SessionsView({ project, initialIndex }: SessionsViewProps): Reac
       if (sessions.length === 0) return;
       const session = sessions[selectedIndex];
       const entry: ViewEntry = {
-        type: 'messages',
-        component: () => <MessagesView project={project} session={session} sessionIndex={selectedIndex} />,
+        type: 'session-tabs',
+        component: () => <SessionTabView project={project} session={session} sessionIndex={selectedIndex} />,
         breadcrumb: `#${selectedIndex + 1}`,
       };
       (entry as any)._project = project;
@@ -106,7 +106,7 @@ export function SessionsView({ project, initialIndex }: SessionsViewProps): Reac
     } else if (key.escape) {
       nav.pop();
     }
-  }, { isActive: !nav.commandMode });
+  }, { isActive: !nav.searchMode });
 
   if (sessions.length === 0) {
     return (

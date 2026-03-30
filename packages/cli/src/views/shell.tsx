@@ -15,17 +15,10 @@ import type { SpaghettiAPI } from '@vibecook/spaghetti-core';
 import type { ViewEntry, ViewNav, ViewContext } from './types.js';
 import { ViewNavProvider } from './context.js';
 import { Header, Footer, HRule } from './chrome.js';
-import { ProjectsView } from './projects-view.js';
+import { MenuView } from './menu-view.js';
 import { SearchView } from './search-view.js';
-import { HelpView } from './help-view.js';
-import { StatsView } from './stats-view.js';
-import { MemoryView } from './memory-view.js';
-import { TodosView } from './todos-view.js';
-import { PlanView } from './plan-view.js';
-import { SubagentsView } from './subagents-view.js';
 import { BootView } from './boot-view.js';
-import { CommandInput } from './command-input.js';
-import { resolveCommand } from './commands.js';
+import { SearchInput } from './search-input.js';
 import { useAlternateScreen } from './hooks.js';
 
 // ─── Version ──────────────────────────────────────────────────────────
@@ -73,7 +66,7 @@ function defaultHints(entry: ViewEntry, isRoot: boolean): string {
   } else {
     parts.push('\u23CE open');
   }
-  parts.push('/ command');
+  parts.push('/ search');
   if (!isRoot) parts.push('Esc back');
   parts.push('q quit');
   return parts.join('  ');
@@ -142,9 +135,9 @@ export function Shell({ api }: ShellProps): React.ReactElement {
   // ── View stack ────────────────────────────────────────────────────
 
   const initialView: ViewEntry = {
-    type: 'projects',
-    component: ProjectsView,
-    breadcrumb: 'Projects',
+    type: 'menu',
+    component: MenuView,
+    breadcrumb: '',
   };
 
   const [stack, setStack] = useState<ViewEntry[]>([initialView]);
@@ -169,11 +162,10 @@ export function Shell({ api }: ShellProps): React.ReactElement {
     exit();
   }, [exit]);
 
-  // ── Command mode ────────────────────────────────────────────────
+  // ── Search mode ─────────────────────────────────────────────────
 
-  const [commandMode, setCommandMode] = useState(false);
+  const [searchMode, setSearchMode] = useState(false);
   const [flash, setFlash] = useState<string | null>(null);
-  const [subtitle, setSubtitle] = useState<string | null>(null);
 
   // Auto-dismiss flash messages after 2 seconds
   useEffect(() => {
@@ -183,145 +175,26 @@ export function Shell({ api }: ShellProps): React.ReactElement {
     }
   }, [flash]);
 
-  const enterCommandMode = useCallback(() => {
-    setCommandMode(true);
+  const enterSearchMode = useCallback(() => {
+    setSearchMode(true);
     setFlash(null);
   }, []);
 
-  const exitCommandMode = useCallback(() => {
-    setCommandMode(false);
+  const exitSearchMode = useCallback(() => {
+    setSearchMode(false);
   }, []);
 
-  const handleCommandExecute = useCallback((cmdName: string, args: string) => {
-    setCommandMode(false);
-
-    // Space shorthand already resolved by CommandInput — cmdName will be 'search'
-    const resolved = resolveCommand(cmdName + (args ? ` ${args}` : ''));
-
-    if (!resolved) {
-      setFlash(`Unknown command: "${cmdName}". Type /help for available commands.`);
-      return;
-    }
-
-    const { command, args: resolvedArgs } = resolved;
-
-    // Check context requirements
-    const ctx = deriveContext(stack);
-    if (command.needsProject && !ctx.project) {
-      setFlash(`/${command.name} requires a project. Navigate to a project first.`);
-      return;
-    }
-    if (command.needsSession && !ctx.session) {
-      setFlash(`/${command.name} requires a session. Navigate to a session first.`);
-      return;
-    }
-
-    // Handle commands
-    switch (command.name) {
-      case 'quit':
-        quit();
-        break;
-      case 'help': {
-        const entry: ViewEntry = {
-          type: 'help',
-          component: HelpView,
-          breadcrumb: 'Help',
-          hints: 'Press any key to dismiss',
-        };
-        push(entry);
-        break;
-      }
-      case 'stats': {
-        const entry: ViewEntry = {
-          type: 'stats',
-          component: StatsView,
-          breadcrumb: 'Stats',
-          hints: '\u2191\u2193 scroll  Esc back',
-        };
-        push(entry);
-        break;
-      }
-      case 'search': {
-        if (!resolvedArgs) {
-          setFlash('Usage: /search <query>');
-          return;
-        }
-        const searchQuery = resolvedArgs;
-        const searchResults = api.search({ text: searchQuery });
-        const entry: ViewEntry = {
-          type: 'search',
-          component: () => <SearchView query={searchQuery} />,
-          breadcrumb: `Search: "${searchQuery}" (${searchResults.total} results)`,
-          hints: '\u2191\u2193 navigate  \u23CE jump to message  Esc back  / new search',
-        };
-        push(entry);
-        break;
-      }
-      case 'memory': {
-        const entry: ViewEntry = {
-          type: 'memory',
-          component: () => <MemoryView projectSlug={ctx.project!.slug} />,
-          breadcrumb: 'Memory',
-          hints: '\u2191\u2193 scroll  Esc back',
-        };
-        push(entry);
-        break;
-      }
-      case 'todos': {
-        const sessionId = ctx.session?.sessionId ?? api.getSessionList(ctx.project!.slug)[0]?.sessionId;
-        if (!sessionId) {
-          setFlash('No sessions found for this project.');
-          return;
-        }
-        const todos = api.getSessionTodos(ctx.project!.slug, sessionId);
-        const entry: ViewEntry = {
-          type: 'todos',
-          component: () => <TodosView projectSlug={ctx.project!.slug} sessionId={sessionId} />,
-          breadcrumb: `Todos (${Array.isArray(todos) ? todos.length : 0})`,
-          hints: '\u2191\u2193 scroll  Esc back',
-        };
-        push(entry);
-        break;
-      }
-      case 'plan': {
-        const planSessionId = ctx.session?.sessionId ?? api.getSessionList(ctx.project!.slug)[0]?.sessionId;
-        if (!planSessionId) {
-          setFlash('No sessions found for this project.');
-          return;
-        }
-        const entry: ViewEntry = {
-          type: 'plan',
-          component: () => <PlanView projectSlug={ctx.project!.slug} sessionId={planSessionId} />,
-          breadcrumb: 'Plan',
-          hints: '\u2191\u2193 scroll  Esc back',
-        };
-        push(entry);
-        break;
-      }
-      case 'subagents': {
-        const subSessionId = ctx.session?.sessionId ?? api.getSessionList(ctx.project!.slug)[0]?.sessionId;
-        if (!subSessionId) {
-          setFlash('No sessions found for this project.');
-          return;
-        }
-        const subs = api.getSessionSubagents(ctx.project!.slug, subSessionId);
-        const entry: ViewEntry = {
-          type: 'subagents',
-          component: () => <SubagentsView projectSlug={ctx.project!.slug} sessionId={subSessionId} />,
-          breadcrumb: `Subagents (${subs.length})`,
-          hints: '\u2191\u2193 navigate  \u23CE view transcript  Esc back',
-        };
-        push(entry);
-        break;
-      }
-      case 'export':
-        setFlash('Export: coming in Phase 7');
-        break;
-      default:
-        setFlash(`Unknown command: /${command.name}`);
-        break;
-    }
-  }, [stack, quit, api, push]);
+  const handleSearch = useCallback((query: string) => {
+    setSearchMode(false);
+    const searchResults = api.search({ text: query });
+    const entry: ViewEntry = {
+      type: 'search',
+      component: () => <SearchView query={query} />,
+      breadcrumb: `Search: "${query}" (${searchResults.total} results)`,
+      hints: '\u2191\u2193 navigate  \u23CE jump to message  Esc back  / new search',
+    };
+    push(entry);
+  }, [api, push]);
 
   const top = stack[stack.length - 1];
   const context = deriveContext(stack);
@@ -332,10 +205,9 @@ export function Shell({ api }: ShellProps): React.ReactElement {
     replace,
     popAndPush,
     quit,
-    enterCommandMode,
+    enterSearchMode,
     context,
-    commandMode,
-    setSubtitle,
+    searchMode,
   };
 
   const breadcrumb = buildBreadcrumb(stack);
@@ -343,31 +215,22 @@ export function Shell({ api }: ShellProps): React.ReactElement {
   const hints = defaultHints(top, isRoot);
 
   // Global keys — handled at shell level so they work everywhere.
-  // Suppressed when command mode is active (CommandInput handles input).
+  // Suppressed when search mode is active (SearchInput handles input).
   useInput((input, key) => {
     if (input === 'q') {
       quit();
     }
     if (input === '/') {
-      enterCommandMode();
+      enterSearchMode();
     }
-    if (input === '?') {
-      const entry: ViewEntry = {
-        type: 'help',
-        component: HelpView,
-        breadcrumb: 'Help',
-        hints: 'Press any key to dismiss',
-      };
-      push(entry);
-    }
-  }, { isActive: !commandMode });
+  }, { isActive: !searchMode });
 
-  // Dismiss flash on any keypress when flash is showing and not in command mode
+  // Dismiss flash on any keypress when flash is showing and not in search mode
   useInput(() => {
     if (flash) {
       setFlash(null);
     }
-  }, { isActive: !commandMode && flash !== null });
+  }, { isActive: !searchMode && flash !== null });
 
   // ── Render ────────────────────────────────────────────────────────
 
@@ -389,8 +252,8 @@ export function Shell({ api }: ShellProps): React.ReactElement {
 
   // Determine what to render in the footer area
   let footerContent: React.ReactElement;
-  if (commandMode) {
-    footerContent = <CommandInput onExecute={handleCommandExecute} onCancel={exitCommandMode} />;
+  if (searchMode) {
+    footerContent = <SearchInput onSearch={handleSearch} onCancel={exitSearchMode} />;
   } else if (flash) {
     footerContent = (
       <Box flexDirection="column">
@@ -407,7 +270,7 @@ export function Shell({ api }: ShellProps): React.ReactElement {
     <ApiProvider value={api}>
       <ViewNavProvider value={nav}>
         <Box flexDirection="column">
-          {!isRoot && <Header breadcrumb={breadcrumb} subtitle={subtitle ?? undefined} />}
+          {!isRoot && <Header breadcrumb={breadcrumb} />}
           <Box flexGrow={1} flexDirection="column">
             <TopView />
           </Box>

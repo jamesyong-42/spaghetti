@@ -114,7 +114,7 @@ export function StatsView(): React.ReactElement {
   const maxScroll = Math.max(0, lines.length - viewportHeight);
 
   useInput((_input, key) => {
-    if (nav.commandMode) return;
+    if (nav.searchMode) return;
     if (key.upArrow) {
       setScrollOffset((prev) => Math.max(0, prev - 1));
     } else if (key.downArrow) {
@@ -122,7 +122,7 @@ export function StatsView(): React.ReactElement {
     } else if (key.escape) {
       nav.pop();
     }
-  }, { isActive: !nav.commandMode });
+  }, { isActive: !nav.searchMode });
 
   const visibleLines = lines.slice(scrollOffset, scrollOffset + viewportHeight);
 

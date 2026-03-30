@@ -418,17 +418,11 @@ export function MessagesView({ project, session, sessionIndex, initialIndex }: M
     setAllMessages((prev) => [...olderPage.messages, ...prev]);
   }, [api, project.slug, session.sessionId, loadedOffsetLow]);
 
-  // Build subtitle (filter chips + count) and push to header via nav
+  // Build filter chips + count label for display within this view
   const total = allDisplayItems.length;
   const shown = displayItems.length;
   const countLabel = total === shown ? `(${total})` : `(${shown}/${total})`;
-  const subtitle = `${buildFilterChips(filters)}  ${countLabel}`;
-
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- nav.setSubtitle is stable (React setState)
-  useEffect(() => {
-    nav.setSubtitle(subtitle);
-    return () => { nav.setSubtitle(null); };
-  }, [subtitle]);
+  const filterChipsLine = `${buildFilterChips(filters)}  ${countLabel}`;
 
   // Key handling
   useInput((input, key) => {
@@ -478,7 +472,7 @@ export function MessagesView({ project, session, sessionIndex, initialIndex }: M
     } else if (key.escape) {
       nav.pop();
     }
-  }, { isActive: !nav.commandMode });
+  }, { isActive: !nav.searchMode });
 
   // Calculate visible range
   // We need variable-height items, so do line-based viewport math

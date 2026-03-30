@@ -1,5 +1,5 @@
 /**
- * ProjectsView — Scrollable list of projects, the TUI home screen
+ * ProjectsView — Scrollable list of projects
  */
 
 import React, { useMemo } from 'react';
@@ -8,10 +8,8 @@ import type { ProjectListItem } from '@vibecook/spaghetti-core';
 import { useViewNav } from './context.js';
 import { useApi } from './shell.js';
 import { useListNavigation, useTerminalSize } from './hooks.js';
-import { formatTokens, formatBytes, formatRelativeTime, formatNumber, totalTokens } from '../lib/format.js';
-import { SessionsView } from './sessions-view.js';
-import { WelcomePanel } from './welcome-panel.js';
-import type { WelcomePanelStats } from './welcome-panel.js';
+import { formatTokens, formatRelativeTime, formatNumber, totalTokens } from '../lib/format.js';
+import { ProjectTabView } from './project-tab-view.js';
 import type { ViewEntry } from './types.js';
 
 // ─── ProjectCard ───────────────────────────────────────────────────────
@@ -83,26 +81,16 @@ function ProjectCard({ project, firstPrompt, selected, cols }: ProjectCardProps)
 
 // ─── ProjectsView ──────────────────────────────────────────────────────
 
-// ─── Welcome Panel Height ─────────────────────────────────────────────
-// The welcome panel takes ~12 lines when visible (border + title + content + padding).
-// When the right column is hidden (<70 cols) it's ~10 lines.
-// When hidden entirely (<50 cols) it's 0 lines.
-const WELCOME_PANEL_HEIGHT_FULL = 12;
-const WELCOME_PANEL_HEIGHT_NARROW = 10;
-
 export function ProjectsView(): React.ReactElement {
   const nav = useViewNav();
   const api = useApi();
   const { cols, rows } = useTerminalSize();
-  const isHome = nav.context.project === undefined;
 
-  // Load data — also measure query time for the welcome panel
-  const { projects, queryMs } = useMemo(() => {
-    const t0 = performance.now();
+  // Load data
+  const projects = useMemo(() => {
     const list = api.getProjectList();
-    const elapsed = Math.round(performance.now() - t0);
     list.sort((a, b) => new Date(b.lastActiveAt).getTime() - new Date(a.lastActiveAt).getTime());
-    return { projects: list, queryMs: elapsed };
+    return list;
   }, [api]);
 
   const firstPrompts = useMemo(() => {
@@ -116,39 +104,9 @@ export function ProjectsView(): React.ReactElement {
     return map;
   }, [api, projects]);
 
-  // Compute aggregate stats for the welcome panel
-  const panelStats = useMemo((): WelcomePanelStats => {
-    let sessions = 0;
-    let messages = 0;
-    let tokens = 0;
-    for (const p of projects) {
-      sessions += p.sessionCount;
-      messages += p.messageCount;
-      tokens += totalTokens(p.tokenUsage);
-    }
-    return {
-      projects: projects.length,
-      sessions,
-      messages,
-      tokens: formatTokens(tokens),
-    };
-  }, [projects]);
-
-  // Get data size from store stats
-  const dataSize = useMemo(() => {
-    const stats = api.getStats();
-    return formatBytes(stats.dbSizeBytes);
-  }, [api]);
-
-  // Calculate welcome panel height for viewport adjustment
-  const showPanel = isHome && cols >= 50;
-  const panelHeight = !showPanel ? 0 : cols >= 70 ? WELCOME_PANEL_HEIGHT_FULL : WELCOME_PANEL_HEIGHT_NARROW;
-
-  // Viewport = terminal rows - footer chrome (3 lines: hrule + hints + hrule)
-  // - welcome panel height (if visible)
-  // Shell hides the header on home screen, so no header lines to subtract.
-  const chromeLines = 3; // footer
-  const viewportHeight = Math.max(5, rows - chromeLines - panelHeight);
+  // Viewport = terminal rows - header chrome (2 lines: breadcrumb + hrule) - footer chrome (2 lines: hrule + hints)
+  const chromeLines = 4; // header + footer
+  const viewportHeight = Math.max(5, rows - chromeLines);
 
   const { selectedIndex, scrollOffset, moveUp, moveDown } = useListNavigation({
     itemCount: projects.length,
@@ -166,16 +124,16 @@ export function ProjectsView(): React.ReactElement {
       if (projects.length === 0) return;
       const project = projects[selectedIndex];
       const entry: ViewEntry = {
-        type: 'sessions',
-        component: () => <SessionsView project={project} />,
+        type: 'project-tabs',
+        component: () => <ProjectTabView project={project} />,
         breadcrumb: project.folderName,
       };
       (entry as any)._project = project;
       nav.push(entry);
     } else if (key.escape) {
-      nav.quit();
+      nav.pop();
     }
-  }, { isActive: !nav.commandMode });
+  }, { isActive: !nav.searchMode });
 
   if (projects.length === 0) {
     return (
@@ -191,14 +149,6 @@ export function ProjectsView(): React.ReactElement {
 
   return (
     <Box flexDirection="column">
-      {showPanel && (
-        <WelcomePanel
-          stats={panelStats}
-          dataPath="~/.claude"
-          dataSize={dataSize}
-          initMs={queryMs}
-        />
-      )}
       {visibleProjects.map((p, i) => {
         const actualIndex = scrollOffset + i;
         return (
