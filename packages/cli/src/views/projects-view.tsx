@@ -39,8 +39,9 @@ function ProjectCard({ project, firstPrompt, selected, cols }: ProjectCardProps)
   const nameMaxLen = maxWidth - 4 - branchStr.length; // "▎ name  branch"
   const displayName = trunc(p.folderName, Math.max(nameMaxLen, 10));
 
-  // Line 2: first prompt (truncated)
-  const promptText = firstPrompt ? `"${firstPrompt}"` : '';
+  // Line 2: first prompt (collapse newlines, then truncate)
+  const promptFlat = firstPrompt ? firstPrompt.replace(/\n+/g, ' ').replace(/\s+/g, ' ').trim() : '';
+  const promptText = promptFlat ? `"${promptFlat}"` : '';
   const truncatedPrompt = trunc(promptText, maxWidth - 4);
 
   // Line 3: stats
