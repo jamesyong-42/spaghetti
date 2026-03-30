@@ -1,5 +1,14 @@
 # @vibecook/spaghetti
 
+## 0.2.2
+
+### Patch Changes
+
+- [`0b1f98f`](https://github.com/jamesyong-42/spaghetti/commit/0b1f98f0c59aa7ffa872f93e24d6c027b69481f7) Thanks [@jamesyong-42](https://github.com/jamesyong-42)! - Interactive TUI browser for `spag p` with arrow-key navigation through projects, sessions, and messages. Features include tool_use/tool_result merging, thinking block visualization, message type filters (1-6 keys), ANSI 256-color message blocks, and chat-app style layout.
+
+- Updated dependencies []:
+  - @vibecook/spaghetti-core@0.2.2
+
 ## 0.2.1
 
 ### Patch Changes
