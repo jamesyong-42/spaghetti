@@ -110,11 +110,13 @@ function UserItem({ msg, selected, cols }: { msg: SessionMessage; selected: bool
 
   const timestamp = 'timestamp' in msg && (msg as any).timestamp ? formatRelativeTime((msg as any).timestamp) : '';
 
-  const timeVis = timestamp;
-  const labelVis = 'USER \u2590';
-  const rightVis = `${timeVis}  ${labelVis} `;
-  const leftPad = Math.max(1, cols - rightVis.length);
-  const headerContent = `${' '.repeat(leftPad)}${fg256(COLORS.timestamp)}${timestamp}  ${selected ? BOLD : ''}${fg256(labelColor)}${labelVis} `;
+  // Selection bar: right-edge ▐ on every line when selected
+  const bar = selected ? `${fg256(labelColor)}\u2590` : ' ';
+
+  const labelVis = 'USER';
+  const rightVis = `${timestamp}  ${labelVis} ${selected ? '\u2590' : ' '}`;
+  const leftPadLen = Math.max(1, cols - rightVis.length);
+  const headerContent = `${' '.repeat(leftPadLen)}${fg256(COLORS.timestamp)}${timestamp}  ${selected ? BOLD : ''}${fg256(labelColor)}${labelVis} ${bar}`;
 
   // Split preview into up to 3 lines
   const lineWidth = Math.max(cols - 4, 10);
@@ -132,18 +134,26 @@ function UserItem({ msg, selected, cols }: { msg: SessionMessage; selected: bool
   // Pad to exactly 3 body lines for consistent height
   while (bodyLines.length < 3) bodyLines.push('');
 
+  // Build all block lines with consistent right-edge bar
+  const allLines: string[] = [];
+
+  // Header
+  allLines.push(headerContent);
+
+  // Body lines (right-aligned)
+  for (const line of bodyLines) {
+    const textVisLen = line.length + 2; // trailing space + bar
+    const lp = Math.max(1, cols - textVisLen);
+    allLines.push(`${' '.repeat(lp)}${fg256(textColor)}${line} ${bar}`);
+  }
+
   return (
     <Box flexDirection="column">
-      <Text> </Text>
-      <Text>{bgLine256(headerContent, cols, bgColor)}</Text>
-      {bodyLines.map((line, i) => {
-        // Right-align body text to match the right-aligned header
-        const textVisLen = line.length + 1; // line + trailing space
-        const leftPad = Math.max(1, cols - textVisLen);
-        const content = `${' '.repeat(leftPad)}${fg256(textColor)}${line} `;
-        return <Text key={i}>{bgLine256(content, cols, bgColor)}</Text>;
-      })}
-      <Text> </Text>
+      <Text>{bgLine256(` ${' '.repeat(cols - 2)}${bar}`, cols, bgColor)}</Text>
+      {allLines.map((line, i) => (
+        <Text key={i}>{bgLine256(line, cols, bgColor)}</Text>
+      ))}
+      <Text>{bgLine256(` ${' '.repeat(cols - 2)}${bar}`, cols, bgColor)}</Text>
     </Box>
   );
 }
@@ -160,7 +170,10 @@ function AssistantItem({ msg, selected, cols }: { msg: SessionMessage; selected:
 
   const timestamp = 'timestamp' in msg && (msg as any).timestamp ? formatRelativeTime((msg as any).timestamp) : '';
 
-  const headerContent = ` ${selected ? BOLD : ''}${fg256(labelColor)}\u258C CLAUDE  ${fg256(COLORS.timestamp)}${timestamp} `;
+  // Selection bar: left-edge ▌ on every line when selected
+  const bar = selected ? `${fg256(labelColor)}\u258C` : ' ';
+
+  const headerContent = `${bar} ${selected ? BOLD : ''}${fg256(labelColor)}CLAUDE  ${fg256(COLORS.timestamp)}${timestamp} `;
 
   // Split preview into up to 2 lines
   const lineWidth = Math.max(cols - 4, 10);
@@ -180,12 +193,12 @@ function AssistantItem({ msg, selected, cols }: { msg: SessionMessage; selected:
 
   return (
     <Box flexDirection="column">
-      <Text> </Text>
+      <Text>{bgLine256(`${bar}${' '.repeat(cols - 1)}`, cols, bgColor)}</Text>
       <Text>{bgLine256(headerContent, cols, bgColor)}</Text>
       {bodyLines.map((line, i) => (
-        <Text key={i}>{bgLine256(` ${fg256(textColor)}${line} `, cols, bgColor)}</Text>
+        <Text key={i}>{bgLine256(`${bar} ${fg256(textColor)}${line} `, cols, bgColor)}</Text>
       ))}
-      <Text> </Text>
+      <Text>{bgLine256(`${bar}${' '.repeat(cols - 1)}`, cols, bgColor)}</Text>
     </Box>
   );
 }
