@@ -1,5 +1,12 @@
 # @spaghetti/ui
 
+## 0.1.4
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @vibecook/spaghetti-core@0.3.0
+
 ## 0.1.3
 
 ### Patch Changes

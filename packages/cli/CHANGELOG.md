@@ -1,5 +1,28 @@
 # @vibecook/spaghetti
 
+## 0.3.0
+
+### Minor Changes
+
+- TUI redesign: Ink view stack with menu home, tabs, search bar, and scrollbar
+  - `spag` (bare) now launches an interactive TUI built with Ink (React for CLIs)
+  - Menu home screen: Projects / Stats / Help with branded welcome panel
+  - Project-level tabs: Sessions | Memory (←→ to switch)
+  - Session-level tabs: Messages | Todos | Plan | Subagents (←→ to switch)
+  - Pill-style tab badges: bg-filled active tab, rounded-border inactive tabs
+  - Search bar: press `/` to search, context-aware (scopes to current project/session)
+  - Message filters: 1-6 toggles for user/claude/thinking/tools/system/internal
+  - Scrollbar track on messages view with stable thumb size
+  - Boot screen with wordmark and progress bar during initialization
+  - 256-color message blocks with selection bars (▐ right for user, ▌ left for claude)
+  - Multi-line message previews (3 lines user, 2 lines claude)
+  - All subcommands (`spag p`, `spag s`, etc.) remain static one-off commands for agents/scripts
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @vibecook/spaghetti-core@0.3.0
+
 ## 0.2.2
 
 ### Patch Changes
