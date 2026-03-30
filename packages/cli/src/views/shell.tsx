@@ -173,6 +173,7 @@ export function Shell({ api }: ShellProps): React.ReactElement {
 
   const [commandMode, setCommandMode] = useState(false);
   const [flash, setFlash] = useState<string | null>(null);
+  const [subtitle, setSubtitle] = useState<string | null>(null);
 
   // Auto-dismiss flash messages after 2 seconds
   useEffect(() => {
@@ -334,6 +335,7 @@ export function Shell({ api }: ShellProps): React.ReactElement {
     enterCommandMode,
     context,
     commandMode,
+    setSubtitle,
   };
 
   const breadcrumb = buildBreadcrumb(stack);
@@ -405,7 +407,7 @@ export function Shell({ api }: ShellProps): React.ReactElement {
     <ApiProvider value={api}>
       <ViewNavProvider value={nav}>
         <Box flexDirection="column">
-          {!isRoot && <Header breadcrumb={breadcrumb} />}
+          {!isRoot && <Header breadcrumb={breadcrumb} subtitle={subtitle ?? undefined} />}
           <Box flexGrow={1} flexDirection="column">
             <TopView />
           </Box>

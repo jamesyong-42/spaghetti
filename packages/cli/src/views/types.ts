@@ -41,6 +41,8 @@ export interface ViewNav {
   context: ViewContext;
   /** True when the command input overlay is active — views should suppress their key handling */
   commandMode: boolean;
+  /** Set a subtitle line shown between breadcrumb and HRule (e.g. filter chips). Pass null to clear. */
+  setSubtitle(subtitle: string | null): void;
 }
 
 export interface ViewContext {
