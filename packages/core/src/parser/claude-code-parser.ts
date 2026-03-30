@@ -32,6 +32,8 @@ export interface ClaudeCodeParser {
   parse(options?: ClaudeCodeParserOptions): Promise<ClaudeCodeAgentData>;
   parseSync(options?: ClaudeCodeParserOptions): ClaudeCodeAgentData;
   parseStreaming(sink: ProjectParseSink, options?: ClaudeCodeParserOptions): void;
+  /** Parse a single project in streaming mode */
+  parseProjectStreaming(claudeDir: string, slug: string, sink: ProjectParseSink): void;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -87,6 +89,10 @@ export class ClaudeCodeParserImpl implements ClaudeCodeParser {
 
     // Config and analytics still use sync parsers (they're small data)
     // — consumers that need them can call parseSync() separately.
+  }
+
+  parseProjectStreaming(claudeDir: string, slug: string, sink: ProjectParseSink): void {
+    this.projectParser.parseProjectStreaming(claudeDir, slug, sink);
   }
 }
 

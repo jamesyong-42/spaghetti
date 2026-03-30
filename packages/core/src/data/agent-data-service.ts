@@ -245,24 +245,26 @@ export class AgentDataServiceImpl extends EventEmitter implements ClaudeCodeAgen
     // Discover slugs to report progress count
     const slugs = this.discoverProjectSlugs();
     const totalProjects = slugs.length;
-    let completedProjects = 0;
 
     this.emitProgress('parsing', `Parsing ${totalProjects} projects...`, 0, totalProjects);
 
-    // Wrap the ingest service with a progress-emitting proxy
-    const progressSink: typeof this.ingestService = Object.create(this.ingestService);
-    progressSink.onProjectComplete = (slug: string) => {
-      this.ingestService.onProjectComplete(slug);
-      completedProjects++;
-      this.emitProgress('parsing', `Parsed ${slug}`, completedProjects, totalProjects);
-    };
-
-    // Use streaming parser to ingest all data directly into SQLite
+    // Parse project by project, yielding the event loop between each so
+    // consumers (e.g. Ink TUI) can re-render progress updates.
+    // Previously this was a single blocking parseStreaming() call that
+    // starved the event loop for the entire duration.
     this.ingestService.beginTransaction();
     try {
-      this.parser.parseStreaming(progressSink, {
-        claudeDir: this.claudeDir,
-      });
+      for (let i = 0; i < slugs.length; i++) {
+        const slug = slugs[i];
+        this.parser.parseProjectStreaming(this.claudeDir, slug, this.ingestService);
+        this.ingestService.onProjectComplete(slug);
+        this.emitProgress('parsing', `Parsed ${slug}`, i + 1, totalProjects);
+
+        // Yield to the event loop so UI can render progress updates
+        if (i < slugs.length - 1) {
+          await new Promise<void>((resolve) => setImmediate(resolve));
+        }
+      }
       this.ingestService.commitTransaction();
     } catch (error) {
       this.ingestService.rollbackTransaction();
@@ -443,11 +445,23 @@ export class AgentDataServiceImpl extends EventEmitter implements ClaudeCodeAgen
         : `Re-parsing: ${changedFiles.length} changed, ${removedFiles.length} removed files...`,
     );
 
+    // Parse project by project with event-loop yields so UI can update
+    const slugs = this.discoverProjectSlugs();
+    const totalProjects = slugs.length;
+
     this.ingestService.beginTransaction();
     try {
-      this.parser.parseStreaming(this.ingestService, {
-        claudeDir: this.claudeDir,
-      });
+      for (let i = 0; i < slugs.length; i++) {
+        const slug = slugs[i];
+        this.parser.parseProjectStreaming(this.claudeDir, slug, this.ingestService);
+        this.ingestService.onProjectComplete(slug);
+        this.emitProgress('parsing', `Parsed ${slug}`, i + 1, totalProjects);
+
+        // Yield to the event loop so UI can render progress updates
+        if (i < slugs.length - 1) {
+          await new Promise<void>((resolve) => setImmediate(resolve));
+        }
+      }
       this.ingestService.commitTransaction();
     } catch (error) {
       this.ingestService.rollbackTransaction();

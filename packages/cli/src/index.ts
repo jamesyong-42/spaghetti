@@ -78,9 +78,10 @@ export function createProgram(): Command {
     { name: 'export', alias: 'x', description: 'Export project data' },
   ];
 
-  // Default action: dashboard (or catch unknown commands)
+  // Default action: catch unknown commands.
+  // Bare `spag` (no args) is handled in bin.ts before commander runs.
   program.argument('[args...]', '').action(async (args: string[]) => {
-    // If no arguments, show the dashboard
+    // If no arguments, show the static dashboard (fallback for --json or piped usage via commander)
     if (!args || args.length === 0) {
       await withService((api) => dashboardCommand(api, VERSION));
       return;
@@ -129,14 +130,12 @@ export function createProgram(): Command {
     .description('List all projects')
     .option('-s, --sort <key>', 'Sort by: active, sessions, messages, tokens, name', 'active')
     .option('-l, --limit <n>', 'Limit results', parseInt)
-    .option('--no-interactive', 'Disable interactive mode (use static table)')
     .option('--json', 'Output as JSON')
     .action(async (cmdOpts: ProjectsOptions) => {
       await withService((api) =>
         projectsCommand(api, {
           sort: cmdOpts.sort,
           limit: cmdOpts.limit,
-          interactive: cmdOpts.interactive,
           json: cmdOpts.json,
         }),
       );

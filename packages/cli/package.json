@@ -18,12 +18,15 @@
     "test": "node --import tsx --test src/__tests__/*.test.ts"
   },
   "dependencies": {
+    "@inkjs/ui": "^2.0.0",
     "@vibecook/spaghetti-core": "workspace:*",
-    "commander": "^13.1.0",
-    "picocolors": "^1.1.1",
     "cli-truncate": "^4.0.0",
-    "string-width": "^7.2.0",
-    "nanospinner": "^1.2.2"
+    "commander": "^13.1.0",
+    "ink": "^6.8.0",
+    "nanospinner": "^1.2.2",
+    "picocolors": "^1.1.1",
+    "react": "^19.2.4",
+    "string-width": "^7.2.0"
   },
   "publishConfig": {
     "access": "public"
@@ -38,8 +41,9 @@
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
+    "@types/react": "^19.2.14",
+    "tsup": "^8.4.0",
     "tsx": "^4.19.0",
-    "typescript": "^5.7.0",
-    "tsup": "^8.4.0"
+    "typescript": "^5.7.0"
   }
 }

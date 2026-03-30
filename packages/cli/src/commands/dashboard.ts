@@ -83,6 +83,52 @@ function renderQuickCommands(): string {
   return lines.join('\n');
 }
 
+/**
+ * Output a machine-readable JSON summary to stdout.
+ * Used when `spag` is piped (not a TTY).
+ */
+export async function summaryJSON(api: SpaghettiAPI): Promise<void> {
+  const projects = api.getProjectList();
+  const stats = api.getStats();
+
+  let totalSessions = 0;
+  let totalMessages = 0;
+  let totalInputTokens = 0;
+  let totalOutputTokens = 0;
+  let totalCacheCreationTokens = 0;
+  let totalCacheReadTokens = 0;
+
+  for (const p of projects) {
+    totalSessions += p.sessionCount;
+    totalMessages += p.messageCount;
+    totalInputTokens += p.tokenUsage.inputTokens;
+    totalOutputTokens += p.tokenUsage.outputTokens;
+    totalCacheCreationTokens += p.tokenUsage.cacheCreationTokens;
+    totalCacheReadTokens += p.tokenUsage.cacheReadTokens;
+  }
+
+  const summary = {
+    projectCount: projects.length,
+    sessionCount: totalSessions,
+    messageCount: totalMessages,
+    tokens: {
+      input: totalInputTokens,
+      output: totalOutputTokens,
+      cacheCreation: totalCacheCreationTokens,
+      cacheRead: totalCacheReadTokens,
+      total: totalTokens({
+        inputTokens: totalInputTokens,
+        outputTokens: totalOutputTokens,
+        cacheCreationTokens: totalCacheCreationTokens,
+        cacheReadTokens: totalCacheReadTokens,
+      }),
+    },
+    dbSizeBytes: stats.dbSizeBytes,
+  };
+
+  process.stdout.write(JSON.stringify(summary, null, 2) + '\n');
+}
+
 export async function dashboardCommand(api: SpaghettiAPI, version: string): Promise<void> {
   const width = getTerminalWidth();
   const divider = theme.muted('\u2500'.repeat(Math.min(width, 60)));

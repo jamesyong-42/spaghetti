@@ -10,4 +10,7 @@ export default defineConfig({
   splitting: false,
   banner: { js: '#!/usr/bin/env node' },
   external: ['better-sqlite3', 'chokidar'],
+  esbuildOptions(options) {
+    options.jsx = 'automatic';
+  },
 });
