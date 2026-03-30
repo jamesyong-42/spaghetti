@@ -136,9 +136,13 @@ function UserItem({ msg, selected, cols }: { msg: SessionMessage; selected: bool
     <Box flexDirection="column">
       <Text> </Text>
       <Text>{bgLine256(headerContent, cols, bgColor)}</Text>
-      {bodyLines.map((line, i) => (
-        <Text key={i}>{bgLine256(` ${fg256(textColor)}${line} `, cols, bgColor)}</Text>
-      ))}
+      {bodyLines.map((line, i) => {
+        // Right-align body text to match the right-aligned header
+        const textVisLen = line.length + 1; // line + trailing space
+        const leftPad = Math.max(1, cols - textVisLen);
+        const content = `${' '.repeat(leftPad)}${fg256(textColor)}${line} `;
+        return <Text key={i}>{bgLine256(content, cols, bgColor)}</Text>;
+      })}
       <Text> </Text>
     </Box>
   );
