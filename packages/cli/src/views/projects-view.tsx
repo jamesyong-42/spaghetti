@@ -3,11 +3,11 @@
  */
 
 import React, { useMemo } from 'react';
-import { Box, Text, useInput, useStdout } from 'ink';
+import { Box, Text, useInput } from 'ink';
 import type { ProjectListItem } from '@vibecook/spaghetti-core';
 import { useViewNav } from './context.js';
 import { useApi } from './shell.js';
-import { useListNavigation } from './hooks.js';
+import { useListNavigation, useTerminalSize } from './hooks.js';
 import { formatTokens, formatBytes, formatRelativeTime, formatNumber, totalTokens } from '../lib/format.js';
 import { SessionsView } from './sessions-view.js';
 import { WelcomePanel } from './welcome-panel.js';
@@ -25,33 +25,56 @@ interface ProjectCardProps {
 
 function ProjectCard({ project, firstPrompt, selected, cols }: ProjectCardProps): React.ReactElement {
   const p = project;
-  const dot = ' \u00B7 ';
+  const maxWidth = cols - 2; // leave 2 chars margin
+
+  // Truncate helper
+  const trunc = (s: string, max: number) => s.length > max ? s.slice(0, max - 1) + '\u2026' : s;
+
+  // Prefix: ▎ (selected) or space
+  const prefix = selected ? '\u258E' : ' ';
+  const prefixColor = selected ? 'cyan' : undefined;
 
   // Line 1: name + branch
-  const prefix = selected ? '\x1b[36m\u258E\x1b[0m' : ' '; // cyan ▎ or space
-  const name = selected ? `\x1b[1m\x1b[37m${p.folderName}\x1b[0m` : `\x1b[37m${p.folderName}\x1b[0m`;
-  const branch = p.latestGitBranch
-    ? selected
-      ? `\x1b[36m${p.latestGitBranch}\x1b[0m`
-      : `\x1b[2m${p.latestGitBranch}\x1b[0m`
-    : '';
+  const branchStr = p.latestGitBranch || '';
+  const nameMaxLen = maxWidth - 4 - branchStr.length; // "▎ name  branch"
+  const displayName = trunc(p.folderName, Math.max(nameMaxLen, 10));
 
-  // Line 2: first prompt
+  // Line 2: first prompt (truncated)
   const promptText = firstPrompt ? `"${firstPrompt}"` : '';
-  const maxPromptLen = Math.max(cols - 6, 20);
-  const truncatedPrompt = promptText.length > maxPromptLen ? promptText.slice(0, maxPromptLen - 1) + '\u2026' : promptText;
+  const truncatedPrompt = trunc(promptText, maxWidth - 4);
 
   // Line 3: stats
-  const sessionCount = selected ? `\x1b[37m${formatNumber(p.sessionCount)}\x1b[0m` : `\x1b[2m${formatNumber(p.sessionCount)}\x1b[0m`;
-  const msgCount = selected ? `\x1b[37m${formatNumber(p.messageCount)}\x1b[0m` : `\x1b[2m${formatNumber(p.messageCount)}\x1b[0m`;
-  const tokenCount = selected ? `\x1b[33m${formatTokens(totalTokens(p.tokenUsage))}\x1b[0m` : `\x1b[2m${formatTokens(totalTokens(p.tokenUsage))}\x1b[0m`;
-  const timeStr = `\x1b[2m${formatRelativeTime(p.lastActiveAt)}\x1b[0m`;
+  const stats = `${formatNumber(p.sessionCount)} sessions \u00B7 ${formatNumber(p.messageCount)} msgs \u00B7 ${formatTokens(totalTokens(p.tokenUsage))} tokens \u00B7 ${formatRelativeTime(p.lastActiveAt)}`;
+  const truncatedStats = trunc(stats, maxWidth - 4);
 
   return (
-    <Box flexDirection="column">
-      <Text>{prefix} {name}  {branch}</Text>
-      <Text>{prefix} <Text dimColor italic>{truncatedPrompt}</Text></Text>
-      <Text>{`${prefix} ${sessionCount}\x1b[2m sessions${dot}${msgCount}\x1b[2m msgs${dot}${tokenCount}\x1b[2m tokens${dot}${timeStr}`}</Text>
+    <Box flexDirection="column" width={cols}>
+      <Box width={cols}>
+        <Text>
+          <Text color={prefixColor}>{prefix}</Text>
+          <Text> </Text>
+          <Text bold={selected} color="white">{displayName}</Text>
+          <Text>  </Text>
+          <Text color={selected ? 'cyan' : undefined} dimColor={!selected}>{branchStr}</Text>
+        </Text>
+      </Box>
+      <Box width={cols}>
+        <Text>
+          <Text color={prefixColor}>{prefix}</Text>
+          <Text> </Text>
+          <Text dimColor italic>{truncatedPrompt}</Text>
+        </Text>
+      </Box>
+      <Box width={cols}>
+        <Text>
+          <Text color={prefixColor}>{prefix}</Text>
+          <Text> </Text>
+          {selected
+            ? <Text>{truncatedStats}</Text>
+            : <Text dimColor>{truncatedStats}</Text>
+          }
+        </Text>
+      </Box>
       <Text> </Text>
     </Box>
   );
@@ -69,8 +92,7 @@ const WELCOME_PANEL_HEIGHT_NARROW = 10;
 export function ProjectsView(): React.ReactElement {
   const nav = useViewNav();
   const api = useApi();
-  const { stdout } = useStdout();
-  const cols = stdout?.columns ?? 80;
+  const { cols, rows } = useTerminalSize();
   const isHome = nav.context.project === undefined;
 
   // Load data — also measure query time for the welcome panel
@@ -121,9 +143,16 @@ export function ProjectsView(): React.ReactElement {
   const showPanel = isHome && cols >= 50;
   const panelHeight = !showPanel ? 0 : cols >= 70 ? WELCOME_PANEL_HEIGHT_FULL : WELCOME_PANEL_HEIGHT_NARROW;
 
+  // Viewport = terminal rows - footer chrome (3 lines: hrule + hints + hrule)
+  // - welcome panel height (if visible)
+  // Shell hides the header on home screen, so no header lines to subtract.
+  const chromeLines = 3; // footer
+  const viewportHeight = Math.max(5, rows - chromeLines - panelHeight);
+
   const { selectedIndex, scrollOffset, moveUp, moveDown } = useListNavigation({
     itemCount: projects.length,
     itemHeight: 4,
+    viewportHeight,
   });
 
   // Key handling
@@ -155,10 +184,9 @@ export function ProjectsView(): React.ReactElement {
     );
   }
 
-  // Calculate visible range — subtract panel height when panel is showing
-  const termRows = stdout?.rows ?? 24;
-  const viewportItems = Math.max(1, Math.floor((termRows - 6 - panelHeight) / 4));
-  const visibleProjects = projects.slice(scrollOffset, scrollOffset + viewportItems);
+  // Visible slice — use the same viewportHeight as useListNavigation
+  const visibleItems = Math.max(1, Math.floor(viewportHeight / 4));
+  const visibleProjects = projects.slice(scrollOffset, scrollOffset + visibleItems);
 
   return (
     <Box flexDirection="column">
