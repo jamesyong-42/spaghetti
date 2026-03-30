@@ -41,10 +41,7 @@ async function main(): Promise<void> {
 
       const service = createSpaghettiService();
       // Don't initialize here — let Shell handle it with BootView
-      const { waitUntilExit } = render(
-        React.createElement(Shell, { api: service }),
-        { exitOnCtrlC: true },
-      );
+      const { waitUntilExit } = render(React.createElement(Shell, { api: service }), { exitOnCtrlC: true });
 
       await waitUntilExit();
       service.shutdown();
