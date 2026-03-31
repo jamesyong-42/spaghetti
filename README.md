@@ -2,7 +2,7 @@
 
 **Untangle your Claude Code history.**
 
-Browse, search, and analyze every Claude Code conversation stored on your machine -- all from the terminal.
+An interactive terminal UI for browsing, searching, and analyzing every Claude Code conversation on your machine.
 
 [![npm version](https://img.shields.io/npm/v/@vibecook/spaghetti.svg)](https://www.npmjs.com/package/@vibecook/spaghetti)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
@@ -13,61 +13,78 @@ Browse, search, and analyze every Claude Code conversation stored on your machin
 ---
 
 ```
-$ spag
+╭ Spaghetti v0.3.0 ──────────────────────────────────────────────────────╮
+│                                                                        │
+│  ▄▀▀ █▀█ ▄▀▄ █▀▀ █ █ █▀▀ ▀█▀ ▀█▀ █      Projects           79 │
+│  ▀▄▄ █▀▀ █▀█ █ █ █▀█ █▀   █   █  █      Sessions        1,247 │
+│  ▄▄▀ █   █ █ ▀▀▀ ▀ ▀ ▀▀▀  ▀   ▀  ▀      Messages       86,412 │
+│                                            Tokens          66.3M │
+│  untangle your claude code history         ────────────────────── │
+│                                            /search  /stats  /help │
+│  ~/.claude · 512 MB · 28ms                                        │
+│                                                                        │
+╰────────────────────────────────────────────────────────────────────────╯
 
-  Spaghetti v0.1.0                               28ms
+  ▎ Projects                                                  79 projects
+    Browse all Claude Code project conversations
 
-  38 projects   1,247 sessions   86,412 messages
+    Stats                                                 66.3M tokens
+    Usage statistics, token counts, top projects
 
-  Recent activity
-  ──────────────────────────────────────────────────
-  #1  spaghetti          12 sessions    3,841 msgs
-  #2  voyager            8 sessions     2,104 msgs
-  #3  jabali-editor      6 sessions     1,887 msgs
-  #4  study-portfolio    4 sessions       943 msgs
-  #5  duke-os            3 sessions       612 msgs
+    Help                                                  ? keybindings
+    Navigation, commands, and keyboard shortcuts
 
-  spag p · projects    spag s · sessions    spag m · messages
+──────────────────────────────────────────────────────────────────────────
+  ↑↓ navigate  ⏎ open  / search  q quit
+──────────────────────────────────────────────────────────────────────────
 ```
 
 ---
 
-## Features
+## Interactive TUI
 
-- **Full-text search** across all conversations with FTS5
-- **Usage statistics** with token counts and bar charts
-- **Color-coded message viewer** with pager support
-- **Smart resolution** -- fuzzy project/session matching, `.` for cwd
-- **Fast** -- 28ms warm start, sub-millisecond search
-- **Data recovery** from old Claude Code cache databases
-- **JSON output** on every command (`--json`) for scripting
-- **Monorepo** -- CLI, core library, and React UI
+Running `spag` launches a full-screen interactive terminal UI built with Ink and React.
+
+**Menu home screen** -- Projects, Stats, and Help are selectable from the home menu. A branded welcome panel shows aggregate stats and boot time.
+
+**Project-level tabs** -- Select a project to see `Sessions | Memory` tabs. Arrow keys (`<- ->`) switch between viewing sessions and the project's MEMORY.md.
+
+**Session-level tabs** -- Enter a session to see `Messages | Todos | Plan | Subagents` tabs. Each tab displays its content inline; no extra commands to memorize.
+
+**Pill-style tab badges** -- Active tabs render with a filled background; inactive tabs show dim rounded borders using ANSI 256-color sequences.
+
+**Context-aware search** -- Press `/` from any view to open a search bar. Scope narrows automatically: global from home, per-project from the project view, per-session from the session view.
+
+**256-color message blocks** -- User and assistant messages render with distinct background colors and timestamps. Full-width color blocks with right-aligned metadata.
+
+**Boot screen with progress bar** -- On first run (cold start), a progress bar tracks JSONL parsing across all projects. Warm starts skip straight to the menu.
+
+**Scrollbar and filtering** -- Long lists show a scrollbar indicator. Message views support type filters (user, assistant, thinking, tools, system, internal) via number keys `1-6`.
+
+**Alternate screen buffer** -- The TUI renders in the terminal's alternate screen, leaving your shell history clean on exit.
 
 ## Quick Start
 
 ```bash
 # Install globally
-npm install -g @spaghetti/cli
+npm install -g @vibecook/spaghetti
 
 # Or use npx
-npx @spaghetti/cli
+npx @vibecook/spaghetti
 
-# Browse your Claude Code data
-spaghetti                    # Dashboard overview
-spag p                       # List all projects
-spag s spaghetti             # Sessions for a project
-spag m . 1                   # Messages from latest session
-spag search "error handling" # Full-text search
-spag st                      # Usage statistics
+# Launch the interactive TUI
+spag
 ```
 
 `spag` is a built-in alias for `spaghetti`.
 
-## Commands
+## CLI Commands (scripting / agents)
+
+The one-off subcommands still work for scripts, pipelines, and AI agents that need structured output. Every command supports `--json`.
 
 | Command | Alias | Description |
 |---------|-------|-------------|
-| `spaghetti` | | Dashboard overview |
+| `spaghetti` | | Launch interactive TUI |
 | `projects` | `p` | List all projects with stats |
 | `sessions [project]` | `s` | List sessions for a project |
 | `messages [project] [session]` | `m` | Read conversation messages |
@@ -78,8 +95,6 @@ spag st                      # Usage statistics
 | `subagents [project] [session]` | `sub` | View subagent transcripts |
 | `plan [project] [session]` | `pl` | View session plan |
 | `export [project]` | `x` | Export to JSON or Markdown |
-
-Every command supports `--json` for machine-readable output.
 
 ### Smart Resolution
 
@@ -97,6 +112,8 @@ spag s --since today # Filter by time
 ## Architecture
 
 Spaghetti uses a layered architecture optimized for fast reads over large local datasets.
+
+**Ink v6 + React 19 TUI** -- The interactive interface is a React app rendered to the terminal via Ink. A view stack manages navigation (push/pop), with a shell component handling breadcrumbs, search mode, and keyboard dispatch. Tab containers at the project and session levels wrap related views without extra navigation depth.
 
 **SQLite with dedicated tables** -- not a generic blob store. Projects, sessions, messages, and metadata each have purpose-built schemas with proper indexes.
 
@@ -133,7 +150,7 @@ spaghetti.shutdown();
 
 | Metric | Value |
 |--------|-------|
-| Cold start (first run) | ~6s |
+| Cold start (first run, with progress bar) | ~6s |
 | Warm start (no changes) | 28ms |
 | Search (FTS5) | <1ms |
 | Peak memory | ~30MB |
@@ -145,10 +162,25 @@ Benchmarked against ~500MB of Claude Code data across 38 projects.
 ```
 spaghetti/
   packages/
-    core/          @spaghetti/core — SQLite store, parser, search, API
-    cli/           @spaghetti/cli — Terminal interface (commander + picocolors)
-    ui/            @spaghetti/ui  — React web interface (planned)
-  docs/            Design documents and architecture notes
+    core/          @spaghetti/core -- SQLite store, parser, search, API
+    cli/           @vibecook/spaghetti -- Interactive TUI (Ink v6 + React 19)
+      src/
+        commands/    One-off CLI subcommands (commander)
+        views/       TUI view components
+          shell.tsx            Root component, view stack, search mode
+          boot-view.tsx        Progress bar during cold start
+          menu-view.tsx        Home menu (Projects / Stats / Help)
+          welcome-panel.tsx    Branded header with stats
+          projects-view.tsx    Project list
+          project-tab-view.tsx Sessions | Memory tabs
+          sessions-view.tsx    Session list
+          session-tab-view.tsx Messages | Todos | Plan | Subagents tabs
+          messages-view.tsx    Message viewer with type filters
+          search-view.tsx      Search results
+          tab-bar.tsx          Pill-style tab badge component
+          chrome.tsx           Header, footer, horizontal rules
+    ui/            @spaghetti/ui -- React web interface (planned)
+  docs/            Design documents and RFCs
   scripts/         Build and validation scripts
 ```
 
