@@ -499,7 +499,12 @@ export interface MessagesViewProps {
   initialIndex?: number;
 }
 
-export function MessagesView({ project, session, sessionIndex: _sessionIndex, initialIndex }: MessagesViewProps): React.ReactElement {
+export function MessagesView({
+  project,
+  session,
+  sessionIndex: _sessionIndex,
+  initialIndex,
+}: MessagesViewProps): React.ReactElement {
   const nav = useViewNav();
   const api = useApi();
   const { stdout } = useStdout();
