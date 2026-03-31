@@ -1,0 +1,14 @@
+{
+  "name": "spaghetti",
+  "owner": {
+    "name": "James Yong"
+  },
+  "plugins": [
+    {
+      "name": "spaghetti-hooks",
+      "source": "./packages/plugin",
+      "description": "Captures all Claude Code hook events for spaghetti's hooks monitor",
+      "version": "1.0.0"
+    }
+  ]
+}

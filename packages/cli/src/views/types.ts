@@ -22,7 +22,8 @@ export type ViewType =
   | 'todos'
   | 'plan'
   | 'subagents'
-  | 'help';
+  | 'help'
+  | 'hooks-monitor';
 
 export interface ViewEntry {
   type: ViewType;

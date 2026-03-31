@@ -19,6 +19,7 @@ export * from './cache-data.js';
 export * from './toplevel-files-data.js';
 export * from './teams-data.js';
 export * from './backups-data.js';
+export * from './hook-events.js';
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // IMPORTS — types used by aggregation interfaces below

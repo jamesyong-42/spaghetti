@@ -27,6 +27,13 @@ export {
 } from './streaming-jsonl-reader.js';
 
 export {
+  type HookEventWatcherOptions,
+  type HookEventWatcher,
+  createHookEventWatcher,
+  getDefaultHookEventsPath,
+} from './hook-event-watcher.js';
+
+export {
   type SqliteConfig,
   type RunResult,
   type PreparedStatement,

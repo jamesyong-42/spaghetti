@@ -25,6 +25,9 @@ import { planCommand } from './commands/plan.js';
 import type { PlanOptions } from './commands/plan.js';
 import { exportCommand } from './commands/export.js';
 import type { ExportOptions } from './commands/export.js';
+import { hooksCommand } from './commands/hooks.js';
+import type { HooksOptions } from './commands/hooks.js';
+import { pluginCommand } from './commands/plugin.js';
 import { theme } from './lib/color.js';
 import { uninstallCommand } from './commands/uninstall.js';
 import { updateCommand } from './lib/updater.js';
@@ -76,6 +79,8 @@ export function createProgram(): Command {
     { name: 'subagents', alias: 'sub', description: 'View subagents' },
     { name: 'plan', alias: 'pl', description: 'View session plan' },
     { name: 'export', alias: 'x', description: 'Export project data' },
+    { name: 'hooks', alias: 'h', description: 'View hook events' },
+    { name: 'plugin', alias: '', description: 'Manage spaghetti-hooks plugin' },
   ];
 
   // Default action: catch unknown commands.
@@ -332,6 +337,37 @@ export function createProgram(): Command {
     });
 
   program.addCommand(exportCmd);
+
+  // Hooks command (does not need SpaghettiAPI — reads JSONL directly)
+  const hooksCmd = new Command('hooks')
+    .alias('h')
+    .description('View captured hook events')
+    .option('-f, --follow', 'Stream events in real-time (like tail -f)')
+    .option('--filter <type>', 'Filter by hook event name (e.g., PreToolUse)')
+    .option('-l, --limit <n>', 'Show last N events (default: 50)', parseInt)
+    .option('--json', 'Output as JSON')
+    .option('--clear', 'Clear all recorded events')
+    .action(async (cmdOpts: HooksOptions) => {
+      await hooksCommand({
+        follow: cmdOpts.follow,
+        filter: cmdOpts.filter,
+        limit: cmdOpts.limit,
+        json: cmdOpts.json,
+        clear: cmdOpts.clear,
+      });
+    });
+
+  program.addCommand(hooksCmd);
+
+  // Plugin command (does not need SpaghettiAPI)
+  const pluginCmd = new Command('plugin')
+    .description('Manage the spaghetti-hooks Claude Code plugin')
+    .argument('<action>', 'Action: install, uninstall, status')
+    .action(async (action: string) => {
+      await pluginCommand(action);
+    });
+
+  program.addCommand(pluginCmd);
 
   // Uninstall command
   program

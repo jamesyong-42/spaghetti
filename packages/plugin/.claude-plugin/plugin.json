@@ -1,0 +1,9 @@
+{
+  "name": "spaghetti-hooks",
+  "version": "1.0.0",
+  "description": "Captures all Claude Code hook events for spaghetti's hooks monitor",
+  "author": {
+    "name": "James Yong"
+  },
+  "hooks": "./hooks/hooks.json"
+}

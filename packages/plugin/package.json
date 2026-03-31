@@ -1,0 +1,17 @@
+{
+  "name": "@vibecook/spaghetti-plugin",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Claude Code plugin that captures all hook events for spaghetti's hooks monitor",
+  "files": [
+    ".claude-plugin",
+    "hooks",
+    "scripts"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/jamesyong-42/spaghetti.git",
+    "directory": "packages/plugin"
+  }
+}

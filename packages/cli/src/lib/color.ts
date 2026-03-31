@@ -21,4 +21,10 @@ export const theme = {
   session: (s: string) => pc.bold(pc.yellow(s)),
   message: (s: string) => pc.bold(pc.green(s)),
   detail: (s: string) => pc.bold(pc.magenta(s)),
+
+  /** Apply a named color */
+  colorize: (color: string, s: string): string => {
+    const fn = (pc as unknown as Record<string, unknown>)[color];
+    return typeof fn === 'function' ? (fn as (s: string) => string)(s) : s;
+  },
 };

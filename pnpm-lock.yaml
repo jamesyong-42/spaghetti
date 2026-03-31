@@ -110,6 +110,8 @@ importers:
         specifier: ^4.0.0
         version: 4.5.4(@types/node@22.19.15)(rollup@4.59.0)(typescript@5.9.3)(vite@6.4.1(@types/node@22.19.15)(tsx@4.21.0))
 
+  packages/plugin: {}
+
   packages/ui:
     dependencies:
       '@vibecook/spaghetti-core':

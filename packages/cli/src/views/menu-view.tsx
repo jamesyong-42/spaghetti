@@ -15,6 +15,7 @@ import type { WelcomePanelStats } from './welcome-panel.js';
 import { ProjectsView } from './projects-view.js';
 import { StatsView } from './stats-view.js';
 import { HelpView } from './help-view.js';
+import { HooksMonitorView } from './hooks-monitor-view.js';
 import { formatTokens, formatBytes, totalTokens } from '../lib/format.js';
 import type { ViewEntry } from './types.js';
 
@@ -98,12 +99,13 @@ export function MenuView(): React.ReactElement {
   // Menu items
   const menuItems = [
     { name: 'Projects', description: 'Browse all Claude Code project conversations', rightStat: `${projectCount} projects` },
+    { name: 'Hooks Monitor', description: 'Real-time hook event stream from spaghetti-hooks plugin', rightStat: 'live' },
     { name: 'Stats', description: 'Usage statistics, token counts, top projects', rightStat: `${tokenStr} tokens` },
     { name: 'Help', description: 'Navigation, commands, and keyboard shortcuts', rightStat: '? keybindings' },
   ];
 
   const { selectedIndex, moveUp, moveDown } = useListNavigation({
-    itemCount: 3,
+    itemCount: 4,
     itemHeight: 3,
   });
 
@@ -122,12 +124,20 @@ export function MenuView(): React.ReactElement {
         nav.push(entry);
       } else if (selectedIndex === 1) {
         const entry: ViewEntry = {
+          type: 'hooks-monitor',
+          component: HooksMonitorView,
+          breadcrumb: 'Hooks Monitor',
+          hints: '\u2191\u2193 navigate  \u23CE detail  1-8 filter  c clear  Esc back',
+        };
+        nav.push(entry);
+      } else if (selectedIndex === 2) {
+        const entry: ViewEntry = {
           type: 'stats',
           component: StatsView,
           breadcrumb: 'Stats',
         };
         nav.push(entry);
-      } else if (selectedIndex === 2) {
+      } else if (selectedIndex === 3) {
         const entry: ViewEntry = {
           type: 'help',
           component: HelpView,
