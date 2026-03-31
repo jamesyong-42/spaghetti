@@ -14,7 +14,6 @@
 import React from 'react';
 import { Box, Text } from 'ink';
 import { createRequire } from 'node:module';
-import { Wordmark } from './wordmark.js';
 import { useTerminalSize } from './hooks.js';
 
 // ─── Version ──────────────────────────────────────────────────────────
@@ -79,8 +78,6 @@ export function WelcomePanel({ stats, dataPath, dataSize, initMs }: WelcomePanel
   const titleFill = cols - 2 - titleText.length;
   const topBorder = `╭${titleText}${'─'.repeat(Math.max(titleFill, 0))}╮`;
   const bottomBorder = `╰${'─'.repeat(Math.max(cols - 2, 0))}╯`;
-  const emptyLine = `│${' '.repeat(innerWidth)}│`;
-
   // Build content lines — each is exactly innerWidth chars inside │...│
   const contentLines: string[] = [];
 

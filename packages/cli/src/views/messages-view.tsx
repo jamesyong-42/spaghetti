@@ -499,7 +499,7 @@ export interface MessagesViewProps {
   initialIndex?: number;
 }
 
-export function MessagesView({ project, session, sessionIndex, initialIndex }: MessagesViewProps): React.ReactElement {
+export function MessagesView({ project, session, sessionIndex: _sessionIndex, initialIndex }: MessagesViewProps): React.ReactElement {
   const nav = useViewNav();
   const api = useApi();
   const { stdout } = useStdout();
@@ -582,7 +582,7 @@ export function MessagesView({ project, session, sessionIndex, initialIndex }: M
         if (!selected) return;
 
         let detailBreadcrumb: string;
-        let detailItem = selected;
+        const detailItem = selected;
 
         if (selected.kind === 'tool-call') {
           detailBreadcrumb = `${selected.toolName} ${toolInputSummary(selected.toolName, selected.toolInput).slice(0, 40)}`;

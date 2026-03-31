@@ -17,7 +17,7 @@ export function StatsView(): React.ReactElement {
   const termRows = stdout?.rows ?? 24;
 
   // Gather data
-  const { stats, projects, totalTok, topProjects } = useMemo(() => {
+  const { stats, totalTok, topProjects } = useMemo(() => {
     const s = api.getStats();
     const p = api.getProjectList();
     let sessions = 0;

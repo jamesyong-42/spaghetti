@@ -5,7 +5,7 @@
 import React, { useState, useMemo } from 'react';
 import { Box, Text, useInput, useStdout } from 'ink';
 import type { DisplayItem } from './display-items.js';
-import { getToolCategory, TOOL_CATEGORY_COLORS, toolInputSummary } from './display-items.js';
+import { getToolCategory, TOOL_CATEGORY_COLORS } from './display-items.js';
 import { useViewNav } from './context.js';
 import { renderMessage } from '../lib/message-render.js';
 import { formatTokens } from '../lib/format.js';

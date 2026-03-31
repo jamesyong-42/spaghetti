@@ -3,7 +3,6 @@ import { MetaRow } from './MetaRow.js';
 import { Badge } from './Badge.js';
 import { formatTokenCount, formatDuration } from '../utils/formatters.js';
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 type AnyMsg = Record<string, any>;
 
 export interface SubagentInfo {

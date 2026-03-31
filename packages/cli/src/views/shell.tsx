@@ -221,7 +221,7 @@ export function Shell({ api }: ShellProps): React.ReactElement {
   // Global keys — handled at shell level so they work everywhere.
   // Suppressed when search mode is active (SearchInput handles input).
   useInput(
-    (input, key) => {
+    (input, _key) => {
       if (input === 'q') {
         quit();
       }

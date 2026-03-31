@@ -5,7 +5,6 @@
 import React from 'react';
 import { Text } from 'ink';
 
-/* eslint-disable no-irregular-whitespace */
 const LINES = [
   '▄▀▀ █▀█ ▄▀▄ █▀▀ █ █ █▀▀ ▀█▀ ▀█▀ █',
   '▀▄▄ █▀▀ █▀█ █ █ █▀█ █▀   █   █  █',

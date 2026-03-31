@@ -16,8 +16,7 @@ import {
 import type { HookEvent, HookEventCategory, HookEventWatcher } from '@vibecook/spaghetti-core';
 import { useViewNav } from './context.js';
 import { useListNavigation } from './hooks.js';
-import { Header, Footer, HRule } from './chrome.js';
-import { DetailView } from './detail-view.js';
+import { Header, HRule } from './chrome.js';
 import type { ViewEntry } from './types.js';
 import pc from 'picocolors';
 
@@ -273,7 +272,6 @@ export function HooksMonitorView(): React.ReactElement {
 function HookEventDetail({ event }: { event: HookEvent }): React.ReactElement {
   const nav = useViewNav();
   const { stdout } = useStdout();
-  const cols = stdout?.columns ?? 80;
   const termRows = stdout?.rows ?? 24;
   const viewportHeight = Math.max(termRows - 6, 5);
 

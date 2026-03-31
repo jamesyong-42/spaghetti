@@ -15,7 +15,6 @@ import { DetailOverlay } from './components/DetailOverlay.js';
 import { MessageEntry, buildMessageContext, isToolResultOnlyMessage } from './components/MessageEntry.js';
 import { formatBytes } from './utils/formatters.js';
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 type AnyMsg = Record<string, any>;
 
 export function AgentDataPlayground() {

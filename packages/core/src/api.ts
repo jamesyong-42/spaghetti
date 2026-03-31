@@ -9,7 +9,7 @@ import type {
   InitProgress,
   SegmentChangeBatch,
 } from './data/segment-types.js';
-import type { ProjectSummaryData, SessionSummaryData, TokenUsageSummary } from './data/summary-types.js';
+import type { TokenUsageSummary } from './data/summary-types.js';
 import type { SessionMessage } from './types/index.js';
 
 // ═══════════════════════════════════════════════════════════════════════════
