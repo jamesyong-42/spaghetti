@@ -75,10 +75,10 @@ try {
 
 // ── Output additionalContext for supported hooks ────────────────────────
 
+// Only hooks that accept hookSpecificOutput.additionalContext in their schema
 const contextHooks = [
-  'SessionStart', 'UserPromptSubmit', 'PreToolUse', 'PostToolUse',
+  'UserPromptSubmit', 'PreToolUse', 'PostToolUse',
   'PostToolUseFailure', 'Notification', 'SubagentStart', 'SubagentStop',
-  'Stop',
 ];
 
 if (contextHooks.includes(event)) {

@@ -257,7 +257,6 @@ export function HooksMonitorView(): React.ReactElement {
         </Box>
       )}
 
-      <Footer hints={'\u2191\u2193 navigate  \u23CE detail  1-8 filter  c clear  Esc back'} />
     </Box>
   );
 }
