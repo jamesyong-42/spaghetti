@@ -4,7 +4,6 @@
 
 import {
   createHookEventWatcher,
-  getDefaultHookEventsPath,
   getHookEventSummary,
   getHookEventCategory,
   HOOK_CATEGORY_LABELS,
