@@ -30,11 +30,11 @@ const bg256 = (n: number) => `\x1b[48;5;${n}m`;
 const fg256 = (n: number) => `\x1b[38;5;${n}m`;
 
 // Active tab: white text on dark gray background
-const ACTIVE_BG = 238;   // #444444
-const ACTIVE_FG = 255;   // white
+const ACTIVE_BG = 238; // #444444
+const ACTIVE_FG = 255; // white
 
 // Inactive tab: dim rounded borders
-const INACTIVE_FG = 245;  // gray
+const INACTIVE_FG = 245; // gray
 
 function activeTab(label: string): string {
   return `${bg256(ACTIVE_BG)}${fg256(ACTIVE_FG)}${BOLD} ${label} ${RESET}`;

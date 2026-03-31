@@ -115,7 +115,8 @@ export function Shell({ api }: ShellProps): React.ReactElement {
 
     // Delay init start so Ink can paint the initial boot screen frame
     const initTimer = setTimeout(() => {
-      api.initialize()
+      api
+        .initialize()
         .then(() => {
           unsub();
           setReady(true);
@@ -184,17 +185,20 @@ export function Shell({ api }: ShellProps): React.ReactElement {
     setSearchMode(false);
   }, []);
 
-  const handleSearch = useCallback((query: string) => {
-    setSearchMode(false);
-    const searchResults = api.search({ text: query });
-    const entry: ViewEntry = {
-      type: 'search',
-      component: () => <SearchView query={query} />,
-      breadcrumb: `Search: "${query}" (${searchResults.total} results)`,
-      hints: '\u2191\u2193 navigate  \u23CE jump to message  Esc back  / new search',
-    };
-    push(entry);
-  }, [api, push]);
+  const handleSearch = useCallback(
+    (query: string) => {
+      setSearchMode(false);
+      const searchResults = api.search({ text: query });
+      const entry: ViewEntry = {
+        type: 'search',
+        component: () => <SearchView query={query} />,
+        breadcrumb: `Search: "${query}" (${searchResults.total} results)`,
+        hints: '\u2191\u2193 navigate  \u23CE jump to message  Esc back  / new search',
+      };
+      push(entry);
+    },
+    [api, push],
+  );
 
   const top = stack[stack.length - 1];
   const context = deriveContext(stack);
@@ -216,35 +220,33 @@ export function Shell({ api }: ShellProps): React.ReactElement {
 
   // Global keys — handled at shell level so they work everywhere.
   // Suppressed when search mode is active (SearchInput handles input).
-  useInput((input, key) => {
-    if (input === 'q') {
-      quit();
-    }
-    if (input === '/') {
-      enterSearchMode();
-    }
-  }, { isActive: !searchMode });
+  useInput(
+    (input, key) => {
+      if (input === 'q') {
+        quit();
+      }
+      if (input === '/') {
+        enterSearchMode();
+      }
+    },
+    { isActive: !searchMode },
+  );
 
   // Dismiss flash on any keypress when flash is showing and not in search mode
-  useInput(() => {
-    if (flash) {
-      setFlash(null);
-    }
-  }, { isActive: !searchMode && flash !== null });
+  useInput(
+    () => {
+      if (flash) {
+        setFlash(null);
+      }
+    },
+    { isActive: !searchMode && flash !== null },
+  );
 
   // ── Render ────────────────────────────────────────────────────────
 
   // Show boot screen while initializing
   if (!ready) {
-    return (
-      <BootView
-        version={VERSION}
-        progress={progress}
-        elapsed={elapsed}
-        error={error}
-        onQuit={quit}
-      />
-    );
+    return <BootView version={VERSION} progress={progress} elapsed={elapsed} error={error} onQuit={quit} />;
   }
 
   // Main TUI with view stack
@@ -258,7 +260,7 @@ export function Shell({ api }: ShellProps): React.ReactElement {
     footerContent = (
       <Box flexDirection="column">
         <HRule />
-        <Text>  {flash}</Text>
+        <Text> {flash}</Text>
         <HRule />
       </Box>
     );

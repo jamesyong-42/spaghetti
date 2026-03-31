@@ -41,7 +41,7 @@ function buildToolCallContent(item: DisplayItem & { kind: 'tool-call' }, width: 
       lines.push(`  ${pc.dim(key + ':')} ${truncFirst}`);
       const maxShownLines = 20;
       for (let i = 1; i < Math.min(valLines.length, maxShownLines); i++) {
-        const truncLine = valLines[i].length > (width - 2) ? valLines[i].slice(0, width - 3) + '\u2026' : valLines[i];
+        const truncLine = valLines[i].length > width - 2 ? valLines[i].slice(0, width - 3) + '\u2026' : valLines[i];
         lines.push(`  ${truncLine}`);
       }
       if (valLines.length > maxShownLines) {
@@ -115,15 +115,18 @@ export function DetailView({ item }: DetailViewProps): React.ReactElement {
     return buildMessageContent(item, cols);
   }, [item, cols]);
 
-  useInput((input, key) => {
-    if (key.upArrow) {
-      setScrollOffset((prev) => Math.max(0, prev - 1));
-    } else if (key.downArrow) {
-      setScrollOffset((prev) => Math.min(prev + 1, Math.max(0, contentLines.length - viewportHeight)));
-    } else if (key.escape) {
-      nav.pop();
-    }
-  }, { isActive: !nav.searchMode });
+  useInput(
+    (input, key) => {
+      if (key.upArrow) {
+        setScrollOffset((prev) => Math.max(0, prev - 1));
+      } else if (key.downArrow) {
+        setScrollOffset((prev) => Math.min(prev + 1, Math.max(0, contentLines.length - viewportHeight)));
+      } else if (key.escape) {
+        nav.pop();
+      }
+    },
+    { isActive: !nav.searchMode },
+  );
 
   const visibleLines = contentLines.slice(scrollOffset, scrollOffset + viewportHeight);
 
@@ -137,9 +140,9 @@ export function DetailView({ item }: DetailViewProps): React.ReactElement {
   return (
     <Box flexDirection="column">
       {visibleLines.map((line, i) => (
-        <Text key={i}>  {line}</Text>
+        <Text key={i}> {line}</Text>
       ))}
-      <Text dimColor>  {posIndicator}</Text>
+      <Text dimColor> {posIndicator}</Text>
     </Box>
   );
 }

@@ -29,20 +29,14 @@ export function SessionCard({
       <div className="flex items-center gap-2 mb-0.5">
         <span className="text-xs font-mono text-white/60">{session.sessionId.slice(0, 8)}</span>
         {session.gitBranch && (
-          <span className="text-[10px] bg-purple-500/20 text-purple-300 px-1 py-0.5 rounded">
-            {session.gitBranch}
-          </span>
+          <span className="text-[10px] bg-purple-500/20 text-purple-300 px-1 py-0.5 rounded">{session.gitBranch}</span>
         )}
         {session.isSidechain && (
-          <span className="text-[10px] bg-yellow-500/20 text-yellow-300 px-1 py-0.5 rounded">
-            sidechain
-          </span>
+          <span className="text-[10px] bg-yellow-500/20 text-yellow-300 px-1 py-0.5 rounded">sidechain</span>
         )}
       </div>
 
-      {session.summary && (
-        <div className="text-xs text-white/70 mb-0.5 truncate">{session.summary}</div>
-      )}
+      {session.summary && <div className="text-xs text-white/70 mb-0.5 truncate">{session.summary}</div>}
       {!session.summary && session.firstPrompt && (
         <div className="text-xs text-white/50 mb-0.5 truncate italic">{session.firstPrompt}</div>
       )}
@@ -58,7 +52,10 @@ export function SessionCard({
         {session.todoCount > 0 && (
           <span
             className="bg-green-500/20 text-green-300 px-1 py-0.5 rounded hover:bg-green-500/30 cursor-pointer"
-            onClick={(e) => { e.stopPropagation(); onTodosClick?.(); }}
+            onClick={(e) => {
+              e.stopPropagation();
+              onTodosClick?.();
+            }}
           >
             {session.todoCount} todos
           </span>
@@ -66,7 +63,10 @@ export function SessionCard({
         {session.hasTask && (
           <span
             className="bg-orange-500/20 text-orange-300 px-1 py-0.5 rounded hover:bg-orange-500/30 cursor-pointer"
-            onClick={(e) => { e.stopPropagation(); onTaskClick?.(); }}
+            onClick={(e) => {
+              e.stopPropagation();
+              onTaskClick?.();
+            }}
           >
             task
           </span>
@@ -74,7 +74,10 @@ export function SessionCard({
         {session.planSlug && (
           <span
             className="bg-cyan-500/20 text-cyan-300 px-1 py-0.5 rounded hover:bg-cyan-500/30 cursor-pointer"
-            onClick={(e) => { e.stopPropagation(); onPlanClick?.(); }}
+            onClick={(e) => {
+              e.stopPropagation();
+              onPlanClick?.();
+            }}
           >
             plan
           </span>

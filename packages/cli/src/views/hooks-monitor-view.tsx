@@ -34,9 +34,7 @@ const CATEGORY_COLORS: Record<HookEventCategory, (s: string) => string> = {
   mcp: pc.red,
 };
 
-const ALL_CATEGORIES: HookEventCategory[] = [
-  'lifecycle', 'input', 'tool', 'agent', 'task', 'config', 'system', 'mcp',
-];
+const ALL_CATEGORIES: HookEventCategory[] = ['lifecycle', 'input', 'tool', 'agent', 'task', 'config', 'system', 'mcp'];
 
 // ─── Event Card ──────────────────────────────────────────────────────────
 
@@ -56,16 +54,14 @@ function EventCard({ event, selected, cols }: EventCardProps): React.ReactElemen
   const eventName = event.event.padEnd(20);
 
   const maxSummaryLen = Math.max(10, cols - 28 - eventName.length);
-  const truncSummary = summary.length > maxSummaryLen
-    ? summary.slice(0, maxSummaryLen - 1) + '\u2026'
-    : summary;
+  const truncSummary = summary.length > maxSummaryLen ? summary.slice(0, maxSummaryLen - 1) + '\u2026' : summary;
 
   return (
     <Box>
       <Text color={selected ? 'cyan' : undefined}>{prefix}</Text>
       <Text> </Text>
       <Text dimColor>{time}</Text>
-      <Text>  </Text>
+      <Text> </Text>
       <Text>{colorFn(eventName)}</Text>
       <Text dimColor>{truncSummary}</Text>
     </Box>
@@ -88,12 +84,21 @@ function FilterChips({ enabled, counts }: FilterChipsProps): React.ReactElement 
     const countStr = count > 0 ? `(${count})` : '';
 
     if (active) {
-      return <Text key={cat}>{colorFn(`${label}${countStr}`)}  </Text>;
+      return <Text key={cat}>{colorFn(`${label}${countStr}`)} </Text>;
     }
-    return <Text key={cat} dimColor strikethrough>{label}  </Text>;
+    return (
+      <Text key={cat} dimColor strikethrough>
+        {label}{' '}
+      </Text>
+    );
   });
 
-  return <Box><Text>  </Text>{chips}</Box>;
+  return (
+    <Box>
+      <Text> </Text>
+      {chips}
+    </Box>
+  );
 }
 
 // ─── HooksMonitorView ────────────────────────────────────────────────────
@@ -106,9 +111,7 @@ export function HooksMonitorView(): React.ReactElement {
 
   // State
   const [events, setEvents] = useState<HookEvent[]>([]);
-  const [enabledCategories, setEnabledCategories] = useState<Set<HookEventCategory>>(
-    () => new Set(ALL_CATEGORIES),
-  );
+  const [enabledCategories, setEnabledCategories] = useState<Set<HookEventCategory>>(() => new Set(ALL_CATEGORIES));
   const [isRecording, setIsRecording] = useState(false);
   const watcherRef = useRef<HookEventWatcher | null>(null);
 
@@ -186,33 +189,36 @@ export function HooksMonitorView(): React.ReactElement {
   }, []);
 
   // Input handling
-  useInput((input, key) => {
-    if (nav.searchMode) return;
+  useInput(
+    (input, key) => {
+      if (nav.searchMode) return;
 
-    if (key.upArrow) {
-      moveUp();
-    } else if (key.downArrow) {
-      moveDown();
-    } else if (key.escape) {
-      nav.pop();
-    } else if (key.return && displayEvents.length > 0) {
-      // Drill into detail — show raw event JSON
-      const event = displayEvents[selectedIndex];
-      if (event) {
-        const entry: ViewEntry = {
-          type: 'detail',
-          component: () => <HookEventDetail event={event} />,
-          breadcrumb: `${event.event}`,
-          hints: '\u2191\u2193 scroll  Esc back',
-        };
-        nav.push(entry);
+      if (key.upArrow) {
+        moveUp();
+      } else if (key.downArrow) {
+        moveDown();
+      } else if (key.escape) {
+        nav.pop();
+      } else if (key.return && displayEvents.length > 0) {
+        // Drill into detail — show raw event JSON
+        const event = displayEvents[selectedIndex];
+        if (event) {
+          const entry: ViewEntry = {
+            type: 'detail',
+            component: () => <HookEventDetail event={event} />,
+            breadcrumb: `${event.event}`,
+            hints: '\u2191\u2193 scroll  Esc back',
+          };
+          nav.push(entry);
+        }
+      } else if (input === 'c') {
+        clearEvents();
+      } else if (input >= '1' && input <= '8') {
+        toggleCategory(parseInt(input) - 1);
       }
-    } else if (input === 'c') {
-      clearEvents();
-    } else if (input >= '1' && input <= '8') {
-      toggleCategory(parseInt(input) - 1);
-    }
-  }, { isActive: !nav.searchMode });
+    },
+    { isActive: !nav.searchMode },
+  );
 
   // Visible events
   const visible = displayEvents.slice(scrollOffset, scrollOffset + viewportHeight);
@@ -221,9 +227,7 @@ export function HooksMonitorView(): React.ReactElement {
   const statusDot = isRecording ? pc.green('\u25CF') : pc.red('\u25CF');
   const statusText = isRecording ? 'Recording' : 'Stopped';
   const countText = `${events.length} events`;
-  const filteredText = filteredEvents.length !== events.length
-    ? `  ${pc.dim(`(${filteredEvents.length} shown)`)}`
-    : '';
+  const filteredText = filteredEvents.length !== events.length ? `  ${pc.dim(`(${filteredEvents.length} shown)`)}` : '';
 
   return (
     <Box flexDirection="column">
@@ -231,7 +235,11 @@ export function HooksMonitorView(): React.ReactElement {
 
       {/* Status bar */}
       <Box>
-        <Text>  {statusDot} {statusText}   {pc.dim(countText)}{filteredText}</Text>
+        <Text>
+          {' '}
+          {statusDot} {statusText} {pc.dim(countText)}
+          {filteredText}
+        </Text>
       </Box>
 
       {/* Filter chips */}
@@ -242,7 +250,7 @@ export function HooksMonitorView(): React.ReactElement {
       {/* Event list */}
       {visible.length === 0 ? (
         <Box height={viewportHeight}>
-          <Text dimColor>  No hook events {events.length === 0 ? 'recorded yet' : 'match filters'}.</Text>
+          <Text dimColor> No hook events {events.length === 0 ? 'recorded yet' : 'match filters'}.</Text>
         </Box>
       ) : (
         <Box flexDirection="column" height={viewportHeight}>
@@ -256,7 +264,6 @@ export function HooksMonitorView(): React.ReactElement {
           ))}
         </Box>
       )}
-
     </Box>
   );
 }
@@ -301,15 +308,18 @@ function HookEventDetail({ event }: { event: HookEvent }): React.ReactElement {
     return lines;
   }, [event]);
 
-  useInput((input, key) => {
-    if (key.upArrow) {
-      setScrollOffset((prev) => Math.max(0, prev - 1));
-    } else if (key.downArrow) {
-      setScrollOffset((prev) => Math.min(prev + 1, Math.max(0, contentLines.length - viewportHeight)));
-    } else if (key.escape) {
-      nav.pop();
-    }
-  }, { isActive: !nav.searchMode });
+  useInput(
+    (input, key) => {
+      if (key.upArrow) {
+        setScrollOffset((prev) => Math.max(0, prev - 1));
+      } else if (key.downArrow) {
+        setScrollOffset((prev) => Math.min(prev + 1, Math.max(0, contentLines.length - viewportHeight)));
+      } else if (key.escape) {
+        nav.pop();
+      }
+    },
+    { isActive: !nav.searchMode },
+  );
 
   const visibleLines = contentLines.slice(scrollOffset, scrollOffset + viewportHeight);
   while (visibleLines.length < viewportHeight) {
@@ -321,9 +331,9 @@ function HookEventDetail({ event }: { event: HookEvent }): React.ReactElement {
   return (
     <Box flexDirection="column">
       {visibleLines.map((line, i) => (
-        <Text key={i}>  {line}</Text>
+        <Text key={i}> {line}</Text>
       ))}
-      <Text dimColor>  {posIndicator}</Text>
+      <Text dimColor> {posIndicator}</Text>
     </Box>
   );
 }

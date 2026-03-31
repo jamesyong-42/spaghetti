@@ -26,9 +26,9 @@
     "typecheck": "pnpm -r typecheck",
     "validate": "bash scripts/validate-all.sh",
     "test": "pnpm typecheck && pnpm validate",
-    "lint": "eslint packages/*/src/**/*.ts",
-    "format:check": "prettier --check 'packages/*/src/**/*.ts'",
-    "format": "prettier --write 'packages/*/src/**/*.ts'",
+    "lint": "eslint 'packages/*/src/**/*.{ts,tsx}'",
+    "format:check": "prettier --check 'packages/*/src/**/*.{ts,tsx}'",
+    "format": "prettier --write 'packages/*/src/**/*.{ts,tsx}'",
     "changeset": "changeset",
     "version-packages": "changeset version",
     "release": "pnpm build && changeset publish --access public"

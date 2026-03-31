@@ -28,11 +28,7 @@ function SessionCard({ session, index, selected, cols }: SessionCardProps): Reac
 
   // Line 1: #index branch ... short ID
   const num = selected ? `\x1b[1m\x1b[37m#${index + 1}\x1b[0m` : `\x1b[37m#${index + 1}\x1b[0m`;
-  const branch = s.gitBranch
-    ? selected
-      ? `\x1b[33m${s.gitBranch}\x1b[0m`
-      : `\x1b[2m${s.gitBranch}\x1b[0m`
-    : '';
+  const branch = s.gitBranch ? (selected ? `\x1b[33m${s.gitBranch}\x1b[0m` : `\x1b[2m${s.gitBranch}\x1b[0m`) : '';
   const shortId = `\x1b[2m${s.sessionId.slice(0, 8)}\x1b[0m`;
 
   // Right-align the short ID
@@ -44,18 +40,30 @@ function SessionCard({ session, index, selected, cols }: SessionCardProps): Reac
   const promptFlat = s.firstPrompt ? s.firstPrompt.replace(/\n+/g, ' ').replace(/\s+/g, ' ').trim() : '';
   const promptText = promptFlat ? `"${promptFlat}"` : '';
   const maxPromptLen = Math.max(cols - 6, 20);
-  const truncatedPrompt = promptText.length > maxPromptLen ? promptText.slice(0, maxPromptLen - 1) + '\u2026' : promptText;
+  const truncatedPrompt =
+    promptText.length > maxPromptLen ? promptText.slice(0, maxPromptLen - 1) + '\u2026' : promptText;
 
   // Line 3: stats
-  const msgCount = selected ? `\x1b[37m${formatNumber(s.messageCount)}\x1b[0m` : `\x1b[2m${formatNumber(s.messageCount)}\x1b[0m`;
-  const tokenCount = selected ? `\x1b[33m${formatTokens(totalTokens(s.tokenUsage))}\x1b[0m` : `\x1b[2m${formatTokens(totalTokens(s.tokenUsage))}\x1b[0m`;
-  const duration = selected ? `\x1b[37m${formatDuration(s.lifespanMs)}\x1b[0m` : `\x1b[2m${formatDuration(s.lifespanMs)}\x1b[0m`;
+  const msgCount = selected
+    ? `\x1b[37m${formatNumber(s.messageCount)}\x1b[0m`
+    : `\x1b[2m${formatNumber(s.messageCount)}\x1b[0m`;
+  const tokenCount = selected
+    ? `\x1b[33m${formatTokens(totalTokens(s.tokenUsage))}\x1b[0m`
+    : `\x1b[2m${formatTokens(totalTokens(s.tokenUsage))}\x1b[0m`;
+  const duration = selected
+    ? `\x1b[37m${formatDuration(s.lifespanMs)}\x1b[0m`
+    : `\x1b[2m${formatDuration(s.lifespanMs)}\x1b[0m`;
   const timeStr = `\x1b[2m${formatRelativeTime(s.lastUpdate)}\x1b[0m`;
 
   return (
     <Box flexDirection="column">
       <Text>{`${prefix} ${num}  ${branch}${' '.repeat(gap)}${shortId}`}</Text>
-      <Text>{prefix} <Text dimColor italic>{truncatedPrompt}</Text></Text>
+      <Text>
+        {prefix}{' '}
+        <Text dimColor italic>
+          {truncatedPrompt}
+        </Text>
+      </Text>
       <Text>{`${prefix} ${msgCount}\x1b[2m msgs${dot}${tokenCount}\x1b[2m tokens${dot}${duration}${dot}${timeStr}`}</Text>
       <Text> </Text>
     </Box>
@@ -86,27 +94,30 @@ export function SessionsView({ project, initialIndex }: SessionsViewProps): Reac
     initialIndex: initialIndex != null ? Math.min(initialIndex, Math.max(0, sessions.length - 1)) : 0,
   });
 
-  useInput((input, key) => {
-    if (key.upArrow) {
-      moveUp();
-    } else if (key.downArrow) {
-      moveDown();
-    } else if (key.return) {
-      if (sessions.length === 0) return;
-      const session = sessions[selectedIndex];
-      const entry: ViewEntry = {
-        type: 'session-tabs',
-        component: () => <SessionTabView project={project} session={session} sessionIndex={selectedIndex} />,
-        breadcrumb: `#${selectedIndex + 1}`,
-      };
-      (entry as any)._project = project;
-      (entry as any)._session = session;
-      (entry as any)._sessionIndex = selectedIndex;
-      nav.push(entry);
-    } else if (key.escape) {
-      nav.pop();
-    }
-  }, { isActive: !nav.searchMode });
+  useInput(
+    (input, key) => {
+      if (key.upArrow) {
+        moveUp();
+      } else if (key.downArrow) {
+        moveDown();
+      } else if (key.return) {
+        if (sessions.length === 0) return;
+        const session = sessions[selectedIndex];
+        const entry: ViewEntry = {
+          type: 'session-tabs',
+          component: () => <SessionTabView project={project} session={session} sessionIndex={selectedIndex} />,
+          breadcrumb: `#${selectedIndex + 1}`,
+        };
+        (entry as any)._project = project;
+        (entry as any)._session = session;
+        (entry as any)._sessionIndex = selectedIndex;
+        nav.push(entry);
+      } else if (key.escape) {
+        nav.pop();
+      }
+    },
+    { isActive: !nav.searchMode },
+  );
 
   if (sessions.length === 0) {
     return (

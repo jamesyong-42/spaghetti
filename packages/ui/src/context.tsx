@@ -9,11 +9,7 @@ export interface SpaghettiProviderProps {
 }
 
 export function SpaghettiProvider({ api, children }: SpaghettiProviderProps) {
-  return (
-    <SpaghettiContext.Provider value={api}>
-      {children}
-    </SpaghettiContext.Provider>
-  );
+  return <SpaghettiContext.Provider value={api}>{children}</SpaghettiContext.Provider>;
 }
 
 export function useSpaghettiAPI(): SpaghettiAPI {

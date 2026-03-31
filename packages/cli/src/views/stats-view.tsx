@@ -43,7 +43,16 @@ export function StatsView(): React.ReactElement {
       .slice(0, 5);
 
     return {
-      stats: { projectCount: p.length, sessions, messages, dbSize: s.dbSizeBytes, inputTokens, outputTokens, cacheRead, cacheWrite },
+      stats: {
+        projectCount: p.length,
+        sessions,
+        messages,
+        dbSize: s.dbSizeBytes,
+        inputTokens,
+        outputTokens,
+        cacheRead,
+        cacheWrite,
+      },
       projects: p,
       totalTok: total,
       topProjects: ranked,
@@ -56,39 +65,72 @@ export function StatsView(): React.ReactElement {
   const col2 = 16;
 
   // Overview section
-  lines.push(<Text key="h-overview" bold>  Overview</Text>);
+  lines.push(
+    <Text key="h-overview" bold>
+      {' '}
+      Overview
+    </Text>,
+  );
   lines.push(
     <Text key="overview-1">
-      {'    '}{'Projects'.padEnd(col1)}{formatNumber(stats.projectCount).padEnd(col2)}{'Sessions'.padEnd(col1)}{formatNumber(stats.sessions)}
+      {'    '}
+      {'Projects'.padEnd(col1)}
+      {formatNumber(stats.projectCount).padEnd(col2)}
+      {'Sessions'.padEnd(col1)}
+      {formatNumber(stats.sessions)}
     </Text>,
   );
   lines.push(
     <Text key="overview-2">
-      {'    '}{'Messages'.padEnd(col1)}{formatNumber(stats.messages).padEnd(col2)}{'DB size'.padEnd(col1)}{formatBytes(stats.dbSize)}
+      {'    '}
+      {'Messages'.padEnd(col1)}
+      {formatNumber(stats.messages).padEnd(col2)}
+      {'DB size'.padEnd(col1)}
+      {formatBytes(stats.dbSize)}
     </Text>,
   );
   lines.push(<Text key="sp1"> </Text>);
 
   // Token Usage section
-  lines.push(<Text key="h-tokens" bold>  Token Usage</Text>);
+  lines.push(
+    <Text key="h-tokens" bold>
+      {' '}
+      Token Usage
+    </Text>,
+  );
   lines.push(
     <Text key="tok-1">
-      {'    '}{'Input'.padEnd(col1)}{formatTokens(stats.inputTokens).padEnd(col2)}{'Cache read'.padEnd(col1)}{formatTokens(stats.cacheRead)}
+      {'    '}
+      {'Input'.padEnd(col1)}
+      {formatTokens(stats.inputTokens).padEnd(col2)}
+      {'Cache read'.padEnd(col1)}
+      {formatTokens(stats.cacheRead)}
     </Text>,
   );
   lines.push(
     <Text key="tok-2">
-      {'    '}{'Output'.padEnd(col1)}{formatTokens(stats.outputTokens).padEnd(col2)}{'Cache write'.padEnd(col1)}{formatTokens(stats.cacheWrite)}
+      {'    '}
+      {'Output'.padEnd(col1)}
+      {formatTokens(stats.outputTokens).padEnd(col2)}
+      {'Cache write'.padEnd(col1)}
+      {formatTokens(stats.cacheWrite)}
     </Text>,
   );
   lines.push(
     <Text key="tok-sep">
-      {'    '}{''.padEnd(col1)}{''.padEnd(col2)}{'───────────────────'}
+      {'    '}
+      {''.padEnd(col1)}
+      {''.padEnd(col2)}
+      {'───────────────────'}
     </Text>,
   );
   lines.push(
     <Text key="tok-total">
-      {'    '}{''.padEnd(col1)}{''.padEnd(col2)}{'Total'.padEnd(col1)}{formatTokens(totalTok)}
+      {'    '}
+      {''.padEnd(col1)}
+      {''.padEnd(col2)}
+      {'Total'.padEnd(col1)}
+      {formatTokens(totalTok)}
     </Text>,
   );
   lines.push(<Text key="sp2"> </Text>);
@@ -96,12 +138,19 @@ export function StatsView(): React.ReactElement {
   // Top Projects section
   if (topProjects.length > 0) {
     const maxTokenVal = topProjects[0].tokens;
-    lines.push(<Text key="h-top" bold>  Top Projects</Text>);
+    lines.push(
+      <Text key="h-top" bold>
+        {' '}
+        Top Projects
+      </Text>,
+    );
     for (const proj of topProjects) {
       const bar = formatBar(proj.tokens, maxTokenVal, 20);
       lines.push(
         <Text key={`proj-${proj.name}`}>
-          {'    '}{proj.name.padEnd(col1)}{bar}  {formatTokens(proj.tokens)} tokens
+          {'    '}
+          {proj.name.padEnd(col1)}
+          {bar} {formatTokens(proj.tokens)} tokens
         </Text>,
       );
     }
@@ -113,22 +162,21 @@ export function StatsView(): React.ReactElement {
   const viewportHeight = Math.max(termRows - 6, 5);
   const maxScroll = Math.max(0, lines.length - viewportHeight);
 
-  useInput((_input, key) => {
-    if (nav.searchMode) return;
-    if (key.upArrow) {
-      setScrollOffset((prev) => Math.max(0, prev - 1));
-    } else if (key.downArrow) {
-      setScrollOffset((prev) => Math.min(maxScroll, prev + 1));
-    } else if (key.escape) {
-      nav.pop();
-    }
-  }, { isActive: !nav.searchMode });
+  useInput(
+    (_input, key) => {
+      if (nav.searchMode) return;
+      if (key.upArrow) {
+        setScrollOffset((prev) => Math.max(0, prev - 1));
+      } else if (key.downArrow) {
+        setScrollOffset((prev) => Math.min(maxScroll, prev + 1));
+      } else if (key.escape) {
+        nav.pop();
+      }
+    },
+    { isActive: !nav.searchMode },
+  );
 
   const visibleLines = lines.slice(scrollOffset, scrollOffset + viewportHeight);
 
-  return (
-    <Box flexDirection="column">
-      {visibleLines}
-    </Box>
-  );
+  return <Box flexDirection="column">{visibleLines}</Box>;
 }

@@ -26,7 +26,7 @@ function ProjectCard({ project, firstPrompt, selected, cols }: ProjectCardProps)
   const maxWidth = cols - 2; // leave 2 chars margin
 
   // Truncate helper
-  const trunc = (s: string, max: number) => s.length > max ? s.slice(0, max - 1) + '\u2026' : s;
+  const trunc = (s: string, max: number) => (s.length > max ? s.slice(0, max - 1) + '\u2026' : s);
 
   // Prefix: ▎ (selected) or space
   const prefix = selected ? '\u258E' : ' ';
@@ -52,26 +52,29 @@ function ProjectCard({ project, firstPrompt, selected, cols }: ProjectCardProps)
         <Text>
           <Text color={prefixColor}>{prefix}</Text>
           <Text> </Text>
-          <Text bold={selected} color="white">{displayName}</Text>
-          <Text>  </Text>
-          <Text color={selected ? 'cyan' : undefined} dimColor={!selected}>{branchStr}</Text>
+          <Text bold={selected} color="white">
+            {displayName}
+          </Text>
+          <Text> </Text>
+          <Text color={selected ? 'cyan' : undefined} dimColor={!selected}>
+            {branchStr}
+          </Text>
         </Text>
       </Box>
       <Box width={cols}>
         <Text>
           <Text color={prefixColor}>{prefix}</Text>
           <Text> </Text>
-          <Text dimColor italic>{truncatedPrompt}</Text>
+          <Text dimColor italic>
+            {truncatedPrompt}
+          </Text>
         </Text>
       </Box>
       <Box width={cols}>
         <Text>
           <Text color={prefixColor}>{prefix}</Text>
           <Text> </Text>
-          {selected
-            ? <Text>{truncatedStats}</Text>
-            : <Text dimColor>{truncatedStats}</Text>
-          }
+          {selected ? <Text>{truncatedStats}</Text> : <Text dimColor>{truncatedStats}</Text>}
         </Text>
       </Box>
       <Text> </Text>
@@ -115,25 +118,28 @@ export function ProjectsView(): React.ReactElement {
   });
 
   // Key handling
-  useInput((input, key) => {
-    if (key.upArrow) {
-      moveUp();
-    } else if (key.downArrow) {
-      moveDown();
-    } else if (key.return) {
-      if (projects.length === 0) return;
-      const project = projects[selectedIndex];
-      const entry: ViewEntry = {
-        type: 'project-tabs',
-        component: () => <ProjectTabView project={project} />,
-        breadcrumb: project.folderName,
-      };
-      (entry as any)._project = project;
-      nav.push(entry);
-    } else if (key.escape) {
-      nav.pop();
-    }
-  }, { isActive: !nav.searchMode });
+  useInput(
+    (input, key) => {
+      if (key.upArrow) {
+        moveUp();
+      } else if (key.downArrow) {
+        moveDown();
+      } else if (key.return) {
+        if (projects.length === 0) return;
+        const project = projects[selectedIndex];
+        const entry: ViewEntry = {
+          type: 'project-tabs',
+          component: () => <ProjectTabView project={project} />,
+          breadcrumb: project.folderName,
+        };
+        (entry as any)._project = project;
+        nav.push(entry);
+      } else if (key.escape) {
+        nav.pop();
+      }
+    },
+    { isActive: !nav.searchMode },
+  );
 
   if (projects.length === 0) {
     return (

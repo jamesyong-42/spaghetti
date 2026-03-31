@@ -22,9 +22,7 @@ export function ProjectCard({
     >
       <div className="flex items-center justify-between mb-0.5">
         <span className="text-xs font-medium text-white truncate">{project.folderName}</span>
-        <span className="text-[10px] text-white/40 shrink-0 ml-2">
-          {formatRelativeTime(project.lastActiveAt)}
-        </span>
+        <span className="text-[10px] text-white/40 shrink-0 ml-2">{formatRelativeTime(project.lastActiveAt)}</span>
       </div>
       <div className="text-[10px] text-white/30 truncate mb-1">{project.absolutePath}</div>
       <div className="flex gap-3 text-[10px] text-white/40">
@@ -41,7 +39,10 @@ export function ProjectCard({
         {project.hasMemory && (
           <span
             className="text-[10px] bg-blue-500/20 text-blue-300 px-1 py-0.5 rounded inline-block hover:bg-blue-500/30 cursor-pointer"
-            onClick={(e) => { e.stopPropagation(); onMemoryClick?.(); }}
+            onClick={(e) => {
+              e.stopPropagation();
+              onMemoryClick?.();
+            }}
           >
             memory
           </span>

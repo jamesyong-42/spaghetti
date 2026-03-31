@@ -42,7 +42,9 @@ function MenuItem({ name, description, rightStat, selected, cols }: MenuItemProp
       <Box>
         <Text color={prefixColor}>{prefix}</Text>
         <Text> </Text>
-        <Text bold={selected} color={selected ? 'white' : undefined}>{name}</Text>
+        <Text bold={selected} color={selected ? 'white' : undefined}>
+          {name}
+        </Text>
         <Text>{' '.repeat(gap)}</Text>
         <Text dimColor>{rightStat}</Text>
       </Box>
@@ -98,8 +100,16 @@ export function MenuView(): React.ReactElement {
 
   // Menu items
   const menuItems = [
-    { name: 'Projects', description: 'Browse all Claude Code project conversations', rightStat: `${projectCount} projects` },
-    { name: 'Hooks Monitor', description: 'Real-time hook event stream from spaghetti-hooks plugin', rightStat: 'live' },
+    {
+      name: 'Projects',
+      description: 'Browse all Claude Code project conversations',
+      rightStat: `${projectCount} projects`,
+    },
+    {
+      name: 'Hooks Monitor',
+      description: 'Real-time hook event stream from spaghetti-hooks plugin',
+      rightStat: 'live',
+    },
     { name: 'Stats', description: 'Usage statistics, token counts, top projects', rightStat: `${tokenStr} tokens` },
     { name: 'Help', description: 'Navigation, commands, and keyboard shortcuts', rightStat: '? keybindings' },
   ];
@@ -109,53 +119,51 @@ export function MenuView(): React.ReactElement {
     itemHeight: 3,
   });
 
-  useInput((input, key) => {
-    if (key.upArrow) {
-      moveUp();
-    } else if (key.downArrow) {
-      moveDown();
-    } else if (key.return) {
-      if (selectedIndex === 0) {
-        const entry: ViewEntry = {
-          type: 'projects',
-          component: ProjectsView,
-          breadcrumb: 'Projects',
-        };
-        nav.push(entry);
-      } else if (selectedIndex === 1) {
-        const entry: ViewEntry = {
-          type: 'hooks-monitor',
-          component: HooksMonitorView,
-          breadcrumb: 'Hooks Monitor',
-          hints: '\u2191\u2193 navigate  \u23CE detail  1-8 filter  c clear  Esc back',
-        };
-        nav.push(entry);
-      } else if (selectedIndex === 2) {
-        const entry: ViewEntry = {
-          type: 'stats',
-          component: StatsView,
-          breadcrumb: 'Stats',
-        };
-        nav.push(entry);
-      } else if (selectedIndex === 3) {
-        const entry: ViewEntry = {
-          type: 'help',
-          component: HelpView,
-          breadcrumb: 'Help',
-        };
-        nav.push(entry);
+  useInput(
+    (input, key) => {
+      if (key.upArrow) {
+        moveUp();
+      } else if (key.downArrow) {
+        moveDown();
+      } else if (key.return) {
+        if (selectedIndex === 0) {
+          const entry: ViewEntry = {
+            type: 'projects',
+            component: ProjectsView,
+            breadcrumb: 'Projects',
+          };
+          nav.push(entry);
+        } else if (selectedIndex === 1) {
+          const entry: ViewEntry = {
+            type: 'hooks-monitor',
+            component: HooksMonitorView,
+            breadcrumb: 'Hooks Monitor',
+            hints: '\u2191\u2193 navigate  \u23CE detail  1-8 filter  c clear  Esc back',
+          };
+          nav.push(entry);
+        } else if (selectedIndex === 2) {
+          const entry: ViewEntry = {
+            type: 'stats',
+            component: StatsView,
+            breadcrumb: 'Stats',
+          };
+          nav.push(entry);
+        } else if (selectedIndex === 3) {
+          const entry: ViewEntry = {
+            type: 'help',
+            component: HelpView,
+            breadcrumb: 'Help',
+          };
+          nav.push(entry);
+        }
       }
-    }
-  }, { isActive: !nav.searchMode });
+    },
+    { isActive: !nav.searchMode },
+  );
 
   return (
     <Box flexDirection="column">
-      <WelcomePanel
-        stats={panelStats}
-        dataPath="~/.claude"
-        dataSize={dataSize}
-        initMs={queryMs}
-      />
+      <WelcomePanel stats={panelStats} dataPath="~/.claude" dataSize={dataSize} initMs={queryMs} />
       {menuItems.map((item, i) => (
         <MenuItem
           key={item.name}

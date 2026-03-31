@@ -36,49 +36,36 @@ function ResultCard({
 
   // Left side: project · #session · time
   const prefix = selected ? '\x1b[36m\u258E\x1b[0m' : ' ';
-  const name = selected
-    ? `\x1b[1m\x1b[37m${projectName}\x1b[0m`
-    : `\x1b[2m${projectName}\x1b[0m`;
+  const name = selected ? `\x1b[1m\x1b[37m${projectName}\x1b[0m` : `\x1b[2m${projectName}\x1b[0m`;
   const sessionStr =
-    sessionIndex !== null
-      ? selected
-        ? `\x1b[2m#${sessionIndex}\x1b[0m`
-        : `\x1b[2m#${sessionIndex}\x1b[0m`
-      : '';
-  const timeStr = sessionTime
-    ? `\x1b[2m${formatRelativeTime(sessionTime)}\x1b[0m`
-    : '';
+    sessionIndex !== null ? (selected ? `\x1b[2m#${sessionIndex}\x1b[0m` : `\x1b[2m#${sessionIndex}\x1b[0m`) : '';
+  const timeStr = sessionTime ? `\x1b[2m${formatRelativeTime(sessionTime)}\x1b[0m` : '';
 
   const leftParts = [name, sessionStr, timeStr].filter(Boolean);
   const leftText = leftParts.join(dot);
 
   // Right side: role derived from segment type
   const role = result.type === 'message' ? '' : result.type;
-  const roleText = selected
-    ? `\x1b[36m${role}\x1b[0m`
-    : `\x1b[2m${role}\x1b[0m`;
+  const roleText = selected ? `\x1b[36m${role}\x1b[0m` : `\x1b[2m${role}\x1b[0m`;
 
   // Snippet: truncate to ~2 lines
   const maxSnippetLen = Math.max((cols - 6) * 2, 40);
   const rawSnippet = result.snippet || '';
-  const snippet =
-    rawSnippet.length > maxSnippetLen
-      ? rawSnippet.slice(0, maxSnippetLen - 1) + '\u2026'
-      : rawSnippet;
+  const snippet = rawSnippet.length > maxSnippetLen ? rawSnippet.slice(0, maxSnippetLen - 1) + '\u2026' : rawSnippet;
   // Clean up newlines for display
   const cleanSnippet = snippet.replace(/\n/g, ' ');
 
   // Split snippet into lines that fit within the available width
   const lineWidth = Math.max(cols - 6, 20);
   const snippetLine1 = cleanSnippet.slice(0, lineWidth);
-  const snippetLine2 = cleanSnippet.length > lineWidth
-    ? cleanSnippet.slice(lineWidth, lineWidth * 2)
-    : '';
+  const snippetLine2 = cleanSnippet.length > lineWidth ? cleanSnippet.slice(lineWidth, lineWidth * 2) : '';
 
   return (
     <Box flexDirection="column">
       <Box>
-        <Text>{prefix} {leftText}</Text>
+        <Text>
+          {prefix} {leftText}
+        </Text>
         <Box flexGrow={1} />
         <Text>{roleText}</Text>
       </Box>
@@ -169,90 +156,96 @@ export function SearchView({ query }: SearchViewProps): React.ReactElement {
   });
 
   // Navigate to a search result: pop SearchView, push Sessions + Messages
-  const navigateToResult = useCallback((result: SearchResult) => {
-    const slug = result.projectSlug;
-    const sessionId = result.sessionId;
-    if (!slug) {
-      // No project info — just pop back
-      nav.pop();
-      return;
-    }
+  const navigateToResult = useCallback(
+    (result: SearchResult) => {
+      const slug = result.projectSlug;
+      const sessionId = result.sessionId;
+      if (!slug) {
+        // No project info — just pop back
+        nav.pop();
+        return;
+      }
 
-    // Find the project
-    const projects = api.getProjectList();
-    const project = projects.find((p) => p.slug === slug);
-    if (!project) {
-      nav.pop();
-      return;
-    }
+      // Find the project
+      const projects = api.getProjectList();
+      const project = projects.find((p) => p.slug === slug);
+      if (!project) {
+        nav.pop();
+        return;
+      }
 
-    if (!sessionId) {
-      // No session info — navigate to project's sessions list
+      if (!sessionId) {
+        // No session info — navigate to project's sessions list
+        const sessionsEntry: ViewEntry = {
+          type: 'sessions',
+          component: () => <SessionsView project={project} />,
+          breadcrumb: project.folderName,
+        };
+        (sessionsEntry as any)._project = project;
+        nav.popAndPush(sessionsEntry);
+        return;
+      }
+
+      // Find the session index
+      const sessions = api.getSessionList(slug);
+      const sessIdx = sessions.findIndex((s) => s.sessionId === sessionId);
+      if (sessIdx < 0) {
+        // Session not found — navigate to project level
+        const sessionsEntry: ViewEntry = {
+          type: 'sessions',
+          component: () => <SessionsView project={project} />,
+          breadcrumb: project.folderName,
+        };
+        (sessionsEntry as any)._project = project;
+        nav.popAndPush(sessionsEntry);
+        return;
+      }
+
+      const session = sessions[sessIdx];
+
+      // Build SessionsView entry (pre-selected to the right session)
       const sessionsEntry: ViewEntry = {
         type: 'sessions',
-        component: () => <SessionsView project={project} />,
+        component: () => <SessionsView project={project} initialIndex={sessIdx} />,
         breadcrumb: project.folderName,
       };
       (sessionsEntry as any)._project = project;
-      nav.popAndPush(sessionsEntry);
-      return;
-    }
 
-    // Find the session index
-    const sessions = api.getSessionList(slug);
-    const sessIdx = sessions.findIndex((s) => s.sessionId === sessionId);
-    if (sessIdx < 0) {
-      // Session not found — navigate to project level
-      const sessionsEntry: ViewEntry = {
-        type: 'sessions',
-        component: () => <SessionsView project={project} />,
-        breadcrumb: project.folderName,
+      // Build MessagesView entry (scrolled to end — the search result is likely recent)
+      const messagesEntry: ViewEntry = {
+        type: 'messages',
+        component: () => <MessagesView project={project} session={session} sessionIndex={sessIdx} />,
+        breadcrumb: `#${sessIdx + 1}`,
       };
-      (sessionsEntry as any)._project = project;
-      nav.popAndPush(sessionsEntry);
-      return;
-    }
+      (messagesEntry as any)._project = project;
+      (messagesEntry as any)._session = session;
+      (messagesEntry as any)._sessionIndex = sessIdx;
 
-    const session = sessions[sessIdx];
-
-    // Build SessionsView entry (pre-selected to the right session)
-    const sessionsEntry: ViewEntry = {
-      type: 'sessions',
-      component: () => <SessionsView project={project} initialIndex={sessIdx} />,
-      breadcrumb: project.folderName,
-    };
-    (sessionsEntry as any)._project = project;
-
-    // Build MessagesView entry (scrolled to end — the search result is likely recent)
-    const messagesEntry: ViewEntry = {
-      type: 'messages',
-      component: () => <MessagesView project={project} session={session} sessionIndex={sessIdx} />,
-      breadcrumb: `#${sessIdx + 1}`,
-    };
-    (messagesEntry as any)._project = project;
-    (messagesEntry as any)._session = session;
-    (messagesEntry as any)._sessionIndex = sessIdx;
-
-    // Multi-push: pop search, push sessions + messages
-    nav.popAndPush(sessionsEntry, messagesEntry);
-  }, [api, nav]);
+      // Multi-push: pop search, push sessions + messages
+      nav.popAndPush(sessionsEntry, messagesEntry);
+    },
+    [api, nav],
+  );
 
   // Key handling
-  useInput((input, key) => {
-    if (key.upArrow) {
-      moveUp();
-    } else if (key.downArrow) {
-      moveDown();
-    } else if (key.return) {
-      if (results.length === 0) return;
-      const result = results[selectedIndex];
-      if (result) {
-        navigateToResult(result);
+  useInput(
+    (input, key) => {
+      if (key.upArrow) {
+        moveUp();
+      } else if (key.downArrow) {
+        moveDown();
+      } else if (key.return) {
+        if (results.length === 0) return;
+        const result = results[selectedIndex];
+        if (result) {
+          navigateToResult(result);
+        }
+      } else if (key.escape) {
+        nav.pop();
       }
-    } else if (key.escape) {
-      nav.pop();
-    }
-  }, { isActive: !nav.searchMode });
+    },
+    { isActive: !nav.searchMode },
+  );
 
   // Empty state
   if (results.length === 0) {

@@ -93,7 +93,15 @@ interface ItemRendererProps {
   cols: number;
 }
 
-function UserItem({ msg, selected, cols }: { msg: SessionMessage; selected: boolean; cols: number }): React.ReactElement {
+function UserItem({
+  msg,
+  selected,
+  cols,
+}: {
+  msg: SessionMessage;
+  selected: boolean;
+  cols: number;
+}): React.ReactElement {
   const bgColor = selected ? COLORS.userBgSelected : COLORS.userBg;
   const labelColor = selected ? COLORS.userLabel : COLORS.userLabelDim;
   const textColor = selected ? COLORS.userTextSelected : COLORS.userText;
@@ -158,7 +166,15 @@ function UserItem({ msg, selected, cols }: { msg: SessionMessage; selected: bool
   );
 }
 
-function AssistantItem({ msg, selected, cols }: { msg: SessionMessage; selected: boolean; cols: number }): React.ReactElement {
+function AssistantItem({
+  msg,
+  selected,
+  cols,
+}: {
+  msg: SessionMessage;
+  selected: boolean;
+  cols: number;
+}): React.ReactElement {
   const bgColor = selected ? COLORS.claudeBgSelected : COLORS.claudeBg;
   const labelColor = selected ? COLORS.claudeLabel : COLORS.claudeLabelDim;
   const textColor = selected ? COLORS.claudeTextSelected : COLORS.claudeText;
@@ -203,7 +219,15 @@ function AssistantItem({ msg, selected, cols }: { msg: SessionMessage; selected:
   );
 }
 
-function ToolCallItem({ item, selected, cols }: { item: DisplayItem & { kind: 'tool-call' }; selected: boolean; cols: number }): React.ReactElement {
+function ToolCallItem({
+  item,
+  selected,
+  cols,
+}: {
+  item: DisplayItem & { kind: 'tool-call' };
+  selected: boolean;
+  cols: number;
+}): React.ReactElement {
   const cat = getToolCategory(item.toolName);
   const colorFn = TOOL_CATEGORY_COLORS[cat];
   const prefix = selected ? colorFn('\u258E') : ' ';
@@ -240,7 +264,15 @@ function ToolCallItem({ item, selected, cols }: { item: DisplayItem & { kind: 't
   return <Text>{`${prefix} ${catLabel} ${badge}  ${inputText}  ${status} ${resultHint}`}</Text>;
 }
 
-function ThinkingItem({ item, selected, cols }: { item: DisplayItem & { kind: 'thinking' }; selected: boolean; cols: number }): React.ReactElement {
+function ThinkingItem({
+  item,
+  selected,
+  cols,
+}: {
+  item: DisplayItem & { kind: 'thinking' };
+  selected: boolean;
+  cols: number;
+}): React.ReactElement {
   const prefix = selected ? pc.magenta('\u258E') : ' ';
   const dots = selected ? pc.magenta('\u00B7\u00B7\u00B7') : pc.dim('\u00B7\u00B7\u00B7');
   const label = selected ? pc.white('thinking') : pc.dim('thinking');
@@ -253,13 +285,22 @@ function ThinkingItem({ item, selected, cols }: { item: DisplayItem & { kind: 't
   const firstLine = item.content.split('\n').find((l) => l.trim().length > 0) || '';
   const usedWidth = 22 + (item.tokenEstimate > 0 ? 8 : 0);
   const maxPreview = Math.max(cols - usedWidth, 20);
-  const previewText = firstLine.trim().length > maxPreview ? firstLine.trim().slice(0, maxPreview - 1) + '\u2026' : firstLine.trim();
+  const previewText =
+    firstLine.trim().length > maxPreview ? firstLine.trim().slice(0, maxPreview - 1) + '\u2026' : firstLine.trim();
   const preview = selected ? pc.italic(pc.dim(previewText)) : pc.dim(pc.italic(previewText));
 
   return <Text>{`${prefix} ${dots} ${label}  ${tokensLabel}  ${preview}`}</Text>;
 }
 
-function SystemItem({ msg, selected, cols }: { msg: SessionMessage; selected: boolean; cols: number }): React.ReactElement {
+function SystemItem({
+  msg,
+  selected,
+  cols,
+}: {
+  msg: SessionMessage;
+  selected: boolean;
+  cols: number;
+}): React.ReactElement {
   const prefix = selected ? pc.dim('\u258E') : ' ';
   let symbol: string;
   let text: string;
@@ -365,8 +406,8 @@ function getItemHeight(item: DisplayItem): number {
   if (item.kind === 'tool-call') return 1;
   if (item.kind === 'thinking') return 1;
   if (item.kind === 'message') {
-    if (item.msg.type === 'user') return 6;      // margin + header + 3 body + margin
-    if (item.msg.type === 'assistant') return 5;  // margin + header + 2 body + margin
+    if (item.msg.type === 'user') return 6; // margin + header + 3 body + margin
+    if (item.msg.type === 'assistant') return 5; // margin + header + 2 body + margin
     return 1; // system/other single line
   }
   return 1;
@@ -383,12 +424,23 @@ interface ScrollBarProps {
   items: DisplayItem[];
 }
 
-function ScrollBar({ viewportHeight, scrollOffset, totalItems, totalMessageCount, getItemHeight: getH, items }: ScrollBarProps): React.ReactElement {
+function ScrollBar({
+  viewportHeight,
+  scrollOffset,
+  totalItems,
+  totalMessageCount,
+  getItemHeight: getH,
+  items,
+}: ScrollBarProps): React.ReactElement {
   if (totalItems === 0) {
     const track = Array.from({ length: viewportHeight }, () => ' ');
     return (
       <Box flexDirection="column" width={1}>
-        {track.map((_, i) => <Text key={i} dimColor> </Text>)}
+        {track.map((_, i) => (
+          <Text key={i} dimColor>
+            {' '}
+          </Text>
+        ))}
       </Box>
     );
   }
@@ -413,7 +465,10 @@ function ScrollBar({ viewportHeight, scrollOffset, totalItems, totalMessageCount
   scrolledLines += unloadedLines;
 
   const ratio = estimatedTotalLines > viewportHeight ? scrolledLines / (estimatedTotalLines - viewportHeight) : 0;
-  const thumbHeight = Math.max(1, Math.round((viewportHeight / Math.max(estimatedTotalLines, viewportHeight)) * viewportHeight));
+  const thumbHeight = Math.max(
+    1,
+    Math.round((viewportHeight / Math.max(estimatedTotalLines, viewportHeight)) * viewportHeight),
+  );
   const thumbStart = Math.min(Math.round(ratio * (viewportHeight - thumbHeight)), viewportHeight - thumbHeight);
 
   const trackChars: string[] = [];
@@ -421,13 +476,15 @@ function ScrollBar({ viewportHeight, scrollOffset, totalItems, totalMessageCount
     if (i >= thumbStart && i < thumbStart + thumbHeight) {
       trackChars.push('\x1b[38;5;245m\u2588\x1b[0m'); // █ gray
     } else {
-      trackChars.push('\x1b[38;5;238m\u2502\x1b[0m');  // │ dim
+      trackChars.push('\x1b[38;5;238m\u2502\x1b[0m'); // │ dim
     }
   }
 
   return (
     <Box flexDirection="column" width={1}>
-      {trackChars.map((ch, i) => <Text key={i}>{ch}</Text>)}
+      {trackChars.map((ch, i) => (
+        <Text key={i}>{ch}</Text>
+      ))}
     </Box>
   );
 }
@@ -503,54 +560,59 @@ export function MessagesView({ project, session, sessionIndex, initialIndex }: M
   const filterChipsLine = `${buildFilterChips(filters)}  ${countLabel}`;
 
   // Key handling
-  useInput((input, key) => {
-    // Filter toggles
-    if (input >= '1' && input <= '6') {
-      setFilters((prev) => ({ ...prev, [input]: !prev[input] }));
-      return;
-    }
-
-    if (key.upArrow) {
-      moveUp();
-    } else if (key.downArrow) {
-      moveDown();
-      // Load more when near bottom
-      if (loadedOffsetLow > 0 && selectedIndex >= displayItems.length - LOAD_MORE_THRESHOLD) {
-        loadMoreMessages();
-      }
-    } else if (key.return) {
-      if (displayItems.length === 0) return;
-      const selected = displayItems[selectedIndex];
-      if (!selected) return;
-
-      let detailBreadcrumb: string;
-      let detailItem = selected;
-
-      if (selected.kind === 'tool-call') {
-        detailBreadcrumb = `${selected.toolName} ${toolInputSummary(selected.toolName, selected.toolInput).slice(0, 40)}`;
-      } else if (selected.kind === 'thinking') {
-        const label = selected.redacted ? 'Redacted Thinking' : 'Thinking';
-        const tokLabel = !selected.redacted && selected.tokenEstimate > 0 ? ` ~${formatTokens(selected.tokenEstimate)} tokens` : '';
-        detailBreadcrumb = `${label}${tokLabel}`;
-      } else {
-        const role = selected.msg.type || '';
-        const ts = 'timestamp' in selected.msg && (selected.msg as any).timestamp
-          ? formatRelativeTime((selected.msg as any).timestamp)
-          : '';
-        detailBreadcrumb = `Message ${selectedIndex + 1} (${role} \u00B7 ${ts})`;
+  useInput(
+    (input, key) => {
+      // Filter toggles
+      if (input >= '1' && input <= '6') {
+        setFilters((prev) => ({ ...prev, [input]: !prev[input] }));
+        return;
       }
 
-      const entry: ViewEntry = {
-        type: 'detail',
-        component: () => <DetailView item={detailItem} />,
-        breadcrumb: detailBreadcrumb,
-        hints: '\u2191\u2193 scroll  Esc back  q quit',
-      };
-      nav.push(entry);
-    } else if (key.escape) {
-      nav.pop();
-    }
-  }, { isActive: !nav.searchMode });
+      if (key.upArrow) {
+        moveUp();
+      } else if (key.downArrow) {
+        moveDown();
+        // Load more when near bottom
+        if (loadedOffsetLow > 0 && selectedIndex >= displayItems.length - LOAD_MORE_THRESHOLD) {
+          loadMoreMessages();
+        }
+      } else if (key.return) {
+        if (displayItems.length === 0) return;
+        const selected = displayItems[selectedIndex];
+        if (!selected) return;
+
+        let detailBreadcrumb: string;
+        let detailItem = selected;
+
+        if (selected.kind === 'tool-call') {
+          detailBreadcrumb = `${selected.toolName} ${toolInputSummary(selected.toolName, selected.toolInput).slice(0, 40)}`;
+        } else if (selected.kind === 'thinking') {
+          const label = selected.redacted ? 'Redacted Thinking' : 'Thinking';
+          const tokLabel =
+            !selected.redacted && selected.tokenEstimate > 0 ? ` ~${formatTokens(selected.tokenEstimate)} tokens` : '';
+          detailBreadcrumb = `${label}${tokLabel}`;
+        } else {
+          const role = selected.msg.type || '';
+          const ts =
+            'timestamp' in selected.msg && (selected.msg as any).timestamp
+              ? formatRelativeTime((selected.msg as any).timestamp)
+              : '';
+          detailBreadcrumb = `Message ${selectedIndex + 1} (${role} \u00B7 ${ts})`;
+        }
+
+        const entry: ViewEntry = {
+          type: 'detail',
+          component: () => <DetailView item={detailItem} />,
+          breadcrumb: detailBreadcrumb,
+          hints: '\u2191\u2193 scroll  Esc back  q quit',
+        };
+        nav.push(entry);
+      } else if (key.escape) {
+        nav.pop();
+      }
+    },
+    { isActive: !nav.searchMode },
+  );
 
   // Calculate visible range
   // We need variable-height items, so do line-based viewport math
@@ -571,7 +633,7 @@ export function MessagesView({ project, session, sessionIndex, initialIndex }: M
 
   return (
     <Box flexDirection="column">
-      <Text>  {filterChipsLine}</Text>
+      <Text> {filterChipsLine}</Text>
       <HRule />
       {displayItems.length === 0 ? (
         <Box flexDirection="column" height={viewportLines}>
@@ -591,9 +653,7 @@ export function MessagesView({ project, session, sessionIndex, initialIndex }: M
                 cols={cols - 1}
               />
             ))}
-            {padLines > 0 && (
-              <Box height={padLines} />
-            )}
+            {padLines > 0 && <Box height={padLines} />}
           </Box>
           {/* Scrollbar track */}
           <ScrollBar

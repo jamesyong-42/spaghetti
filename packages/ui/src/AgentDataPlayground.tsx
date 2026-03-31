@@ -1,5 +1,13 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
-import type { ProjectListItem, SessionListItem, MessagePage, SubagentListItem, StoreStats, SearchResultSet, InitProgress } from '@vibecook/spaghetti-core';
+import type {
+  ProjectListItem,
+  SessionListItem,
+  MessagePage,
+  SubagentListItem,
+  StoreStats,
+  SearchResultSet,
+  InitProgress,
+} from '@vibecook/spaghetti-core';
 import { useSpaghettiAPI } from './context.js';
 import { ProjectCard } from './components/ProjectCard.js';
 import { SessionCard } from './components/SessionCard.js';
@@ -103,52 +111,60 @@ export function AgentDataPlayground() {
       fetchProjectsAndStats();
     }
 
-    return () => { unsubs.forEach((u) => u()); };
+    return () => {
+      unsubs.forEach((u) => u());
+    };
   }, [api, fetchProjectsAndStats]);
 
   useEffect(() => {
     if (ready) fetchProjectsAndStats();
   }, [ready, fetchProjectsAndStats]);
 
-  const handleSelectProject = useCallback((slug: string) => {
-    setSelectedSlug(slug);
-    setSelectedSessionId(null);
-    setMessagePage(null);
-    setAllMessages([]);
-    setLoadingSessions(true);
+  const handleSelectProject = useCallback(
+    (slug: string) => {
+      setSelectedSlug(slug);
+      setSelectedSessionId(null);
+      setMessagePage(null);
+      setAllMessages([]);
+      setLoadingSessions(true);
 
-    try {
-      const list = api.getSessionList(slug);
-      setSessions(list);
-    } catch (err) {
-      console.error('Failed to fetch sessions', err);
-    } finally {
-      setLoadingSessions(false);
-    }
-  }, [api]);
+      try {
+        const list = api.getSessionList(slug);
+        setSessions(list);
+      } catch (err) {
+        console.error('Failed to fetch sessions', err);
+      } finally {
+        setLoadingSessions(false);
+      }
+    },
+    [api],
+  );
 
-  const handleSelectSession = useCallback((sessionId: string) => {
-    if (!selectedSlug) return;
-    setSelectedSessionId(sessionId);
-    setLoadingMessages(true);
-    setAllMessages([]);
-    setMessagePage(null);
-    offsetRef.current = 0;
+  const handleSelectSession = useCallback(
+    (sessionId: string) => {
+      if (!selectedSlug) return;
+      setSelectedSessionId(sessionId);
+      setLoadingMessages(true);
+      setAllMessages([]);
+      setMessagePage(null);
+      offsetRef.current = 0;
 
-    try {
-      const probe = api.getSessionMessages(selectedSlug, sessionId, 1, 0);
-      const total = probe.total;
-      const startOffset = Math.max(0, total - 30);
-      const page = api.getSessionMessages(selectedSlug, sessionId, 30, startOffset);
-      setMessagePage({ ...page, hasMore: startOffset > 0 });
-      setAllMessages(page.messages as AnyMsg[]);
-      offsetRef.current = startOffset;
-    } catch (err) {
-      console.error('Failed to fetch messages', err);
-    } finally {
-      setLoadingMessages(false);
-    }
-  }, [api, selectedSlug]);
+      try {
+        const probe = api.getSessionMessages(selectedSlug, sessionId, 1, 0);
+        const total = probe.total;
+        const startOffset = Math.max(0, total - 30);
+        const page = api.getSessionMessages(selectedSlug, sessionId, 30, startOffset);
+        setMessagePage({ ...page, hasMore: startOffset > 0 });
+        setAllMessages(page.messages as AnyMsg[]);
+        offsetRef.current = startOffset;
+      } catch (err) {
+        console.error('Failed to fetch messages', err);
+      } finally {
+        setLoadingMessages(false);
+      }
+    },
+    [api, selectedSlug],
+  );
 
   const handleLoadMore = useCallback(() => {
     if (!selectedSlug || !selectedSessionId || offsetRef.current <= 0) return;
@@ -178,61 +194,89 @@ export function AgentDataPlayground() {
     }
   }, [api, searchText]);
 
-  const handleViewMemory = useCallback((slug: string) => {
-    try {
-      const content = api.getProjectMemory(slug);
-      setDetailOverlay({ type: 'memory', title: `Project Memory - ${slug}`, content });
-    } catch (err) {
-      console.error('Failed to fetch memory', err);
-    }
-  }, [api]);
+  const handleViewMemory = useCallback(
+    (slug: string) => {
+      try {
+        const content = api.getProjectMemory(slug);
+        setDetailOverlay({ type: 'memory', title: `Project Memory - ${slug}`, content });
+      } catch (err) {
+        console.error('Failed to fetch memory', err);
+      }
+    },
+    [api],
+  );
 
-  const handleExpandToolResult = useCallback((toolUseId: string) => {
-    if (!selectedSlug || !selectedSessionId) return;
-    if (expandedToolResults[toolUseId]) {
-      setExpandedToolResults((prev) => { const next = { ...prev }; delete next[toolUseId]; return next; });
+  const handleExpandToolResult = useCallback(
+    (toolUseId: string) => {
+      if (!selectedSlug || !selectedSessionId) return;
+      if (expandedToolResults[toolUseId]) {
+        setExpandedToolResults((prev) => {
+          const next = { ...prev };
+          delete next[toolUseId];
+          return next;
+        });
+        return;
+      }
+      try {
+        const result = api.getToolResult(selectedSlug, selectedSessionId, toolUseId);
+        if (result) setExpandedToolResults((prev) => ({ ...prev, [toolUseId]: result }));
+      } catch (err) {
+        console.error('Failed to fetch tool result', err);
+      }
+    },
+    [api, selectedSlug, selectedSessionId, expandedToolResults],
+  );
+
+  useEffect(() => {
+    if (!selectedSlug || !selectedSessionId) {
+      setSubagents([]);
       return;
     }
     try {
-      const result = api.getToolResult(selectedSlug, selectedSessionId, toolUseId);
-      if (result) setExpandedToolResults((prev) => ({ ...prev, [toolUseId]: result }));
-    } catch (err) {
-      console.error('Failed to fetch tool result', err);
-    }
-  }, [api, selectedSlug, selectedSessionId, expandedToolResults]);
-
-  useEffect(() => {
-    if (!selectedSlug || !selectedSessionId) { setSubagents([]); return; }
-    try {
       const list = api.getSessionSubagents(selectedSlug, selectedSessionId);
       setSubagents(list);
-    } catch { setSubagents([]); }
+    } catch {
+      setSubagents([]);
+    }
   }, [api, selectedSlug, selectedSessionId]);
 
-  const handleExpandSubagent = useCallback((agentId: string) => {
-    if (!selectedSlug || !selectedSessionId) return;
-    if (expandedSubagentId === agentId) { setExpandedSubagentId(null); setSubagentMessages([]); return; }
-    setExpandedSubagentId(agentId);
-    setLoadingSubagent(true);
-    setSubagentMessages([]);
-    subagentOffsetRef.current = 0;
-    try {
-      const page = api.getSubagentMessages(selectedSlug, selectedSessionId, agentId, 30, 0);
-      setSubagentMessages(page.messages as AnyMsg[]);
-      setSubagentHasMore(page.hasMore);
-      subagentOffsetRef.current = page.messages.length;
-    } catch (err) {
-      console.error('Failed to fetch subagent messages', err);
-    } finally {
-      setLoadingSubagent(false);
-    }
-  }, [api, selectedSlug, selectedSessionId, expandedSubagentId]);
+  const handleExpandSubagent = useCallback(
+    (agentId: string) => {
+      if (!selectedSlug || !selectedSessionId) return;
+      if (expandedSubagentId === agentId) {
+        setExpandedSubagentId(null);
+        setSubagentMessages([]);
+        return;
+      }
+      setExpandedSubagentId(agentId);
+      setLoadingSubagent(true);
+      setSubagentMessages([]);
+      subagentOffsetRef.current = 0;
+      try {
+        const page = api.getSubagentMessages(selectedSlug, selectedSessionId, agentId, 30, 0);
+        setSubagentMessages(page.messages as AnyMsg[]);
+        setSubagentHasMore(page.hasMore);
+        subagentOffsetRef.current = page.messages.length;
+      } catch (err) {
+        console.error('Failed to fetch subagent messages', err);
+      } finally {
+        setLoadingSubagent(false);
+      }
+    },
+    [api, selectedSlug, selectedSessionId, expandedSubagentId],
+  );
 
   const handleLoadMoreSubagent = useCallback(() => {
     if (!selectedSlug || !selectedSessionId || !expandedSubagentId) return;
     setLoadingSubagent(true);
     try {
-      const page = api.getSubagentMessages(selectedSlug, selectedSessionId, expandedSubagentId, 30, subagentOffsetRef.current);
+      const page = api.getSubagentMessages(
+        selectedSlug,
+        selectedSessionId,
+        expandedSubagentId,
+        30,
+        subagentOffsetRef.current,
+      );
       setSubagentMessages((prev) => [...prev, ...(page.messages as AnyMsg[])]);
       setSubagentHasMore(page.hasMore);
       subagentOffsetRef.current += page.messages.length;
@@ -259,10 +303,15 @@ export function AgentDataPlayground() {
               </div>
             )}
             <div className="w-full bg-white/10 rounded-full h-2 overflow-hidden">
-              <div className="bg-blue-500 h-full rounded-full transition-all duration-300" style={{ width: initTotal > 0 ? `${progressPct}%` : '0%' }} />
+              <div
+                className="bg-blue-500 h-full rounded-full transition-all duration-300"
+                style={{ width: initTotal > 0 ? `${progressPct}%` : '0%' }}
+              />
             </div>
             {initTotal > 0 && (
-              <p className="text-xs text-white/60 font-mono text-center">{initCurrent} / {initTotal} ({progressPct}%)</p>
+              <p className="text-xs text-white/60 font-mono text-center">
+                {initCurrent} / {initTotal} ({progressPct}%)
+              </p>
             )}
             <p className="text-[11px] text-white/40 truncate text-center">{initProgress}</p>
           </div>
@@ -289,7 +338,10 @@ export function AgentDataPlayground() {
             </>
           )}
           <button
-            onClick={() => { setPendingChanges(0); fetchProjectsAndStats(); }}
+            onClick={() => {
+              setPendingChanges(0);
+              fetchProjectsAndStats();
+            }}
             disabled={loadingProjects}
             className="text-white/60 bg-white/5 px-2 py-0.5 rounded border border-white/10 hover:bg-white/10 cursor-pointer disabled:opacity-50"
           >
@@ -307,11 +359,23 @@ export function AgentDataPlayground() {
           placeholder="Search segments..."
           className="flex-1 bg-white/5 text-xs text-white/80 px-2 py-1 rounded border border-white/10 outline-none focus:border-white/20"
         />
-        <button onClick={handleSearch} className="text-xs text-white/60 bg-white/5 px-2 py-1 rounded border border-white/10 hover:bg-white/10 cursor-pointer">Search</button>
+        <button
+          onClick={handleSearch}
+          className="text-xs text-white/60 bg-white/5 px-2 py-1 rounded border border-white/10 hover:bg-white/10 cursor-pointer"
+        >
+          Search
+        </button>
         {searchResults && (
           <>
-            <span className="text-[10px] text-white/40">{searchResults.total} results{searchResults.hasMore ? '+' : ''}</span>
-            <button onClick={() => setSearchResults(null)} className="text-[10px] text-white/40 hover:text-white/60 cursor-pointer">Clear</button>
+            <span className="text-[10px] text-white/40">
+              {searchResults.total} results{searchResults.hasMore ? '+' : ''}
+            </span>
+            <button
+              onClick={() => setSearchResults(null)}
+              className="text-[10px] text-white/40 hover:text-white/60 cursor-pointer"
+            >
+              Clear
+            </button>
           </>
         )}
       </div>
@@ -331,7 +395,9 @@ export function AgentDataPlayground() {
       <div className="flex flex-1 min-h-0">
         <div className="w-1/4 border-r border-white/10 flex flex-col min-w-0">
           <div className="px-3 py-2 border-b border-white/10">
-            <h2 className="text-xs font-semibold text-white/80">Projects{!loadingProjects && ` (${projects.length})`}</h2>
+            <h2 className="text-xs font-semibold text-white/80">
+              Projects{!loadingProjects && ` (${projects.length})`}
+            </h2>
           </div>
           <div className="flex-1 overflow-y-auto">
             {loadingProjects ? (
@@ -340,7 +406,13 @@ export function AgentDataPlayground() {
               <div className="p-3 text-xs text-white/40">No projects found</div>
             ) : (
               projects.map((p) => (
-                <ProjectCard key={p.slug} project={p} isSelected={selectedSlug === p.slug} onClick={() => handleSelectProject(p.slug)} onMemoryClick={() => handleViewMemory(p.slug)} />
+                <ProjectCard
+                  key={p.slug}
+                  project={p}
+                  isSelected={selectedSlug === p.slug}
+                  onClick={() => handleSelectProject(p.slug)}
+                  onMemoryClick={() => handleViewMemory(p.slug)}
+                />
               ))
             )}
           </div>
@@ -349,7 +421,9 @@ export function AgentDataPlayground() {
         <div className="w-1/4 border-r border-white/10 flex flex-col min-w-0">
           <div className="px-3 py-2 border-b border-white/10">
             <h2 className="text-xs font-semibold text-white/80 truncate">
-              {selectedProject ? `${selectedProject.folderName}${!loadingSessions ? ` (${sessions.length})` : ''}` : 'Select a project'}
+              {selectedProject
+                ? `${selectedProject.folderName}${!loadingSessions ? ` (${sessions.length})` : ''}`
+                : 'Select a project'}
             </h2>
           </div>
           <div className="flex-1 overflow-y-auto">
@@ -359,7 +433,12 @@ export function AgentDataPlayground() {
               <div className="p-3 text-xs text-white/40">Loading...</div>
             ) : (
               sessions.map((s) => (
-                <SessionCard key={s.sessionId} session={s} isSelected={selectedSessionId === s.sessionId} onClick={() => handleSelectSession(s.sessionId)} />
+                <SessionCard
+                  key={s.sessionId}
+                  session={s}
+                  isSelected={selectedSessionId === s.sessionId}
+                  onClick={() => handleSelectSession(s.sessionId)}
+                />
               ))
             )}
           </div>
@@ -368,7 +447,9 @@ export function AgentDataPlayground() {
         <div className="w-1/2 flex flex-col min-w-0">
           <div className="px-3 py-2 border-b border-white/10">
             <h2 className="text-xs font-semibold text-white/80 truncate">
-              {selectedSessionId ? `Messages ${selectedSessionId.slice(0, 8)}${messagePage ? ` (${allMessages.length}/${messagePage.total})` : ''}` : 'Select a session'}
+              {selectedSessionId
+                ? `Messages ${selectedSessionId.slice(0, 8)}${messagePage ? ` (${allMessages.length}/${messagePage.total})` : ''}`
+                : 'Select a session'}
             </h2>
           </div>
           <div className="flex-1 overflow-y-auto">
@@ -381,7 +462,11 @@ export function AgentDataPlayground() {
             ) : (
               <>
                 {messagePage?.hasMore && (
-                  <button onClick={handleLoadMore} disabled={loadingMessages} className="w-full py-2 text-xs text-white/50 hover:text-white/80 hover:bg-white/5 border-b border-white/5 cursor-pointer disabled:opacity-50">
+                  <button
+                    onClick={handleLoadMore}
+                    disabled={loadingMessages}
+                    className="w-full py-2 text-xs text-white/50 hover:text-white/80 hover:bg-white/5 border-b border-white/5 cursor-pointer disabled:opacity-50"
+                  >
                     {loadingMessages ? 'Loading...' : `Load Earlier (${allMessages.length}/${messagePage.total})`}
                   </button>
                 )}
@@ -391,7 +476,9 @@ export function AgentDataPlayground() {
                     .filter((m) => !isToolResultOnlyMessage(m))
                     .map((m, i) => (
                       <MessageEntry
-                        key={i} msg={m} ctx={ctx}
+                        key={i}
+                        msg={m}
+                        ctx={ctx}
                         expandedToolResults={expandedToolResults}
                         onExpandToolResult={handleExpandToolResult}
                         expandedSubagentId={expandedSubagentId}
@@ -411,11 +498,12 @@ export function AgentDataPlayground() {
 
       {detailOverlay && (
         <DetailOverlay title={detailOverlay.title} onClose={() => setDetailOverlay(null)}>
-          {detailOverlay.type === 'memory' && (
-            detailOverlay.content
-              ? <pre className="text-xs text-white/70 whitespace-pre-wrap font-mono">{detailOverlay.content}</pre>
-              : <p className="text-xs text-white/40">No memory content</p>
-          )}
+          {detailOverlay.type === 'memory' &&
+            (detailOverlay.content ? (
+              <pre className="text-xs text-white/70 whitespace-pre-wrap font-mono">{detailOverlay.content}</pre>
+            ) : (
+              <p className="text-xs text-white/40">No memory content</p>
+            ))}
         </DetailOverlay>
       )}
     </div>

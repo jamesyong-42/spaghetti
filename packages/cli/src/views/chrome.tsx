@@ -24,8 +24,8 @@ export interface HeaderProps {
 export function Header({ breadcrumb, subtitle }: HeaderProps): React.ReactElement {
   return (
     <Box flexDirection="column">
-      <Text>  {breadcrumb}</Text>
-      {subtitle ? <Text>  {subtitle}</Text> : null}
+      <Text> {breadcrumb}</Text>
+      {subtitle ? <Text> {subtitle}</Text> : null}
       <HRule />
     </Box>
   );
@@ -41,7 +41,7 @@ export function Footer({ hints }: FooterProps): React.ReactElement {
   return (
     <Box flexDirection="column">
       <HRule />
-      <Text dimColor>  {hints}</Text>
+      <Text dimColor> {hints}</Text>
     </Box>
   );
 }

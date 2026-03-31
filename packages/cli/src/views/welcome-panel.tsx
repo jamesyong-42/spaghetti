@@ -33,9 +33,9 @@ export interface WelcomePanelStats {
 
 export interface WelcomePanelProps {
   stats: WelcomePanelStats;
-  dataPath: string;  // e.g., "~/.claude"
-  dataSize: string;  // e.g., "512 MB"
-  initMs: number;    // e.g., 28
+  dataPath: string; // e.g., "~/.claude"
+  dataSize: string; // e.g., "512 MB"
+  initMs: number; // e.g., 28
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────
@@ -107,23 +107,15 @@ export function WelcomePanel({ stats, dataPath, dataSize, initMs }: WelcomePanel
     : [];
 
   // Left column content (9 lines: blank, wm x3, blank, tagline, blank, perf, blank)
-  const leftLines = [
-    '',
-    ...wm,
-    '',
-    tagline,
-    '',
-    perfLine,
-    '',
-  ];
+  const leftLines = ['', ...wm, '', tagline, '', perfLine, ''];
 
   // Combine left + right into full-width content lines.
   // Each line must be exactly innerWidth chars so the right │ aligns.
   const maxLines = Math.max(leftLines.length, rightLines.length);
   for (let i = 0; i < maxLines; i++) {
-    const left = (leftLines[i] ?? '');
+    const left = leftLines[i] ?? '';
     if (showRight) {
-      const right = (rightLines[i] ?? '');
+      const right = rightLines[i] ?? '';
       const paddedLeft = padTo(left, leftWidth);
       const paddedRight = padTo(right, rightWidth);
       // left + " │ " + right = leftWidth + 3 + rightWidth

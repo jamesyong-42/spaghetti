@@ -17,10 +17,7 @@ export interface MessageContext {
   subagentMap: Map<string, SubagentInfo>;
 }
 
-export function buildMessageContext(
-  messages: AnyMsg[],
-  subagents: SubagentInfo[],
-): MessageContext {
+export function buildMessageContext(messages: AnyMsg[], subagents: SubagentInfo[]): MessageContext {
   const toolResultMap = new Map<string, { content: string; isError: boolean }>();
   for (const msg of messages) {
     if (msg.type !== 'user') continue;
@@ -115,24 +112,29 @@ export function MessageEntry({
           {msg.isCompactSummary && <Badge text="compact-summary" color="cyan-500/20 text-cyan-300" />}
           <span className="text-[10px] text-white/20 ml-auto">{timeStr}</span>
         </div>
-        <MetaRow items={[
-          ['uuid', msg.uuid?.slice(0, 12)],
-          ['parent', msg.parentUuid?.slice(0, 12)],
-          ['cwd', msg.cwd],
-          ['v', msg.version],
-          ['branch', msg.gitBranch || undefined],
-        ]} />
-        {textContent && (
-          <div className="text-xs text-white/80 whitespace-pre-wrap break-words mt-1">{textContent}</div>
-        )}
+        <MetaRow
+          items={[
+            ['uuid', msg.uuid?.slice(0, 12)],
+            ['parent', msg.parentUuid?.slice(0, 12)],
+            ['cwd', msg.cwd],
+            ['v', msg.version],
+            ['branch', msg.gitBranch || undefined],
+          ]}
+        />
+        {textContent && <div className="text-xs text-white/80 whitespace-pre-wrap break-words mt-1">{textContent}</div>}
         {toolResults.map((tr, i) => (
-          <div key={i} className={`mt-1 border-l-2 ${tr.is_error ? 'border-l-red-500 bg-red-500/[0.04]' : 'border-l-purple-400 bg-purple-500/[0.02]'} px-2 py-1`}>
+          <div
+            key={i}
+            className={`mt-1 border-l-2 ${tr.is_error ? 'border-l-red-500 bg-red-500/[0.04]' : 'border-l-purple-400 bg-purple-500/[0.02]'} px-2 py-1`}
+          >
             <div className="flex items-center gap-2">
               <span className="text-[9px] font-mono text-purple-300">tool_result</span>
               <span className="text-[9px] font-mono text-white/20">{tr.tool_use_id}</span>
               {tr.is_error && <Badge text="error" color="red-500/20 text-red-300" />}
             </div>
-            <pre className="text-[10px] text-white/50 whitespace-pre-wrap break-words font-mono mt-0.5">{tr.content}</pre>
+            <pre className="text-[10px] text-white/50 whitespace-pre-wrap break-words font-mono mt-0.5">
+              {tr.content}
+            </pre>
           </div>
         ))}
       </div>
@@ -154,23 +156,31 @@ export function MessageEntry({
           {stopReason && <Badge text={`stop: ${stopReason}`} color="blue-500/15 text-blue-300/60" />}
           <span className="text-[10px] text-white/20 ml-auto">{timeStr}</span>
         </div>
-        <MetaRow items={[
-          ['uuid', msg.uuid?.slice(0, 12)],
-          ['parent', msg.parentUuid?.slice(0, 12)],
-          ['requestId', msg.requestId?.slice(0, 16)],
-        ]} />
+        <MetaRow
+          items={[
+            ['uuid', msg.uuid?.slice(0, 12)],
+            ['parent', msg.parentUuid?.slice(0, 12)],
+            ['requestId', msg.requestId?.slice(0, 16)],
+          ]}
+        />
         {blocks.map((block, bi) => {
           if (!block) return null;
           if (block.type === 'thinking') {
             return (
               <div key={bi} className="mt-1.5 border-l-2 border-l-amber-500 bg-amber-500/[0.04] px-2 py-1.5">
                 <span className="text-[9px] font-bold text-amber-400 uppercase tracking-wider">Thinking</span>
-                <div className="text-xs text-white/50 whitespace-pre-wrap break-words italic mt-0.5">{block.thinking}</div>
+                <div className="text-xs text-white/50 whitespace-pre-wrap break-words italic mt-0.5">
+                  {block.thinking}
+                </div>
               </div>
             );
           }
           if (block.type === 'text') {
-            return <div key={bi} className="text-xs text-white/70 whitespace-pre-wrap break-words mt-1.5">{block.text}</div>;
+            return (
+              <div key={bi} className="text-xs text-white/70 whitespace-pre-wrap break-words mt-1.5">
+                {block.text}
+              </div>
+            );
           }
           if (block.type === 'tool_use') {
             const toolUseId = String(block.id ?? '');
@@ -198,19 +208,31 @@ export function MessageEntry({
                     )}
                   </div>
                   {inputStr && inputStr !== '{}' && (
-                    <pre className="text-[10px] text-white/40 bg-white/[0.03] rounded p-1.5 mt-1 overflow-x-auto whitespace-pre-wrap font-mono">{inputStr}</pre>
+                    <pre className="text-[10px] text-white/40 bg-white/[0.03] rounded p-1.5 mt-1 overflow-x-auto whitespace-pre-wrap font-mono">
+                      {inputStr}
+                    </pre>
                   )}
                 </div>
                 {pairedResult && pairedResult.content && (
-                  <div className={`px-2 py-1.5 border-t border-purple-500/10 ${pairedResult.isError ? 'bg-red-500/[0.04]' : 'bg-purple-500/[0.02]'}`}>
-                    <span className={`text-[10px] font-semibold ${pairedResult.isError ? 'text-red-400' : 'text-purple-300'}`}>Result</span>
-                    <pre className="text-[10px] text-white/50 whitespace-pre-wrap break-words font-mono mt-0.5">{pairedResult.content}</pre>
+                  <div
+                    className={`px-2 py-1.5 border-t border-purple-500/10 ${pairedResult.isError ? 'bg-red-500/[0.04]' : 'bg-purple-500/[0.02]'}`}
+                  >
+                    <span
+                      className={`text-[10px] font-semibold ${pairedResult.isError ? 'text-red-400' : 'text-purple-300'}`}
+                    >
+                      Result
+                    </span>
+                    <pre className="text-[10px] text-white/50 whitespace-pre-wrap break-words font-mono mt-0.5">
+                      {pairedResult.content}
+                    </pre>
                   </div>
                 )}
                 {persistedResult && (
                   <div className="px-2 py-1.5 border-t border-purple-500/10 bg-white/[0.02]">
                     <span className="text-[10px] text-white/30">Full persisted result:</span>
-                    <pre className="text-[10px] text-white/50 whitespace-pre-wrap break-words font-mono mt-0.5">{persistedResult}</pre>
+                    <pre className="text-[10px] text-white/50 whitespace-pre-wrap break-words font-mono mt-0.5">
+                      {persistedResult}
+                    </pre>
                   </div>
                 )}
                 {isTask && subagent && (
@@ -244,7 +266,10 @@ export function MessageEntry({
                         ))}
                         {loadingSubagent && <div className="px-2 py-1 text-[10px] text-white/30">Loading...</div>}
                         {subagentHasMore && !loadingSubagent && (
-                          <button onClick={onLoadMoreSubagent} className="w-full py-1 text-[10px] text-indigo-300/60 hover:text-indigo-300 hover:bg-indigo-500/10 cursor-pointer">
+                          <button
+                            onClick={onLoadMoreSubagent}
+                            className="w-full py-1 text-[10px] text-indigo-300/60 hover:text-indigo-300 hover:bg-indigo-500/10 cursor-pointer"
+                          >
                             Load more subagent messages
                           </button>
                         )}
@@ -261,8 +286,12 @@ export function MessageEntry({
           <div className="mt-1.5 flex flex-wrap gap-x-3 text-[9px] text-white/25 font-mono border-t border-blue-500/10 pt-1">
             <span>in: {formatTokenCount(usage.input_tokens)}</span>
             <span>out: {formatTokenCount(usage.output_tokens)}</span>
-            {usage.cache_read_input_tokens > 0 && <span>cache_read: {formatTokenCount(usage.cache_read_input_tokens)}</span>}
-            {usage.cache_creation_input_tokens > 0 && <span>cache_create: {formatTokenCount(usage.cache_creation_input_tokens)}</span>}
+            {usage.cache_read_input_tokens > 0 && (
+              <span>cache_read: {formatTokenCount(usage.cache_read_input_tokens)}</span>
+            )}
+            {usage.cache_creation_input_tokens > 0 && (
+              <span>cache_create: {formatTokenCount(usage.cache_creation_input_tokens)}</span>
+            )}
           </div>
         )}
       </div>

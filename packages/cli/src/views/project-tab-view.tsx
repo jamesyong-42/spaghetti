@@ -25,9 +25,19 @@ function renderMarkdownLines(content: string): React.ReactElement[] {
     const trimmed = line.trimStart();
     if (trimmed.startsWith('#')) {
       const text = trimmed.replace(/^#+\s*/, '');
-      return <Text key={i} bold>  {text}</Text>;
+      return (
+        <Text key={i} bold>
+          {' '}
+          {text}
+        </Text>
+      );
     }
-    return <Text key={i} dimColor={trimmed === ''}>  {line}</Text>;
+    return (
+      <Text key={i} dimColor={trimmed === ''}>
+        {' '}
+        {line}
+      </Text>
+    );
   });
 }
 
@@ -50,13 +60,16 @@ function MemoryPanel({ projectSlug }: MemoryPanelProps): React.ReactElement {
   const viewportHeight = Math.max(termRows - 8, 5); // extra room for tab bar + header
   const maxScroll = Math.max(0, lines.length - viewportHeight);
 
-  useInput((_input, key) => {
-    if (key.upArrow) {
-      setScrollOffset((prev) => Math.max(0, prev - 1));
-    } else if (key.downArrow) {
-      setScrollOffset((prev) => Math.min(maxScroll, prev + 1));
-    }
-  }, { isActive: !nav.searchMode });
+  useInput(
+    (_input, key) => {
+      if (key.upArrow) {
+        setScrollOffset((prev) => Math.max(0, prev - 1));
+      } else if (key.downArrow) {
+        setScrollOffset((prev) => Math.min(maxScroll, prev + 1));
+      }
+    },
+    { isActive: !nav.searchMode },
+  );
 
   if (!content) {
     return (
@@ -68,11 +81,7 @@ function MemoryPanel({ projectSlug }: MemoryPanelProps): React.ReactElement {
 
   const visibleLines = lines.slice(scrollOffset, scrollOffset + viewportHeight);
 
-  return (
-    <Box flexDirection="column">
-      {visibleLines}
-    </Box>
-  );
+  return <Box flexDirection="column">{visibleLines}</Box>;
 }
 
 // ─── ProjectTabView ───────────────────────────────────────────────────
@@ -89,30 +98,24 @@ export function ProjectTabView({ project }: ProjectTabViewProps): React.ReactEle
   // Esc: only handled here when Memory tab is active (tab 1).
   // When Sessions tab is active (tab 0), SessionsView's own Esc handler
   // calls nav.pop() — handling it here too would cause a double-pop.
-  useInput((_input, key) => {
-    if (key.leftArrow) {
-      setActiveTab((prev) => Math.max(0, prev - 1));
-    } else if (key.rightArrow) {
-      setActiveTab((prev) => Math.min(TABS.length - 1, prev + 1));
-    } else if (key.escape && activeTab !== 0) {
-      nav.pop();
-    }
-  }, { isActive: !nav.searchMode });
+  useInput(
+    (_input, key) => {
+      if (key.leftArrow) {
+        setActiveTab((prev) => Math.max(0, prev - 1));
+      } else if (key.rightArrow) {
+        setActiveTab((prev) => Math.min(TABS.length - 1, prev + 1));
+      } else if (key.escape && activeTab !== 0) {
+        nav.pop();
+      }
+    },
+    { isActive: !nav.searchMode },
+  );
 
   return (
     <Box flexDirection="column">
-      <TabBar
-        tabs={[...TABS]}
-        activeIndex={activeTab}
-        onTabChange={setActiveTab}
-        breadcrumb={project.folderName}
-      />
+      <TabBar tabs={[...TABS]} activeIndex={activeTab} onTabChange={setActiveTab} breadcrumb={project.folderName} />
       <HRule />
-      {activeTab === 0 ? (
-        <SessionsView project={project} />
-      ) : (
-        <MemoryPanel projectSlug={project.slug} />
-      )}
+      {activeTab === 0 ? <SessionsView project={project} /> : <MemoryPanel projectSlug={project.slug} />}
     </Box>
   );
 }

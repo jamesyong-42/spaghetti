@@ -16,7 +16,9 @@ export function Wordmark(): React.ReactElement {
   return (
     <>
       {LINES.map((line, i) => (
-        <Text key={i} bold>{line}</Text>
+        <Text key={i} bold>
+          {line}
+        </Text>
       ))}
     </>
   );

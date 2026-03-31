@@ -6,7 +6,9 @@ export function MetaRow({ items }: { items: [string, string | undefined | null][
   return (
     <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-[9px] text-white/20 font-mono mt-0.5">
       {visible.map(([k, v], i) => (
-        <span key={i}>{k}: {v}</span>
+        <span key={i}>
+          {k}: {v}
+        </span>
       ))}
     </div>
   );

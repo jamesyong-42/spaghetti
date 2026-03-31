@@ -50,9 +50,7 @@ export function SearchInput({ onSearch, onCancel, placeholder }: SearchInputProp
     }
   });
 
-  const displayText = buffer.length > 0
-    ? buffer
-    : (placeholder ? <Text dimColor>{placeholder}</Text> : null);
+  const displayText = buffer.length > 0 ? buffer : placeholder ? <Text dimColor>{placeholder}</Text> : null;
 
   return (
     <Box flexDirection="column">
@@ -62,7 +60,7 @@ export function SearchInput({ onSearch, onCancel, placeholder }: SearchInputProp
         {typeof displayText === 'string' ? <Text>{displayText}</Text> : displayText}
         <Text color="gray">{'\u2588'}</Text>
         <Box flexGrow={1} />
-        <Text dimColor>Esc cancel  </Text>
+        <Text dimColor>Esc cancel </Text>
       </Box>
       <HRule />
     </Box>
