@@ -58,36 +58,46 @@ function installPlugin(): void {
     }
   }
 
-  // Try to install via claude CLI
+  // Install via claude CLI: 1) add marketplace, 2) install plugin
   process.stderr.write('\n');
   process.stderr.write(`  ${theme.heading('Installing spaghetti-hooks plugin...')}\n\n`);
 
   try {
-    execSync(`claude plugins add ${PLUGIN_NAME} --marketplace github.com/${REPO}`, {
+    // Step 1: Register the marketplace (idempotent — safe to re-add)
+    process.stderr.write(`  ${theme.muted('Adding marketplace...')}\n`);
+    execSync(`claude plugin marketplace add ${REPO}`, {
       stdio: 'inherit',
     });
+
+    // Step 2: Install the plugin from the marketplace
+    process.stderr.write(`  ${theme.muted('Installing plugin...')}\n`);
+    execSync(`claude plugin install ${PLUGIN_NAME}@${MARKETPLACE_NAME}`, {
+      stdio: 'inherit',
+    });
+
     process.stderr.write('\n');
     process.stderr.write(theme.success('  Plugin installed! Restart Claude Code to activate.\n\n'));
   } catch {
     // claude CLI not available or failed — show manual instructions
     process.stderr.write('\n');
-    process.stderr.write(theme.warning('  Could not run `claude plugins add` automatically.\n'));
+    process.stderr.write(theme.warning('  Could not install automatically.\n'));
     process.stderr.write(theme.muted('  Install manually by running:\n\n'));
-    process.stderr.write(`  ${theme.accent(`claude plugins add ${PLUGIN_NAME} --marketplace github.com/${REPO}`)}\n\n`);
+    process.stderr.write(`  ${theme.accent(`claude plugin marketplace add ${REPO}`)}\n`);
+    process.stderr.write(`  ${theme.accent(`claude plugin install ${PLUGIN_NAME}@${MARKETPLACE_NAME}`)}\n\n`);
   }
 }
 
 function uninstallPlugin(): void {
   try {
-    execSync(`claude plugins remove ${PLUGIN_NAME}@${MARKETPLACE_NAME}`, {
+    execSync(`claude plugin uninstall ${PLUGIN_ID}`, {
       stdio: 'inherit',
     });
     process.stderr.write(theme.success('\nPlugin uninstalled. Restart Claude Code to take effect.\n\n'));
   } catch {
     process.stderr.write('\n');
-    process.stderr.write(theme.warning('  Could not run `claude plugins remove` automatically.\n'));
+    process.stderr.write(theme.warning('  Could not uninstall automatically.\n'));
     process.stderr.write(theme.muted('  Uninstall manually by running:\n\n'));
-    process.stderr.write(`  ${theme.accent(`claude plugins remove ${PLUGIN_ID}`)}\n\n`);
+    process.stderr.write(`  ${theme.accent(`claude plugin uninstall ${PLUGIN_ID}`)}\n\n`);
   }
 }
 
