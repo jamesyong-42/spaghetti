@@ -1,6 +1,6 @@
 {
   "name": "@vibecook/spaghetti",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "type": "module",
   "bin": {
     "spaghetti": "./dist/bin.js",
