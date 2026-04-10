@@ -40,10 +40,10 @@ const STATUS_POLL_MS = 1_000;
 // ─── Helpers ─────────────────────────────────────────────────────────────
 
 function formatTime(iso: string): string {
-  // HH:MM — pull from the ISO directly without constructing a Date to avoid
-  // timezone surprises in test envs. Fall back to empty on garbage.
-  const m = /T(\d{2}:\d{2})/.exec(iso);
-  return m ? m[1] : '';
+  // Show local-time HH:MM (user-facing timestamps). Fall back to empty on garbage.
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return '';
+  return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
 }
 
 function wrapText(text: string, width: number): string[] {

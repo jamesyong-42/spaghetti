@@ -26,7 +26,8 @@
     "nanospinner": "^1.2.2",
     "picocolors": "^1.1.1",
     "react": "^19.2.4",
-    "string-width": "^7.2.0"
+    "string-width": "^7.2.0",
+    "ws": "^8.18.0"
   },
   "publishConfig": {
     "access": "public"
@@ -42,6 +43,7 @@
   "devDependencies": {
     "@types/node": "^22.0.0",
     "@types/react": "^19.2.14",
+    "@types/ws": "^8.5.0",
     "tsup": "^8.4.0",
     "tsx": "^4.19.0",
     "typescript": "^5.7.0"

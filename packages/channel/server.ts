@@ -22,7 +22,7 @@ import {
   CallToolRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js';
 import { z } from 'zod';
-import { mkdirSync, writeFileSync, rmSync, appendFileSync } from 'node:fs';
+import { mkdirSync, writeFileSync, rmSync, appendFileSync, renameSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join, basename } from 'node:path';
 import { randomUUID } from 'node:crypto';
@@ -107,12 +107,20 @@ let sessionInfo: SessionInfo = {
 };
 
 function writeSessionFile(): void {
+  // Atomic write: write to a temp file, then rename. Prevents TUI clients
+  // from reading a half-written file during the 5s heartbeat interval.
+  const tmp = `${SESSION_FILE}.${process.pid}.tmp`;
   try {
-    writeFileSync(SESSION_FILE, `${JSON.stringify(sessionInfo, null, 2)}\n`);
+    writeFileSync(tmp, `${JSON.stringify(sessionInfo, null, 2)}\n`);
+    renameSync(tmp, SESSION_FILE);
   } catch (err) {
-    process.stderr.write(
-      `spaghetti-channel: failed to write session file: ${String(err)}\n`,
-    );
+    // Best-effort cleanup of the temp file on failure
+    try {
+      rmSync(tmp, { force: true });
+    } catch {
+      // ignore
+    }
+    process.stderr.write(`spaghetti-channel: failed to write session file: ${String(err)}\n`);
   }
 }
 
@@ -397,7 +405,34 @@ const PermissionRequestSchema = z.object({
   }),
 });
 
+// Track pending permission requests with a TTL. This prevents:
+//   (a) unbounded growth if a verdict never arrives
+//   (b) forwarding arbitrary/unknown verdicts to Claude Code
+const PENDING_PERMISSION_TTL_MS = 10 * 60 * 1000; // 10 minutes
+const MAX_PENDING_PERMISSIONS = 100;
+const pendingPermissions = new Map<string, { expiresAt: number }>();
+
+function evictExpiredPermissions(): void {
+  const now = Date.now();
+  for (const [id, entry] of pendingPermissions) {
+    if (entry.expiresAt <= now) pendingPermissions.delete(id);
+  }
+  // Hard cap: if we're still over the limit, drop oldest entries.
+  if (pendingPermissions.size > MAX_PENDING_PERMISSIONS) {
+    const excess = pendingPermissions.size - MAX_PENDING_PERMISSIONS;
+    const keys = pendingPermissions.keys();
+    for (let i = 0; i < excess; i++) {
+      const k = keys.next().value;
+      if (k !== undefined) pendingPermissions.delete(k);
+    }
+  }
+}
+
 mcp.setNotificationHandler(PermissionRequestSchema, async ({ params }) => {
+  evictExpiredPermissions();
+  pendingPermissions.set(params.request_id, {
+    expiresAt: Date.now() + PENDING_PERMISSION_TTL_MS,
+  });
   const wire: OutboundPermissionRequest = {
     type: 'permission_request',
     requestId: params.request_id,
@@ -467,6 +502,16 @@ async function handleInbound(
   }
 
   if (msg.type === 'permission_verdict') {
+    // Drop verdicts for unknown / expired request IDs to avoid forwarding
+    // arbitrary responses to Claude Code.
+    evictExpiredPermissions();
+    if (!pendingPermissions.has(msg.requestId)) {
+      process.stderr.write(
+        `spaghetti-channel: dropping unknown permission verdict: ${msg.requestId}\n`,
+      );
+      return;
+    }
+    pendingPermissions.delete(msg.requestId);
     persistMessage({
       type: 'permission_verdict',
       requestId: msg.requestId,
@@ -481,9 +526,7 @@ async function handleInbound(
         },
       });
     } catch (err) {
-      process.stderr.write(
-        `spaghetti-channel: permission notify failed: ${String(err)}\n`,
-      );
+      process.stderr.write(`spaghetti-channel: permission notify failed: ${String(err)}\n`);
     }
     return;
   }

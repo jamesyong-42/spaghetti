@@ -75,6 +75,9 @@ importers:
       string-width:
         specifier: ^7.2.0
         version: 7.2.0
+      ws:
+        specifier: ^8.18.0
+        version: 8.20.0
     devDependencies:
       '@types/node':
         specifier: ^22.0.0
@@ -82,6 +85,9 @@ importers:
       '@types/react':
         specifier: ^19.2.14
         version: 19.2.14
+      '@types/ws':
+        specifier: ^8.5.0
+        version: 8.18.1
       tsup:
         specifier: ^8.4.0
         version: 8.5.1(@microsoft/api-extractor@7.57.7(@types/node@22.19.15))(postcss@8.5.8)(tsx@4.21.0)(typescript@5.9.3)

@@ -188,6 +188,9 @@ export function createChannelClient(sessionInfo: SessionInfo, options?: ChannelC
           clearPing();
           setConnected(false);
           socket = null;
+          // Reset connectPromise so the next connect() can attempt a fresh
+          // socket rather than returning the already-resolved/rejected one.
+          connectPromise = null;
           if (!manuallyClosed) {
             scheduleReconnect();
           }
@@ -214,7 +217,9 @@ export function createChannelClient(sessionInfo: SessionInfo, options?: ChannelC
 
   return {
     connect(): Promise<void> {
-      if (connectPromise && connected) return connectPromise;
+      // If there's an in-flight or completed connect attempt, return it.
+      // handleClose resets connectPromise to null so the next call can try again.
+      if (connectPromise) return connectPromise;
       manuallyClosed = false;
       connectPromise = openSocket();
       return connectPromise;
@@ -232,6 +237,7 @@ export function createChannelClient(sessionInfo: SessionInfo, options?: ChannelC
         }
         socket = null;
       }
+      connectPromise = null;
       setConnected(false);
     },
 
