@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.2](https://github.com/jamesyong-42/spaghetti/compare/spaghetti-v0.3.1...spaghetti-v0.3.2) (2026-04-10)
+
+
+### Bug Fixes
+
+* **ci:** remove broken npm self-upgrade step from release workflow ([0da596f](https://github.com/jamesyong-42/spaghetti/commit/0da596f91108df55717db686205d8a5b79b13aef))
+
 ## [0.3.1](https://github.com/jamesyong-42/spaghetti/compare/spaghetti-v0.3.0...spaghetti-v0.3.1) (2026-04-10)
 
 
