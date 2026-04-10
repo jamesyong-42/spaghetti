@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.3](https://github.com/jamesyong-42/spaghetti/compare/spaghetti-v0.3.2...spaghetti-v0.3.3) (2026-04-10)
+
+
+### Bug Fixes
+
+* **ci:** bump release workflow to Node 24 for npm OIDC auth ([263215d](https://github.com/jamesyong-42/spaghetti/commit/263215d589d47dbda5b92696c035cf3ad35673c6))
+
 ## [0.3.2](https://github.com/jamesyong-42/spaghetti/compare/spaghetti-v0.3.1...spaghetti-v0.3.2) (2026-04-10)
 
 
