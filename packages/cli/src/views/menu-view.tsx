@@ -16,6 +16,7 @@ import { ProjectsView } from './projects-view.js';
 import { StatsView } from './stats-view.js';
 import { HelpView } from './help-view.js';
 import { HooksMonitorView } from './hooks-monitor-view.js';
+import { ChatView } from './chat-view.js';
 import { formatTokens, formatBytes, totalTokens } from '../lib/format.js';
 import type { ViewEntry } from './types.js';
 
@@ -112,10 +113,11 @@ export function MenuView(): React.ReactElement {
     },
     { name: 'Stats', description: 'Usage statistics, token counts, top projects', rightStat: `${tokenStr} tokens` },
     { name: 'Help', description: 'Navigation, commands, and keyboard shortcuts', rightStat: '? keybindings' },
+    { name: 'Chat', description: 'Interactive chat with active Claude Code sessions', rightStat: 'open' },
   ];
 
   const { selectedIndex, moveUp, moveDown } = useListNavigation({
-    itemCount: 4,
+    itemCount: 5,
     itemHeight: 3,
   });
 
@@ -153,6 +155,14 @@ export function MenuView(): React.ReactElement {
             type: 'help',
             component: HelpView,
             breadcrumb: 'Help',
+          };
+          nav.push(entry);
+        } else if (selectedIndex === 4) {
+          const entry: ViewEntry = {
+            type: 'chat',
+            component: ChatView,
+            breadcrumb: 'Chat',
+            hints: '\u2191\u2193 scroll  \u2190\u2192 switch session  Esc back  Enter send',
           };
           nav.push(entry);
         }

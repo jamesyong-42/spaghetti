@@ -27,6 +27,8 @@ import { exportCommand } from './commands/export.js';
 import type { ExportOptions } from './commands/export.js';
 import { hooksCommand } from './commands/hooks.js';
 import type { HooksOptions } from './commands/hooks.js';
+import { chatCommand } from './commands/chat.js';
+import type { ChatOptions } from './commands/chat.js';
 import { pluginCommand } from './commands/plugin.js';
 import { theme } from './lib/color.js';
 import { uninstallCommand } from './commands/uninstall.js';
@@ -80,6 +82,7 @@ export function createProgram(): Command {
     { name: 'plan', alias: 'pl', description: 'View session plan' },
     { name: 'export', alias: 'x', description: 'Export project data' },
     { name: 'hooks', alias: 'h', description: 'View hook events' },
+    { name: 'chat', alias: 'c', description: 'Chat with active Claude Code sessions' },
     { name: 'plugin', alias: '', description: 'Manage spaghetti-hooks plugin' },
   ];
 
@@ -358,6 +361,30 @@ export function createProgram(): Command {
     });
 
   program.addCommand(hooksCmd);
+
+  // Chat command (does not need SpaghettiAPI — talks to channel WebSocket servers)
+  const chatCmd = new Command('chat')
+    .alias('c')
+    .description('Chat with active Claude Code sessions')
+    .argument('[message]', 'Message to send (requires --session)')
+    .option('-f, --follow', 'Stream messages in real-time (like tail -f)')
+    .option('-s, --session <id>', 'Target session UUID prefix or index')
+    .option('-a, --all', 'Apply to all sessions (default for follow)')
+    .option('-l, --limit <n>', 'History entries to show before following', parseInt)
+    .option('--json', 'Output as JSON')
+    .option('--cleanup', 'Remove stale session files')
+    .action(async (message: string | undefined, cmdOpts: ChatOptions) => {
+      await chatCommand(message, {
+        follow: cmdOpts.follow,
+        session: cmdOpts.session,
+        all: cmdOpts.all,
+        limit: cmdOpts.limit,
+        json: cmdOpts.json,
+        cleanup: cmdOpts.cleanup,
+      });
+    });
+
+  program.addCommand(chatCmd);
 
   // Plugin command (does not need SpaghettiAPI)
   const pluginCmd = new Command('plugin')

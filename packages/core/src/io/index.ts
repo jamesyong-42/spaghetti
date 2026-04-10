@@ -42,3 +42,9 @@ export {
   SqliteServiceImpl,
   createSqliteService,
 } from './sqlite-service.js';
+
+export { type ChannelRegistryOptions, type ChannelRegistry, createChannelRegistry } from './channel-registry.js';
+
+export { type ChannelClientOptions, type ChannelClient, createChannelClient } from './channel-client.js';
+
+export { type ChannelManagerOptions, type ChannelManager, createChannelManager } from './channel-manager.js';
