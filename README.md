@@ -11,7 +11,7 @@ Spaghetti is a TypeScript monorepo centered on a local-first data pipeline for C
 [![CI](https://github.com/jamesyong-42/spaghetti/actions/workflows/ci.yml/badge.svg)](https://github.com/jamesyong-42/spaghetti/actions/workflows/ci.yml)
 
 ```text
-╭ Spaghetti v0.3.3 ──────────────────────────────────────────────────────╮
+╭ Spaghetti v0.4.0 ──────────────────────────────────────────────────────╮
 │                                                                        │
 │  ▄▀▀ █▀█ ▄▀▄ █▀▀ █ █ █▀▀ ▀█▀ ▀█▀ █      Projects           79         │
 │  ▀▄▄ █▀▀ █▀█ █ █ █▀█ █▀   █   █  █      Sessions        1,247         │

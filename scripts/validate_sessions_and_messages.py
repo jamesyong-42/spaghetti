@@ -32,7 +32,7 @@ EXPECTED_SESSION_INDEX_ENTRY_FIELDS = {
 
 EXPECTED_MESSAGE_TYPES = {
     "agent-name", "attachment", "custom-title",
-    "file-history-snapshot", "progress", "permission-mode", "saved_hook_context",
+    "file-history-snapshot", "pr-link", "progress", "permission-mode", "saved_hook_context",
     "user", "assistant", "system", "summary", "queue-operation",
     "last-prompt"
 }
@@ -79,6 +79,8 @@ KNOWN_EXTRA_ENVELOPE_FIELDS = {
     "attachment",
     # CustomTitleMessage extras
     "customTitle",
+    # PrLinkMessage extras
+    "prNumber", "prUrl", "prRepository",
     # Newer observed message extras
     "origin", "messageCount",
 }

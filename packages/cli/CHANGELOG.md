@@ -1,5 +1,19 @@
 # @vibecook/spaghetti
 
+## 0.4.0
+
+### Minor Changes
+
+- Live-session support and operational tooling for Claude Code:
+  - `spag chat` for active channel sessions
+  - `spag doctor` plus a Doctor TUI view for plugin/data-path health checks
+  - plugin management expanded to install and manage both `spaghetti-hooks` and `spaghetti-channel`
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @vibecook/spaghetti-core@0.4.0
+
 ## 0.3.0
 
 ### Minor Changes

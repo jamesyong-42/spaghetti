@@ -52,6 +52,7 @@ export type SessionMessageType =
   | 'attachment'
   | 'custom-title'
   | 'file-history-snapshot'
+  | 'pr-link'
   | 'progress'
   | 'permission-mode'
   | 'saved_hook_context'
@@ -67,6 +68,7 @@ export type SessionMessage =
   | AttachmentMessage
   | CustomTitleMessage
   | FileHistorySnapshotMessage
+  | PrLinkMessage
   | ProgressMessage
   | PermissionModeMessage
   | SavedHookContextMessage
@@ -93,6 +95,15 @@ export interface PermissionModeMessage {
   type: 'permission-mode';
   permissionMode: string;
   sessionId: string;
+}
+
+export interface PrLinkMessage {
+  type: 'pr-link';
+  sessionId: string;
+  prNumber: number;
+  prUrl: string;
+  prRepository: string;
+  timestamp: string;
 }
 
 export interface AttachmentMessage extends BaseMessageFields {

@@ -1,5 +1,18 @@
 # @vibecook/spaghetti-core
 
+## 0.4.0
+
+### Minor Changes
+
+- Support newer Claude Code data needed by the updated CLI surfaces:
+  - active channel/session metadata
+  - richer message variants and envelope fields
+  - validator coverage aligned with current real-world Claude data
+
+### Patch Changes
+
+- Validation and test pipeline improvements for current data formats
+
 ## 0.3.0
 
 ## 0.2.2
