@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.3.4](https://github.com/jamesyong-42/spaghetti/compare/spaghetti-v0.3.3...spaghetti-v0.3.4) (2026-04-11)
+
+
+### Features
+
+* add channel plugin for interactive chat with Claude Code sessions ([0e9f877](https://github.com/jamesyong-42/spaghetti/commit/0e9f87798f5ed17aca933d1fa256a135620d0c1a))
+* **cli:** add doctor command and TUI health-check view ([e1717c0](https://github.com/jamesyong-42/spaghetti/commit/e1717c0d4d59a85773b7835c81727a42cd04c55c))
+* **cli:** install and manage both hooks and channel plugins ([f07b386](https://github.com/jamesyong-42/spaghetti/commit/f07b386eeb09e7b8c22201e6a3cfbcb82acce627))
+
+
+### Bug Fixes
+
+* **channel:** address audit findings — race conditions and reliability ([3d87b64](https://github.com/jamesyong-42/spaghetti/commit/3d87b649e71518e231cc7a6dadd7304d130066eb))
+* **validation:** align types and test pipeline with current data ([a7b93f0](https://github.com/jamesyong-42/spaghetti/commit/a7b93f00ba9e1ab5a6f8a24ae98c5004030bcd8b))
+
 ## [0.3.3](https://github.com/jamesyong-42/spaghetti/compare/spaghetti-v0.3.2...spaghetti-v0.3.3) (2026-04-10)
 
 
