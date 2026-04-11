@@ -29,6 +29,7 @@ export { DetailView } from './detail-view.js';
 export { SearchView } from './search-view.js';
 export type { SearchViewProps } from './search-view.js';
 export { HelpView } from './help-view.js';
+export { DoctorView } from './doctor-view.js';
 export { StatsView } from './stats-view.js';
 export {
   buildDisplayItems,

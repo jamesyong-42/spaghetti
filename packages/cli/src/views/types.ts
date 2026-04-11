@@ -24,7 +24,8 @@ export type ViewType =
   | 'subagents'
   | 'help'
   | 'hooks-monitor'
-  | 'chat';
+  | 'chat'
+  | 'doctor';
 
 export interface ViewEntry {
   type: ViewType;

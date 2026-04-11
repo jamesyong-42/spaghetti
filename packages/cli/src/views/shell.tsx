@@ -24,7 +24,7 @@ import { useAlternateScreen } from './hooks.js';
 // ─── Version ──────────────────────────────────────────────────────────
 
 const _require = createRequire(import.meta.url);
-const VERSION = (_require('../package.json') as { version: string }).version;
+export const VERSION = (_require('../package.json') as { version: string }).version;
 
 // ─── API Context ───────────────────────────────────────────────────────
 

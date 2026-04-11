@@ -30,6 +30,7 @@ import type { HooksOptions } from './commands/hooks.js';
 import { chatCommand } from './commands/chat.js';
 import type { ChatOptions } from './commands/chat.js';
 import { pluginCommand } from './commands/plugin.js';
+import { doctorCommand } from './commands/doctor.js';
 import { theme } from './lib/color.js';
 import { uninstallCommand } from './commands/uninstall.js';
 import { updateCommand } from './lib/updater.js';
@@ -84,6 +85,7 @@ export function createProgram(): Command {
     { name: 'hooks', alias: 'h', description: 'View hook events' },
     { name: 'chat', alias: 'c', description: 'Chat with active Claude Code sessions' },
     { name: 'plugin', alias: '', description: 'Manage spaghetti Claude Code plugins' },
+    { name: 'doctor', alias: '', description: 'Health check for spaghetti, plugins, and data paths' },
   ];
 
   // Default action: catch unknown commands.
@@ -396,6 +398,15 @@ export function createProgram(): Command {
     });
 
   program.addCommand(pluginCmd);
+
+  // Doctor command (does not need SpaghettiAPI)
+  const doctorCmd = new Command('doctor')
+    .description('Health check for spaghetti, its plugins, and related data paths')
+    .action(async () => {
+      await doctorCommand(VERSION);
+    });
+
+  program.addCommand(doctorCmd);
 
   // Uninstall command
   program
