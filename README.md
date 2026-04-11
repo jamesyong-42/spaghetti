@@ -1,8 +1,8 @@
 # Spaghetti
 
-**Untangle your Claude Code history.**
+**Inspect, search, and navigate Claude Code data from the terminal.**
 
-An interactive terminal UI for browsing, searching, and analyzing every Claude Code conversation on your machine.
+Spaghetti is a TypeScript monorepo centered on a local-first data pipeline for Claude Code artifacts. It parses `~/.claude`, stores a normalized SQLite index, exposes a queryable core library, and ships a terminal app with both a full-screen TUI and one-shot CLI commands.
 
 [![npm version](https://img.shields.io/npm/v/@vibecook/spaghetti.svg)](https://www.npmjs.com/package/@vibecook/spaghetti)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
@@ -10,212 +10,343 @@ An interactive terminal UI for browsing, searching, and analyzing every Claude C
 [![Node](https://img.shields.io/badge/node-%3E%3D18-brightgreen.svg)](https://nodejs.org/)
 [![CI](https://github.com/jamesyong-42/spaghetti/actions/workflows/ci.yml/badge.svg)](https://github.com/jamesyong-42/spaghetti/actions/workflows/ci.yml)
 
----
-
-```
+```text
 ╭ Spaghetti v0.3.3 ──────────────────────────────────────────────────────╮
 │                                                                        │
-│  ▄▀▀ █▀█ ▄▀▄ █▀▀ █ █ █▀▀ ▀█▀ ▀█▀ █      Projects           79 │
-│  ▀▄▄ █▀▀ █▀█ █ █ █▀█ █▀   █   █  █      Sessions        1,247 │
-│  ▄▄▀ █   █ █ ▀▀▀ ▀ ▀ ▀▀▀  ▀   ▀  ▀      Messages       86,412 │
-│                                            Tokens          66.3M │
-│  untangle your claude code history         ────────────────────── │
-│                                            /search  /stats  /help │
-│  ~/.claude · 512 MB · 28ms                                        │
+│  ▄▀▀ █▀█ ▄▀▄ █▀▀ █ █ █▀▀ ▀█▀ ▀█▀ █      Projects           79         │
+│  ▀▄▄ █▀▀ █▀█ █ █ █▀█ █▀   █   █  █      Sessions        1,247         │
+│  ▄▄▀ █   █ █ ▀▀▀ ▀ ▀ ▀▀▀  ▀   ▀  ▀      Messages       86,412         │
+│                                            Tokens          66.3M      │
+│  untangle your claude code history         ──────────────────────      │
+│                                            /search  /stats  /help      │
+│  ~/.claude · 512 MB · 28ms                                             │
 │                                                                        │
 ╰────────────────────────────────────────────────────────────────────────╯
-
-  ▎ Projects                                                  79 projects
-    Browse all Claude Code project conversations
-
-    Stats                                                 66.3M tokens
-    Usage statistics, token counts, top projects
-
-    Help                                                  ? keybindings
-    Navigation, commands, and keyboard shortcuts
-
-──────────────────────────────────────────────────────────────────────────
-  ↑↓ navigate  ⏎ open  / search  q quit
-──────────────────────────────────────────────────────────────────────────
 ```
 
----
+| Surface | Current State | Notes |
+|---|---|---|
+| Terminal app | Primary interface | Ink TUI plus one-shot CLI commands |
+| Core library | Reusable | Public API over parsed/indexed Claude Code data |
+| Hook monitoring | Working | Reads `~/.spaghetti/hooks/events.jsonl` |
+| Live chat channel | Experimental | Bun MCP/WebSocket bridge |
+| React UI package | Experimental | Component playground, not main product |
 
-## Interactive TUI
+## What It Does
 
-Running `spag` launches a full-screen interactive terminal UI built with Ink and React.
+Spaghetti is built around four related use cases:
 
-**Menu home screen** -- Projects, Stats, and Help are selectable from the home menu. A branded welcome panel shows aggregate stats and boot time.
+- Browse Claude Code projects, sessions, messages, plans, todos, memory files, and subagent transcripts.
+- Run fast full-text search over indexed message content with SQLite FTS5.
+- Surface operational tooling around Claude Code plugins, hook events, and active channel sessions.
+- Reuse the same indexed data through a standalone library and an experimental React UI package.
 
-**Project-level tabs** -- Select a project to see `Sessions | Memory` tabs. Arrow keys (`<- ->`) switch between viewing sessions and the project's MEMORY.md.
+In practice, the CLI is the primary product today. The core package is reusable and stable enough to script against. The UI package is more of a playground than a finished app.
 
-**Session-level tabs** -- Enter a session to see `Messages | Todos | Plan | Subagents` tabs. Each tab displays its content inline; no extra commands to memorize.
+## Packages
 
-**Pill-style tab badges** -- Active tabs render with a filled background; inactive tabs show dim rounded borders using ANSI 256-color sequences.
+This repo is a `pnpm` workspace with five packages:
 
-**Context-aware search** -- Press `/` from any view to open a search bar. Scope narrows automatically: global from home, per-project from the project view, per-session from the session view.
+- `packages/cli` — `@vibecook/spaghetti`, the published terminal app.
+- `packages/core` — `@vibecook/spaghetti-core`, the parsing, indexing, and query library.
+- `packages/ui` — `@vibecook/spaghetti-ui`, private React components and playground surfaces.
+- `packages/plugin` — Claude Code plugin assets for hook capture.
+- `packages/channel` — a Bun-based MCP/WebSocket bridge for live chat with running Claude Code sessions.
 
-**256-color message blocks** -- User and assistant messages render with distinct background colors and timestamps. Full-width color blocks with right-aligned metadata.
+## Architecture
 
-**Boot screen with progress bar** -- On first run (cold start), a progress bar tracks JSONL parsing across all projects. Warm starts skip straight to the menu.
+The codebase has a fairly clean layered split:
 
-**Scrollbar and filtering** -- Long lists show a scrollbar indicator. Message views support type filters (user, assistant, thinking, tools, system, internal) via number keys `1-6`.
+1. `@vibecook/spaghetti-core`
+   Reads Claude Code files from `~/.claude`, parses them into domain types, ingests them into SQLite, and exposes query APIs.
+2. `@vibecook/spaghetti`
+   Wraps the core API in a command-driven terminal experience: Ink TUI for interactive use, Commander-based subcommands for scripts.
+3. Plugin and channel packages
+   Extend Claude Code itself so Spaghetti can monitor hook events and interact with live sessions.
 
-**Alternate screen buffer** -- The TUI renders in the terminal's alternate screen, leaving your shell history clean on exit.
+```text
+             Claude Code local data
+                    ~/.claude
+                        │
+                        ▼
+         ┌──────────────────────────────┐
+         │ @vibecook/spaghetti-core     │
+         │ parser + ingest + query      │
+         └──────────────┬───────────────┘
+                        │
+            ~/.spaghetti/cache/spaghetti.db
+                        │
+        ┌───────────────┼──────────────────┐
+        ▼               ▼                  ▼
+   Ink TUI         CLI commands       Core library API
+        │               │                  │
+        └─────── shared summaries/search/messages ───────┘
+```
+
+### Core Data Flow
+
+At initialization, the core service:
+
+- discovers project/session files under `~/.claude`
+- parses project data in streaming mode
+- writes normalized rows into a SQLite database at `~/.spaghetti/cache/spaghetti.db` by default
+- builds and maintains FTS5 search indexes over message text
+- stores config and analytics snapshots separately from session data
+
+Key implementation details from the code:
+
+- Cold starts can parse projects in worker threads, with a sequential fallback when workers are unavailable.
+- Query and ingest share one SQLite connection to avoid `SQLITE_BUSY` conflicts.
+- Source file fingerprints are tracked so warm starts can skip unnecessary reprocessing.
+- The schema is purpose-built: projects, sessions, messages, subagents, tool results, todos, tasks, plans, config, analytics, and file history all have dedicated tables.
+
+### Data Shapes Indexed Today
+
+| Category | Examples |
+|---|---|
+| Project/session data | sessions, messages, MEMORY files, summaries |
+| Agent artifacts | subagents, plans, todos, persisted tool results |
+| Local Claude state | settings, plugins, statsig, telemetry, active sessions |
+| Extra observability | hook events, channel session discovery, exportable transcripts |
+
+## CLI Modes
+
+The published CLI supports three usage styles:
+
+- Bare `spag` in a TTY launches the Ink TUI.
+- Bare `spag --json` or piped `spag` prints a JSON summary.
+- Subcommands such as `projects`, `messages`, or `search` run as one-off terminal commands.
+
+### TUI
+
+The TUI is driven by a shell/view-stack model in `packages/cli/src/views`. It currently includes:
+
+- Home menu
+- Projects view
+- Project tabs: `Sessions | Memory`
+- Session tabs: `Messages | Todos | Plan | Subagents`
+- Search flow
+- Stats view
+- Help view
+- Hooks Monitor
+- Chat
+- Doctor
+
+The TUI initializes the core service lazily and shows a boot screen with progress while the parser/indexer runs.
+
+```text
+Home
+ ├─ Projects
+ │   ├─ Sessions
+ │   │   ├─ Messages
+ │   │   ├─ Todos
+ │   │   ├─ Plan
+ │   │   └─ Subagents
+ │   └─ Memory
+ ├─ Hooks Monitor
+ ├─ Stats
+ ├─ Help
+ ├─ Chat
+ └─ Doctor
+```
+
+### One-Off Commands
+
+Current command surface:
+
+| Command | Alias | Purpose |
+|---|---|---|
+| `projects` | `p` | List indexed projects |
+| `sessions [project]` | `s` | List sessions for a project |
+| `messages [project] [session]` | `m` | Read session messages |
+| `search <query>` |  | Full-text search |
+| `stats` | `st` | Aggregate usage and store stats |
+| `memory [project]` | `mem` | Show project `MEMORY.md` |
+| `todos [project] [session]` | `t` | Show session todos |
+| `subagents [project] [session] [agent]` | `sub` | Inspect subagent transcripts |
+| `plan [project] [session]` | `pl` | Show a session plan |
+| `export [project]` | `x` | Export project/session data as JSON or Markdown |
+| `hooks` | `h` | View captured hook events |
+| `chat` | `c` | Chat with active Claude Code sessions |
+| `plugin <action> [plugin]` |  | Install/uninstall/check Spaghetti plugins |
+| `doctor` |  | Health-check data paths and plugin state |
+| `update` |  | Check for and install updates |
+| `uninstall` |  | Show uninstall instructions |
+
+Project and session resolution is intentionally flexible. The CLI accepts:
+
+- exact names
+- fuzzy prefixes
+- numeric indexes
+- `.` for current working directory
+- `latest` / `last` for the newest session
+- partial UUIDs for session selection
+
+Examples:
+
+```bash
+spag projects
+spag sessions .
+spag messages . latest
+spag search "refactor parser"
+spag export . --format markdown --output session.md
+spag hooks --follow
+spag chat --follow
+spag doctor
+```
 
 ## Quick Start
 
 ```bash
-# Install globally
+# global install
 npm install -g @vibecook/spaghetti
 
-# Or use npx
-npx @vibecook/spaghetti
-
-# Launch the interactive TUI
+# launch the TUI
 spag
+
+# or use a one-shot command
+spag search "worker pool"
 ```
 
-`spag` is a built-in alias for `spaghetti`.
+## Plugins And Live Integrations
 
-## CLI Commands (scripting / agents)
+Spaghetti is not only a reader of static Claude Code files.
 
-The one-off subcommands still work for scripts, pipelines, and AI agents that need structured output. Every command supports `--json`.
+### `spaghetti-hooks`
 
-| Command | Alias | Description |
-|---------|-------|-------------|
-| `spaghetti` | | Launch interactive TUI |
-| `projects` | `p` | List all projects with stats |
-| `sessions [project]` | `s` | List sessions for a project |
-| `messages [project] [session]` | `m` | Read conversation messages |
-| `search <query>` | | Full-text search across all data |
-| `stats` | `st` | Usage statistics and token counts |
-| `memory [project]` | `mem` | View a project's MEMORY.md |
-| `todos [project] [session]` | `t` | View session todo lists |
-| `subagents [project] [session]` | `sub` | View subagent transcripts |
-| `plan [project] [session]` | `pl` | View session plan |
-| `plugin <install|uninstall|status> [name]` | | Manage spaghetti Claude Code plugins |
-| `doctor` | | Health check for spaghetti, plugins, and data paths |
-| `export [project]` | `x` | Export to JSON or Markdown |
+The hook plugin writes structured JSONL events to `~/.spaghetti/hooks/events.jsonl`. The CLI can read those events directly through `spag hooks`, and the TUI exposes them via Hooks Monitor.
 
-### Smart Resolution
+### `spaghetti-channel`
 
-Projects and sessions are resolved flexibly:
+The channel package is a Bun-based MCP server plus WebSocket bridge. Each running Claude Code session can publish a discovery file under `~/.spaghetti/channel/sessions/<uuid>.json` and stream message traffic through a local socket. The CLI `chat` command and the TUI chat view are built around that channel registry.
 
-```bash
-spag s spaghetti     # Fuzzy match by name
-spag s 1             # By index number
-spag s .             # Current working directory
-spag m . latest      # Latest session
-spag m . 3           # Third most recent session
-spag s --since today # Filter by time
+### `doctor`
+
+The doctor command checks:
+
+- Claude Code binary availability
+- `~/.claude` and plugin directories
+- installed/enabled Spaghetti plugins
+- hook event file presence
+- channel session directory state
+
+```text
+spaghetti-hooks   -> ~/.spaghetti/hooks/events.jsonl      -> hooks view / hooks monitor
+spaghetti-channel -> ~/.spaghetti/channel/sessions/*.json -> chat command / chat view
+doctor            -> filesystem + plugin state probes     -> health report
 ```
-
-## Architecture
-
-Spaghetti uses a layered architecture optimized for fast reads over large local datasets.
-
-**Ink v6 + React 19 TUI** -- The interactive interface is a React app rendered to the terminal via Ink. A view stack manages navigation (push/pop), with a shell component handling breadcrumbs, search mode, and keyboard dispatch. Tab containers at the project and session levels wrap related views without extra navigation depth.
-
-**SQLite with dedicated tables** -- not a generic blob store. Projects, sessions, messages, and metadata each have purpose-built schemas with proper indexes.
-
-**Persistent FTS5 with auto-sync triggers** -- full-text search indexes are content-synced to the messages table. Inserts, updates, and deletes stay in sync automatically. No rebuild on warm start.
-
-**Streaming JSONL parser** -- Claude Code stores conversations as large JSONL files. Spaghetti reads them line-by-line with byte offset tracking, never loading entire files into memory.
-
-**Worker threads** -- multiple projects are parsed in parallel across worker threads. The main thread owns the single SQLite writer; workers send pre-extracted batches.
 
 ## Library Usage
 
-`@spaghetti/core` can be used as a standalone library:
+The core package can be used directly:
 
-```typescript
-import { createSpaghettiService } from '@spaghetti/core';
+```ts
+import { createSpaghettiService } from '@vibecook/spaghetti-core';
 
 const spaghetti = createSpaghettiService();
 await spaghetti.initialize();
 
-// List all projects
 const projects = spaghetti.getProjectList();
+const sessions = spaghetti.getSessionList(projects[0].slug);
+const messages = spaghetti.getSessionMessages(projects[0].slug, sessions[0].sessionId);
+const results = spaghetti.search({ text: 'worker thread' });
 
-// Full-text search
-const results = spaghetti.search({ text: 'refactor' });
-
-// Read messages from a session
-const page = spaghetti.getSessionMessages(projectSlug, sessionId);
-
-// Clean up
 spaghetti.shutdown();
 ```
 
-## Performance
+Useful API entry points include:
 
-| Metric | Value |
-|--------|-------|
-| Cold start (first run, with progress bar) | ~6s |
-| Warm start (no changes) | 28ms |
-| Search (FTS5) | <1ms |
-| Peak memory | ~30MB |
+- `getProjectList()`
+- `getSessionList(projectSlug)`
+- `getSessionMessages(projectSlug, sessionId, limit?, offset?)`
+- `getProjectMemory(projectSlug)`
+- `getSessionTodos(projectSlug, sessionId)`
+- `getSessionPlan(projectSlug, sessionId)`
+- `getSessionSubagents(projectSlug, sessionId)`
+- `search(query)`
+- `getStats()`
+- `onProgress()` / `onReady()` / `onChange()`
 
-Benchmarked against ~500MB of Claude Code data across 38 projects.
+## UI Package
+
+`@vibecook/spaghetti-ui` is private and currently best understood as a component playground around the core API. It exports:
+
+- a provider/context wrapper
+- project and session cards
+- message rendering components
+- a detail overlay
+- `AgentDataPlayground`
+
+It is not the primary interface of the repo today.
 
 ## Project Structure
 
-```
+```text
 spaghetti/
   packages/
-    core/          @spaghetti/core -- SQLite store, parser, search, API
-    cli/           @vibecook/spaghetti -- Interactive TUI (Ink v6 + React 19)
-      src/
-        commands/    One-off CLI subcommands (commander)
-        views/       TUI view components
-          shell.tsx            Root component, view stack, search mode
-          boot-view.tsx        Progress bar during cold start
-          menu-view.tsx        Home menu (Projects / Stats / Help)
-          welcome-panel.tsx    Branded header with stats
-          projects-view.tsx    Project list
-          project-tab-view.tsx Sessions | Memory tabs
-          sessions-view.tsx    Session list
-          session-tab-view.tsx Messages | Todos | Plan | Subagents tabs
-          messages-view.tsx    Message viewer with type filters
-          search-view.tsx      Search results
-          tab-bar.tsx          Pill-style tab badge component
-          chrome.tsx           Header, footer, horizontal rules
-    channel/       @vibecook/spaghetti-channel -- Claude Code channel bridge server (Bun)
-    plugin/        @vibecook/spaghetti-plugin -- Claude Code marketplace plugin assets/hooks
-    ui/            @spaghetti/ui -- React web interface (planned)
-  docs/            Design documents and RFCs
-  scripts/         Build and validation scripts
+    cli/       Published terminal app
+    core/      Parsing, storage, indexing, query API
+    ui/        Experimental React package
+    plugin/    Claude Code plugin assets for hook capture
+    channel/   Bun-based live chat bridge
+  docs/        Design notes, implementation plans, RFCs
+  scripts/     Validation utilities against real ~/.claude data
 ```
 
-Managed with [pnpm workspaces](https://pnpm.io/workspaces).
+## Requirements
+
+- Node.js `>=18` for the main workspace and published packages
+- `pnpm` for workspace development
+- a local Claude Code data directory at `~/.claude` for real usage
+
+Additional package-specific note:
+
+- `packages/channel` uses Bun for local development of the channel server
+
+## Install
+
+For end users:
+
+```bash
+npm install -g @vibecook/spaghetti
+spag
+```
+
+Or run without installing globally:
+
+```bash
+npx @vibecook/spaghetti
+```
 
 ## Development
 
 ```bash
-# Install dependencies
 pnpm install
-
-# Build all packages
 pnpm build
-
-# Type-check
 pnpm typecheck
-
-# Run tests
 pnpm test
 ```
 
-## Contributing
+`pnpm test` currently runs:
 
-Contributions are welcome. Please open an issue first to discuss what you'd like to change.
+- workspace typechecking
+- schema/type validation scripts against real Claude Code data
+- package test suites for `core` and `cli`
 
-1. Fork the repository
-2. Create your feature branch (`git checkout -b feature/my-feature`)
-3. Commit your changes (`git commit -m 'Add my feature'`)
-4. Push to the branch (`git push origin feature/my-feature`)
-5. Open a Pull Request
+## Status
+
+The codebase is most mature in:
+
+- local indexing of Claude Code data
+- terminal browsing/search flows
+- plugin health and observability tooling
+
+More experimental areas are:
+
+- the React UI package
+- live chat/channel workflows
+- the long-tail of Claude Code data formats, which the repo actively validates against real local data
 
 ## License
 
-[MIT](LICENSE) -- James Yong
+[MIT](LICENSE) — James Yong
