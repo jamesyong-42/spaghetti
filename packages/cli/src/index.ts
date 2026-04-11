@@ -83,7 +83,7 @@ export function createProgram(): Command {
     { name: 'export', alias: 'x', description: 'Export project data' },
     { name: 'hooks', alias: 'h', description: 'View hook events' },
     { name: 'chat', alias: 'c', description: 'Chat with active Claude Code sessions' },
-    { name: 'plugin', alias: '', description: 'Manage spaghetti-hooks plugin' },
+    { name: 'plugin', alias: '', description: 'Manage spaghetti Claude Code plugins' },
   ];
 
   // Default action: catch unknown commands.
@@ -388,10 +388,11 @@ export function createProgram(): Command {
 
   // Plugin command (does not need SpaghettiAPI)
   const pluginCmd = new Command('plugin')
-    .description('Manage the spaghetti-hooks Claude Code plugin')
+    .description('Manage spaghetti Claude Code plugins (spaghetti-hooks, spaghetti-channel)')
     .argument('<action>', 'Action: install, uninstall, status')
-    .action(async (action: string) => {
-      await pluginCommand(action);
+    .argument('[plugin]', 'Target plugin name (default: all spaghetti plugins)')
+    .action(async (action: string, target: string | undefined) => {
+      await pluginCommand(action, target);
     });
 
   program.addCommand(pluginCmd);
