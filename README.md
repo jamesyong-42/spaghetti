@@ -333,6 +333,17 @@ pnpm test
 - schema/type validation scripts against real Claude Code data
 - package test suites for `core` and `cli`
 
+## Releases
+
+This repo relies on `release-please` for releases.
+
+- Do not manually bump versions in `package.json` files.
+- Do not manually edit `.release-please-manifest.json`.
+- Do not manually cut release tags as part of the normal workflow.
+- Merge feature/fix/chore commits to `main`, let `release-please` open the release PR, then merge that PR to release.
+
+See [RELEASING.md](RELEASING.md) for the expected flow.
+
 ## Status
 
 The codebase is most mature in:

@@ -30,8 +30,7 @@
     "test": "pnpm typecheck && pnpm validate && pnpm test:packages",
     "lint": "eslint 'packages/*/src/**/*.{ts,tsx}'",
     "format:check": "prettier --check 'packages/*/src/**/*.{ts,tsx}'",
-    "format": "prettier --write 'packages/*/src/**/*.{ts,tsx}'",
-    "release": "pnpm build"
+    "format": "prettier --write 'packages/*/src/**/*.{ts,tsx}'"
   },
   "engines": {
     "node": ">=18"
