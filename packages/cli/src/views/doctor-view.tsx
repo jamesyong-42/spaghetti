@@ -91,8 +91,7 @@ function Spacer(): React.ReactElement {
 function PluginRow({ plugin }: { plugin: PluginReport }): React.ReactElement {
   const kind = pluginStatusKind(plugin.state);
   const label = PLUGIN_STATUS_LABEL[kind];
-  const statusColor =
-    kind === 'ok' ? 'green' : kind === 'not-installed' ? 'red' : 'yellow';
+  const statusColor = kind === 'ok' ? 'green' : kind === 'not-installed' ? 'red' : 'yellow';
 
   const version = plugin.state.version ? `  v${plugin.state.version}` : '';
 
@@ -109,9 +108,7 @@ function PluginRow({ plugin }: { plugin: PluginReport }): React.ReactElement {
         </Sub>
       )}
       {kind === 'disabled' && <Sub>→ enable in ~/.claude/settings.json (enabledPlugins)</Sub>}
-      {kind === 'path-missing' && plugin.state.installPath && (
-        <Sub>path: {tildify(plugin.state.installPath)}</Sub>
-      )}
+      {kind === 'path-missing' && plugin.state.installPath && <Sub>path: {tildify(plugin.state.installPath)}</Sub>}
     </>
   );
 }

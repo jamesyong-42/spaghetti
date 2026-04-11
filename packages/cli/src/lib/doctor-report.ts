@@ -12,13 +12,7 @@ import { existsSync, readdirSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { createHookEventWatcher, getChannelSessionsDir } from '@vibecook/spaghetti-core';
-import {
-  PLUGINS,
-  PLUGINS_DIR,
-  SETTINGS_PATH,
-  getPluginState,
-  type PluginState,
-} from './plugins.js';
+import { PLUGINS, PLUGINS_DIR, SETTINGS_PATH, getPluginState, type PluginState } from './plugins.js';
 
 export const CLAUDE_DIR = join(homedir(), '.claude');
 

@@ -32,8 +32,7 @@ export async function pluginCommand(action: string, target?: string): Promise<vo
       return showStatus(selection);
     default:
       process.stderr.write(
-        theme.error(`Unknown plugin action: "${action}"\n`) +
-          theme.muted('Available: install, uninstall, status\n'),
+        theme.error(`Unknown plugin action: "${action}"\n`) + theme.muted('Available: install, uninstall, status\n'),
       );
       process.exit(1);
   }
@@ -41,13 +40,10 @@ export async function pluginCommand(action: string, target?: string): Promise<vo
 
 function resolveSelection(target: string | undefined): PluginMeta[] {
   if (!target) return [...PLUGINS];
-  const match = PLUGINS.find(
-    (p) => p.name === target || p.name === `spaghetti-${target}`,
-  );
+  const match = PLUGINS.find((p) => p.name === target || p.name === `spaghetti-${target}`);
   if (!match) {
     process.stderr.write(
-      theme.error(`Unknown plugin: "${target}"\n`) +
-        theme.muted(`Known: ${PLUGINS.map((p) => p.name).join(', ')}\n`),
+      theme.error(`Unknown plugin: "${target}"\n`) + theme.muted(`Known: ${PLUGINS.map((p) => p.name).join(', ')}\n`),
     );
     process.exit(1);
   }
@@ -100,9 +96,7 @@ function installPlugins(plugins: PluginMeta[]): void {
   }
 
   process.stderr.write('\n');
-  process.stderr.write(
-    theme.success('  Plugins installed. Restart Claude Code to activate.') + '\n\n',
-  );
+  process.stderr.write(theme.success('  Plugins installed. Restart Claude Code to activate.') + '\n\n');
 }
 
 // ─── uninstall ───────────────────────────────────────────────────────────
@@ -130,9 +124,7 @@ function uninstallPlugins(plugins: PluginMeta[]): void {
   }
 
   if (touched) {
-    process.stderr.write(
-      '\n' + theme.success('  Uninstall complete. Restart Claude Code to take effect.') + '\n\n',
-    );
+    process.stderr.write('\n' + theme.success('  Uninstall complete. Restart Claude Code to take effect.') + '\n\n');
   } else {
     process.stderr.write('\n');
   }
@@ -150,9 +142,7 @@ function showStatus(plugins: PluginMeta[]): void {
     const state = getPluginState(p.name);
     const label = statusLabel(state);
     const version = state.version ? `v${state.version}` : '—';
-    process.stderr.write(
-      `  ${theme.accent(p.name.padEnd(18))}  ${label}  ${theme.muted(version)}\n`,
-    );
+    process.stderr.write(`  ${theme.accent(p.name.padEnd(18))}  ${label}  ${theme.muted(version)}\n`);
     process.stderr.write(`  ${' '.repeat(18)}  ${theme.muted(p.description)}\n`);
     if (state.installPath) {
       process.stderr.write(`  ${' '.repeat(18)}  ${theme.muted(state.installPath)}\n`);
