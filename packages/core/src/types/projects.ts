@@ -48,8 +48,12 @@ export interface BaseMessageFields {
 }
 
 export type SessionMessageType =
+  | 'agent-name'
+  | 'attachment'
+  | 'custom-title'
   | 'file-history-snapshot'
   | 'progress'
+  | 'permission-mode'
   | 'saved_hook_context'
   | 'user'
   | 'assistant'
@@ -59,8 +63,12 @@ export type SessionMessageType =
   | 'last-prompt';
 
 export type SessionMessage =
+  | AgentNameMessage
+  | AttachmentMessage
+  | CustomTitleMessage
   | FileHistorySnapshotMessage
   | ProgressMessage
+  | PermissionModeMessage
   | SavedHookContextMessage
   | UserMessage
   | AssistantMessage
@@ -68,6 +76,41 @@ export type SessionMessage =
   | SummaryMessage
   | QueueOperationMessage
   | LastPromptMessage;
+
+export interface AgentNameMessage {
+  type: 'agent-name';
+  agentName: string;
+  sessionId: string;
+}
+
+export interface CustomTitleMessage {
+  type: 'custom-title';
+  customTitle: string;
+  sessionId: string;
+}
+
+export interface PermissionModeMessage {
+  type: 'permission-mode';
+  permissionMode: string;
+  sessionId: string;
+}
+
+export interface AttachmentMessage extends BaseMessageFields {
+  type: 'attachment';
+  attachment: {
+    type: string;
+    hookName?: string;
+    toolUseID?: string;
+    hookEvent?: string;
+    content?: string;
+    stdout?: string;
+    stderr?: string;
+    exitCode?: number;
+    command?: string;
+    durationMs?: number;
+    [key: string]: unknown;
+  };
+}
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // TYPE: file-history-snapshot
@@ -99,6 +142,10 @@ export interface FileBackupEntry {
 export interface UserMessage extends BaseMessageFields {
   type: 'user';
   message: UserMessagePayload;
+  origin?: {
+    kind: string;
+    [key: string]: unknown;
+  };
   thinkingMetadata?: ThinkingMetadata;
   todos?: TodoItem[];
   permissionMode?: string;
@@ -319,6 +366,7 @@ export interface StopHookSummarySystemMessage extends SystemMessageBase {
 export interface TurnDurationSystemMessage extends SystemMessageBase {
   subtype: 'turn_duration';
   durationMs: number;
+  messageCount?: number;
 }
 
 export interface ApiErrorSystemMessage extends SystemMessageBase {

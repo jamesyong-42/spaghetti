@@ -31,7 +31,8 @@ EXPECTED_SESSION_INDEX_ENTRY_FIELDS = {
 }
 
 EXPECTED_MESSAGE_TYPES = {
-    "file-history-snapshot", "progress", "saved_hook_context",
+    "agent-name", "attachment", "custom-title",
+    "file-history-snapshot", "progress", "permission-mode", "saved_hook_context",
     "user", "assistant", "system", "summary", "queue-operation",
     "last-prompt"
 }
@@ -72,6 +73,14 @@ KNOWN_EXTRA_ENVELOPE_FIELDS = {
     "operation",
     # FileHistorySnapshotMessage extras
     "messageId", "isSnapshotUpdate", "snapshot",
+    # AgentNameMessage extras
+    "agentName",
+    # AttachmentMessage extras
+    "attachment",
+    # CustomTitleMessage extras
+    "customTitle",
+    # Newer observed message extras
+    "origin", "messageCount",
 }
 
 ALL_KNOWN_ENVELOPE_FIELDS = EXPECTED_BASE_MESSAGE_FIELDS | KNOWN_EXTRA_ENVELOPE_FIELDS

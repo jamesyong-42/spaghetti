@@ -88,6 +88,7 @@ export interface Session {
 export interface SubagentMeta {
   agentType: string;
   description: string;
+  worktreePath?: string;
 }
 
 export interface SubagentTranscript {

@@ -29,7 +29,8 @@ CLAUDE_DIR = Path.home() / ".claude"
 # SettingsFile fields
 SETTINGS_FIELDS_REQUIRED = set()  # permissions was required in type but may be absent in local
 SETTINGS_FIELDS_OPTIONAL = {"permissions", "effortLevel", "enabledPlugins",
-                             "alwaysThinkingEnabled", "statusLine", "env"}
+                             "alwaysThinkingEnabled", "statusLine", "env",
+                             "cleanupPeriodDays", "extraKnownMarketplaces", "hooks"}
 SETTINGS_ALL_FIELDS = SETTINGS_FIELDS_REQUIRED | SETTINGS_FIELDS_OPTIONAL
 
 # PermissionsConfig fields
@@ -75,7 +76,11 @@ KNOWN_MARKETPLACE_ENTRY_REQUIRED = {"source", "installLocation", "lastUpdated"}
 KNOWN_MARKETPLACE_ENTRY_OPTIONAL = {"autoUpdate"}
 
 # MarketplaceSource fields
-MARKETPLACE_SOURCE_FIELDS = {"source", "repo"}
+MARKETPLACE_SOURCE_COMMON_FIELDS = {"source"}
+MARKETPLACE_SOURCE_FIELDS_BY_KIND = {
+    "github": {"repo"},
+    "directory": {"path"},
+}
 
 # InstallCountsCacheFile fields
 INSTALL_COUNTS_CACHE_TOP = {"version", "fetchedAt", "counts"}
@@ -175,7 +180,8 @@ CLAUDE_GLOBAL_STATE_KNOWN = {"numStartups", "installMethod", "autoUpdates",
                               "hasSeenTasksHint", "tipsHistory"}
 
 # ActiveSessionFile fields
-ACTIVE_SESSION_FIELDS = {"pid", "sessionId", "cwd", "startedAt"}
+ACTIVE_SESSION_FIELDS_REQUIRED = {"pid", "sessionId", "cwd", "startedAt"}
+ACTIVE_SESSION_FIELDS_OPTIONAL = {"kind", "entrypoint", "name"}
 
 # McpNeedsAuthCache — Record<string, {timestamp: number}>
 # (validated structurally)
@@ -454,10 +460,12 @@ def validate_plugins():
                     )
                     src = entry.get("source", {})
                     if isinstance(src, dict):
+                        source_kind = src.get("source")
+                        specific_fields = MARKETPLACE_SOURCE_FIELDS_BY_KIND.get(source_kind, set())
                         check_keys(
                             f"known_marketplaces['{name}'].source",
                             src.keys(),
-                            MARKETPLACE_SOURCE_FIELDS,
+                            MARKETPLACE_SOURCE_COMMON_FIELDS | specific_fields,
                         )
     else:
         warn("known_marketplaces.json: not found")
@@ -905,7 +913,12 @@ def validate_top_level():
             if err:
                 fail(f"sessions/{sample}: {err}")
             elif isinstance(data, dict):
-                check_keys(f"sessions/{sample}", data.keys(), ACTIVE_SESSION_FIELDS)
+                check_keys(
+                    f"sessions/{sample}",
+                    data.keys(),
+                    ACTIVE_SESSION_FIELDS_REQUIRED,
+                    ACTIVE_SESSION_FIELDS_OPTIONAL,
+                )
             print(f"  Active session files: {len(session_files)}")
 
     # Validate mcp-needs-auth-cache.json

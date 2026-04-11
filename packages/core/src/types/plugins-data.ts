@@ -16,10 +16,15 @@ export interface InstalledPluginsFile {
   plugins: Record<string, InstalledPluginEntry[]>;
 }
 
-export interface MarketplaceSource {
-  source: 'github';
-  repo: string;
-}
+export type MarketplaceSource =
+  | {
+      source: 'github';
+      repo: string;
+    }
+  | {
+      source: 'directory';
+      path: string;
+    };
 
 export interface KnownMarketplaceEntry {
   source: MarketplaceSource;

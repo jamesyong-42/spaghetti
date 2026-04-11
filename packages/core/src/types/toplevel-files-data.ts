@@ -11,12 +11,35 @@ export interface PermissionsConfig {
   allow: string[];
 }
 
+export interface HookCommand {
+  type: string;
+  command: string;
+  timeout?: number;
+}
+
+export interface HookMatcher {
+  matcher?: string;
+  hooks: HookCommand[];
+}
+
+export interface ExtraKnownMarketplace {
+  source: {
+    source: string;
+    repo?: string;
+    path?: string;
+  };
+}
+
 export interface SettingsFile {
   permissions: PermissionsConfig;
   effortLevel?: string;
   enabledPlugins?: Record<string, boolean>;
   alwaysThinkingEnabled?: boolean;
   statusLine?: StatusLineConfig;
+  env?: Record<string, string>;
+  cleanupPeriodDays?: number;
+  extraKnownMarketplaces?: Record<string, ExtraKnownMarketplace>;
+  hooks?: Record<string, HookMatcher[]>;
 }
 
 export interface DailyActivity {
@@ -97,6 +120,9 @@ export interface ActiveSessionFile {
   sessionId: string;
   cwd: string;
   startedAt: number;
+  kind?: string;
+  entrypoint?: string;
+  name?: string;
 }
 
 export interface TopLevelFiles {

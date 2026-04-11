@@ -13,7 +13,7 @@ An interactive terminal UI for browsing, searching, and analyzing every Claude C
 ---
 
 ```
-╭ Spaghetti v0.3.0 ──────────────────────────────────────────────────────╮
+╭ Spaghetti v0.3.3 ──────────────────────────────────────────────────────╮
 │                                                                        │
 │  ▄▀▀ █▀█ ▄▀▄ █▀▀ █ █ █▀▀ ▀█▀ ▀█▀ █      Projects           79 │
 │  ▀▄▄ █▀▀ █▀█ █ █ █▀█ █▀   █   █  █      Sessions        1,247 │
@@ -94,6 +94,8 @@ The one-off subcommands still work for scripts, pipelines, and AI agents that ne
 | `todos [project] [session]` | `t` | View session todo lists |
 | `subagents [project] [session]` | `sub` | View subagent transcripts |
 | `plan [project] [session]` | `pl` | View session plan |
+| `plugin <install|uninstall|status> [name]` | | Manage spaghetti Claude Code plugins |
+| `doctor` | | Health check for spaghetti, plugins, and data paths |
 | `export [project]` | `x` | Export to JSON or Markdown |
 
 ### Smart Resolution
@@ -179,6 +181,8 @@ spaghetti/
           search-view.tsx      Search results
           tab-bar.tsx          Pill-style tab badge component
           chrome.tsx           Header, footer, horizontal rules
+    channel/       @vibecook/spaghetti-channel -- Claude Code channel bridge server (Bun)
+    plugin/        @vibecook/spaghetti-plugin -- Claude Code marketplace plugin assets/hooks
     ui/            @spaghetti/ui -- React web interface (planned)
   docs/            Design documents and RFCs
   scripts/         Build and validation scripts

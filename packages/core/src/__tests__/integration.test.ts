@@ -9,6 +9,9 @@
 
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
+import os from 'node:os';
+import path from 'node:path';
+import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { createSpaghettiService } from '../create.js';
 import type { SpaghettiAPI, ProjectListItem, SessionListItem, MessagePage } from '../api.js';
 import type { SearchResultSet, StoreStats, InitProgress } from '../data/segment-types.js';
@@ -22,16 +25,23 @@ let projects: ProjectListItem[];
 let firstSlug: string;
 let sessions: SessionListItem[];
 let firstSessionId: string;
+let tempDir: string;
+
+const claudeProjectsDir = path.join(os.homedir(), '.claude', 'projects');
+const hasClaudeProjects = existsSync(claudeProjectsDir);
 
 // ═══════════════════════════════════════════════════════════════════════════
 // TEST SUITE
 // ═══════════════════════════════════════════════════════════════════════════
 
-describe('@vibecook/spaghetti-core integration', () => {
+describe('@vibecook/spaghetti-core integration', { skip: !hasClaudeProjects }, () => {
   // ── 1. Initialize ──────────────────────────────────────────────────────
 
   test('1. Initialize the service', async () => {
-    spaghetti = createSpaghettiService();
+    tempDir = mkdtempSync(path.join(os.tmpdir(), 'spaghetti-core-test-'));
+    spaghetti = createSpaghettiService({
+      dbPath: path.join(tempDir, 'spaghetti.db'),
+    });
 
     const progressMessages: string[] = [];
     let readyDurationMs = 0;
@@ -216,6 +226,7 @@ describe('@vibecook/spaghetti-core integration', () => {
 
   test('8. shutdown()', () => {
     spaghetti.shutdown();
+    rmSync(tempDir, { recursive: true, force: true });
     assert.strictEqual(spaghetti.isReady(), false, 'Service should not be ready after shutdown');
 
     console.log(`\n  -- Shutdown --`);

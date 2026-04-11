@@ -26,6 +26,10 @@ from pathlib import Path
 
 CLAUDE_DIR = Path.home() / ".claude"
 
+
+def is_ignored_entry(name: str) -> bool:
+    return name.startswith(".")
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # REPORT COLLECTOR
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -178,6 +182,8 @@ def validate_tasks() -> Section:
     hwm_values: list[int] = []
 
     for entry in sorted(os.listdir(tasks_dir)):
+        if is_ignored_entry(entry):
+            continue
         entry_path = tasks_dir / entry
         if not entry_path.is_dir():
             s.gap(f"Unexpected top-level file: {entry}")
@@ -252,6 +258,8 @@ def validate_file_history() -> Section:
     unmatched: list[str] = []
 
     for entry in sorted(os.listdir(fh_dir)):
+        if is_ignored_entry(entry):
+            continue
         entry_path = fh_dir / entry
         if not entry_path.is_dir():
             s.gap(f"Top-level non-directory: {entry}")
@@ -489,6 +497,8 @@ def validate_session_env() -> Section:
     file_patterns_found: list[str] = []
 
     for entry in sorted(os.listdir(se_dir)):
+        if is_ignored_entry(entry):
+            continue
         fpath = se_dir / entry
         if not fpath.is_dir():
             s.gap(f"Non-directory entry: {entry}")
@@ -607,13 +617,17 @@ def validate_sessions() -> Section:
         s.gap("Directory does not exist")
         return s
 
-    EXPECTED_KEYS = {"pid", "sessionId", "cwd", "startedAt"}
+    REQUIRED_KEYS = {"pid", "sessionId", "cwd", "startedAt"}
+    OPTIONAL_KEYS = {"kind", "entrypoint", "name"}
+    EXPECTED_KEYS = REQUIRED_KEYS | OPTIONAL_KEYS
 
     file_count = 0
     all_keys: set[str] = set()
     per_file_issues: list[str] = []
 
     for entry in sorted(os.listdir(sessions_dir)):
+        if is_ignored_entry(entry):
+            continue
         fpath = sessions_dir / entry
         if fpath.is_dir():
             s.gap(f"Unexpected directory: {entry}")
@@ -642,7 +656,7 @@ def validate_sessions() -> Section:
         if extra:
             per_file_issues.append(f"{entry}: EXTRA keys: {extra}")
 
-        missing = EXPECTED_KEYS - actual
+        missing = REQUIRED_KEYS - actual
         if missing:
             per_file_issues.append(f"{entry}: MISSING keys: {missing}")
 
@@ -650,7 +664,7 @@ def validate_sessions() -> Section:
     s.stat("All unique keys collected", sorted(all_keys))
 
     extra_overall = all_keys - EXPECTED_KEYS
-    missing_overall = EXPECTED_KEYS - all_keys
+    missing_overall = REQUIRED_KEYS - all_keys
     if extra_overall:
         s.gap(f"EXTRA keys not in ActiveSessionFile type: {sorted(extra_overall)}")
     if missing_overall:
@@ -708,7 +722,7 @@ def validate_subagent_meta() -> Section:
         s.gap("projects/ does not exist")
         return s
 
-    EXPECTED_KEYS = {"agentType", "description"}
+    EXPECTED_KEYS = {"agentType", "description", "worktreePath"}
 
     meta_count = 0
     all_keys: set[str] = set()
