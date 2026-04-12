@@ -18,6 +18,7 @@ import { HRule } from './chrome.js';
 import { useApi } from './shell.js';
 import { useListNavigation } from './hooks.js';
 import { formatTokens, formatRelativeTime, formatDuration } from '../lib/format.js';
+import { stripMarkdownInline } from '../lib/message-render.js';
 import {
   buildDisplayItems,
   applyDisplayFilters,
@@ -113,8 +114,8 @@ function UserItem({
     const textBlock = content.find((b: any) => b.type === 'text');
     if (textBlock && 'text' in textBlock) preview = textBlock.text;
   }
-  // Collapse newlines to spaces for wrapping
-  preview = preview.replace(/\n+/g, ' ').replace(/\s+/g, ' ').trim();
+  // Strip markdown syntax + collapse whitespace for one-line preview
+  preview = stripMarkdownInline(preview).replace(/\n+/g, ' ').replace(/\s+/g, ' ').trim();
 
   const timestamp = 'timestamp' in msg && (msg as any).timestamp ? formatRelativeTime((msg as any).timestamp) : '';
 
@@ -182,7 +183,7 @@ function AssistantItem({
   const blocks = (msg as any).message.content || [];
   const textBlocks = blocks.filter((b: any) => b.type === 'text');
   let preview = textBlocks.map((b: any) => b.text).join(' ');
-  preview = preview.replace(/\n+/g, ' ').replace(/\s+/g, ' ').trim();
+  preview = stripMarkdownInline(preview).replace(/\n+/g, ' ').replace(/\s+/g, ' ').trim();
 
   const timestamp = 'timestamp' in msg && (msg as any).timestamp ? formatRelativeTime((msg as any).timestamp) : '';
 

@@ -7,6 +7,71 @@ import { theme } from './color.js';
 import { formatRelativeTime, formatTokens } from './format.js';
 import { getTerminalWidth } from './terminal.js';
 import cliTruncate from 'cli-truncate';
+import { Marked } from 'marked';
+import { markedTerminal } from 'marked-terminal';
+import pc from 'picocolors';
+
+// ─── Markdown rendering ────────────────────────────────────────────────
+
+const MIN_MD_WIDTH = 20;
+let mdCache: { width: number; instance: Marked } | null = null;
+
+function getMarkdownRenderer(width: number): Marked {
+  const w = Math.max(width, MIN_MD_WIDTH);
+  if (mdCache && mdCache.width === w) return mdCache.instance;
+  const instance = new Marked();
+  instance.use(
+    markedTerminal({
+      width: w,
+      reflowText: true,
+      tab: 2,
+      heading: (s: string) => pc.bold(pc.cyan(s)),
+      firstHeading: (s: string) => pc.bold(pc.cyan(s)),
+      strong: pc.bold,
+      em: pc.italic,
+      codespan: (s: string) => pc.cyan(s),
+      code: (s: string) => pc.dim(s),
+      blockquote: (s: string) => pc.dim(pc.italic(s)),
+      hr: () => pc.dim('─'.repeat(w)),
+      listitem: (s: string) => s,
+      link: (s: string) => pc.cyan(pc.underline(s)),
+      href: (s: string) => pc.dim(s),
+    }) as Parameters<Marked['use']>[0],
+  );
+  mdCache = { width: w, instance };
+  return instance;
+}
+
+/**
+ * Render markdown text to an array of pre-wrapped ANSI-styled terminal lines.
+ * Safe to call with plain text — marked passes it through with minimal changes.
+ */
+export function renderMarkdownText(text: string, width: number): string[] {
+  const md = getMarkdownRenderer(width);
+  const rendered = md.parse(text, { async: false }) as string;
+  return rendered.replace(/\n+$/, '').split('\n');
+}
+
+/**
+ * Strip markdown syntax for single-line previews in list views.
+ * Fast regex-based pass — not a full parser. Keeps content readable without
+ * literal `**`, `#`, `-`, etc. cluttering the preview.
+ */
+export function stripMarkdownInline(text: string): string {
+  return text
+    .replace(/```[\s\S]*?```/g, ' [code] ')
+    .replace(/`([^`]+)`/g, '$1')
+    .replace(/!\[([^\]]*)\]\([^)]*\)/g, '$1')
+    .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
+    .replace(/^#{1,6}\s+/gm, '')
+    .replace(/\*\*([^*]+)\*\*/g, '$1')
+    .replace(/__([^_]+)__/g, '$1')
+    .replace(/(^|[\s(])\*([^*\n]+)\*(?=[\s).,!?]|$)/g, '$1$2')
+    .replace(/(^|[\s(])_([^_\n]+)_(?=[\s).,!?]|$)/g, '$1$2')
+    .replace(/^\s*[-*+]\s+/gm, '')
+    .replace(/^\s*\d+\.\s+/gm, '')
+    .replace(/^\s*>\s?/gm, '');
+}
 
 export interface RenderOptions {
   compact?: boolean;
@@ -165,10 +230,12 @@ function renderAssistantMessage(
   const headerRight = timestamp ? theme.muted(timestamp) : '';
   lines.push(`  ${headerLeft}${tokenInfo}${headerRight ? '  ' + headerRight : ''}`);
 
+  const mdWidth = Math.max(width - 2, MIN_MD_WIDTH);
+
   for (const block of blocks) {
     switch (block.type) {
       case 'text':
-        for (const line of block.text.split('\n')) {
+        for (const line of renderMarkdownText(block.text, mdWidth)) {
           lines.push(`  ${line}`);
         }
         break;

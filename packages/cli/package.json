@@ -15,7 +15,7 @@
     "typecheck": "tsc --noEmit",
     "dev": "tsup --watch",
     "postbuild": "node -e \"try{require('fs').chmodSync('dist/bin.js',0o755)}catch{}\"",
-    "test": "node --import tsx --test src/__tests__/*.test.ts"
+    "test": "FORCE_COLOR=1 node --import tsx --test src/__tests__/*.test.ts"
   },
   "dependencies": {
     "@inkjs/ui": "^2.0.0",
@@ -23,6 +23,8 @@
     "cli-truncate": "^4.0.0",
     "commander": "^13.1.0",
     "ink": "^6.8.0",
+    "marked": "^15.0.12",
+    "marked-terminal": "^7.3.0",
     "nanospinner": "^1.2.2",
     "picocolors": "^1.1.1",
     "react": "^19.2.4",
@@ -41,6 +43,7 @@
     "directory": "packages/cli"
   },
   "devDependencies": {
+    "@types/marked-terminal": "^6.1.1",
     "@types/node": "^22.0.0",
     "@types/react": "^19.2.14",
     "@types/ws": "^8.5.0",
