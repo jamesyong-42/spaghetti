@@ -1,8 +1,9 @@
 /**
- * MessagesView — Display items with filter chips, 256-color blocks, tool calls
+ * MessagesView — Display items with filter chips, accent bars, tool calls
  *
  * The most complex view. Handles:
- * - User/Claude message blocks with 256-color backgrounds
+ * - User/Claude message blocks fronted by a full-width colored accent bar
+ *   (green for user, orange for Claude), Claude body rendered as markdown
  * - Tool call single-line items with category colors
  * - Thinking items with inline preview
  * - System/metadata items
@@ -18,7 +19,7 @@ import { HRule } from './chrome.js';
 import { useApi } from './shell.js';
 import { useListNavigation } from './hooks.js';
 import { formatTokens, formatRelativeTime, formatDuration } from '../lib/format.js';
-import { stripMarkdownInline } from '../lib/message-render.js';
+import { renderMarkdownText } from '../lib/message-render.js';
 import {
   buildDisplayItems,
   applyDisplayFilters,
@@ -38,27 +39,21 @@ import pc from 'picocolors';
 
 const PAGE_SIZE = 50;
 const LOAD_MORE_THRESHOLD = 5;
+const LINE_CAP = 20;
 
 // ─── 256-Color Helpers ─────────────────────────────────────────────────
 
 const RESET = '\x1b[0m';
 const fg256 = (n: number) => `\x1b[38;5;${n}m`;
-const bg256 = (n: number) => `\x1b[48;5;${n}m`;
 const BOLD = '\x1b[1m';
 
 const COLORS = {
-  userBg: 233,
-  userBgSelected: 236,
   userLabel: 79,
   userLabelDim: 36,
   userText: 36,
   userTextSelected: 79,
-  claudeBg: 233,
-  claudeBgSelected: 235,
   claudeLabel: 216,
   claudeLabelDim: 173,
-  claudeText: 173,
-  claudeTextSelected: 216,
   timestamp: 248,
 };
 
@@ -67,10 +62,56 @@ function stripAnsi(s: string): string {
   return s.replace(/\x1b\[[0-9;]*m/g, '');
 }
 
-function bgLine256(text: string, width: number, bgColor: number): string {
-  const visLen = stripAnsi(text).length;
-  const pad = Math.max(0, width - visLen);
-  return `${bg256(bgColor)}${text}${' '.repeat(pad)}${RESET}`;
+// ─── Body-line builders (pre-computed for variable-height items) ──────
+
+function extractUserText(msg: SessionMessage): string {
+  const content = (msg as any).message.content;
+  if (typeof content === 'string') return content;
+  if (Array.isArray(content)) {
+    const t = content.find((b: any) => b.type === 'text');
+    if (t && 'text' in t) return t.text;
+  }
+  return '';
+}
+
+function capLines(lines: string[], cap: number): string[] {
+  if (lines.length <= cap) return lines;
+  const extra = lines.length - cap + 1;
+  const kept = lines.slice(0, cap - 1);
+  kept.push(pc.dim(`\u2026 ${extra} more lines`));
+  return kept;
+}
+
+function buildUserBodyLines(msg: SessionMessage, cols: number, cap: number): string[] {
+  const text = extractUserText(msg);
+  const innerWidth = Math.max(cols - 4, 10);
+  const wrapped: string[] = [];
+  for (const line of text.split('\n')) {
+    if (line.length === 0) {
+      wrapped.push('');
+      continue;
+    }
+    let rest = line;
+    while (rest.length > innerWidth) {
+      wrapped.push(rest.slice(0, innerWidth));
+      rest = rest.slice(innerWidth);
+    }
+    wrapped.push(rest);
+  }
+  return capLines(wrapped, cap);
+}
+
+function buildAssistantBodyLines(msg: SessionMessage, cols: number, cap: number): string[] {
+  const blocks = (msg as any).message.content || [];
+  const textBlocks = blocks.filter((b: any) => b.type === 'text');
+  const text = textBlocks.map((b: any) => b.text).join('\n\n');
+  if (!text.trim()) return [];
+  const mdWidth = Math.max(cols - 4, 10);
+  return capLines(renderMarkdownText(text, mdWidth), cap);
+}
+
+function AccentBar({ cols, color }: { cols: number; color: number }): React.ReactElement {
+  return <Text>{`${fg256(color)}${'\u2500'.repeat(cols)}${RESET}`}</Text>;
 }
 
 // ─── Filter Chips ──────────────────────────────────────────────────────
@@ -98,71 +139,33 @@ function UserItem({
   msg,
   selected,
   cols,
+  bodyLines,
 }: {
   msg: SessionMessage;
   selected: boolean;
   cols: number;
+  bodyLines: string[];
 }): React.ReactElement {
-  const bgColor = selected ? COLORS.userBgSelected : COLORS.userBg;
+  const barColor = selected ? COLORS.userLabel : COLORS.userLabelDim;
   const labelColor = selected ? COLORS.userLabel : COLORS.userLabelDim;
   const textColor = selected ? COLORS.userTextSelected : COLORS.userText;
-
-  let preview = '';
-  const content = (msg as any).message.content;
-  if (typeof content === 'string') preview = content;
-  else if (Array.isArray(content)) {
-    const textBlock = content.find((b: any) => b.type === 'text');
-    if (textBlock && 'text' in textBlock) preview = textBlock.text;
-  }
-  // Strip markdown syntax + collapse whitespace for one-line preview
-  preview = stripMarkdownInline(preview).replace(/\n+/g, ' ').replace(/\s+/g, ' ').trim();
-
   const timestamp = 'timestamp' in msg && (msg as any).timestamp ? formatRelativeTime((msg as any).timestamp) : '';
 
-  // Selection bar: right-edge ▐ on every line when selected
-  const bar = selected ? `${fg256(labelColor)}\u2590` : ' ';
-
   const labelVis = 'USER';
-  const rightVis = `${timestamp}  ${labelVis} ${selected ? '\u2590' : ' '}`;
-  const leftPadLen = Math.max(1, cols - rightVis.length);
-  const headerContent = `${' '.repeat(leftPadLen)}${fg256(COLORS.timestamp)}${timestamp}  ${selected ? BOLD : ''}${fg256(labelColor)}${labelVis} ${bar}`;
-
-  // Split preview into up to 3 lines
-  const lineWidth = Math.max(cols - 4, 10);
-  const bodyLines: string[] = [];
-  let remaining = preview;
-  for (let i = 0; i < 3; i++) {
-    if (!remaining) break;
-    if (remaining.length <= lineWidth || i === 2) {
-      bodyLines.push(remaining.length > lineWidth ? remaining.slice(0, lineWidth - 1) + '\u2026' : remaining);
-      break;
-    }
-    bodyLines.push(remaining.slice(0, lineWidth));
-    remaining = remaining.slice(lineWidth);
-  }
-  // Pad to exactly 3 body lines for consistent height
-  while (bodyLines.length < 3) bodyLines.push('');
-
-  // Build all block lines with consistent right-edge bar
-  const allLines: string[] = [];
-
-  // Header
-  allLines.push(headerContent);
-
-  // Body lines (right-aligned)
-  for (const line of bodyLines) {
-    const textVisLen = line.length + 2; // trailing space + bar
-    const lp = Math.max(1, cols - textVisLen);
-    allLines.push(`${' '.repeat(lp)}${fg256(textColor)}${line} ${bar}`);
-  }
+  const rightVis = `${timestamp}  ${labelVis}`;
+  const headerPad = Math.max(1, cols - rightVis.length - 1);
+  const header = `${' '.repeat(headerPad)}${fg256(COLORS.timestamp)}${timestamp}  ${selected ? BOLD : ''}${fg256(labelColor)}${labelVis}${RESET}`;
 
   return (
     <Box flexDirection="column">
-      <Text>{bgLine256(` ${' '.repeat(cols - 2)}${bar}`, cols, bgColor)}</Text>
-      {allLines.map((line, i) => (
-        <Text key={i}>{bgLine256(line, cols, bgColor)}</Text>
-      ))}
-      <Text>{bgLine256(` ${' '.repeat(cols - 2)}${bar}`, cols, bgColor)}</Text>
+      <AccentBar cols={cols} color={barColor} />
+      <Text>{header}</Text>
+      {bodyLines.map((line, i) => {
+        const visLen = stripAnsi(line).length;
+        const pad = Math.max(1, cols - visLen - 1);
+        return <Text key={i}>{`${' '.repeat(pad)}${fg256(textColor)}${line}${RESET}`}</Text>;
+      })}
+      <Text> </Text>
     </Box>
   );
 }
@@ -170,52 +173,27 @@ function UserItem({
 function AssistantItem({
   msg,
   selected,
-  cols,
+  cols: _cols,
+  bodyLines,
 }: {
   msg: SessionMessage;
   selected: boolean;
   cols: number;
+  bodyLines: string[];
 }): React.ReactElement {
-  const bgColor = selected ? COLORS.claudeBgSelected : COLORS.claudeBg;
+  const barColor = selected ? COLORS.claudeLabel : COLORS.claudeLabelDim;
   const labelColor = selected ? COLORS.claudeLabel : COLORS.claudeLabelDim;
-  const textColor = selected ? COLORS.claudeTextSelected : COLORS.claudeText;
-
-  const blocks = (msg as any).message.content || [];
-  const textBlocks = blocks.filter((b: any) => b.type === 'text');
-  let preview = textBlocks.map((b: any) => b.text).join(' ');
-  preview = stripMarkdownInline(preview).replace(/\n+/g, ' ').replace(/\s+/g, ' ').trim();
-
   const timestamp = 'timestamp' in msg && (msg as any).timestamp ? formatRelativeTime((msg as any).timestamp) : '';
-
-  // Selection bar: left-edge ▌ on every line when selected
-  const bar = selected ? `${fg256(labelColor)}\u258C` : ' ';
-
-  const headerContent = `${bar} ${selected ? BOLD : ''}${fg256(labelColor)}CLAUDE  ${fg256(COLORS.timestamp)}${timestamp} `;
-
-  // Split preview into up to 2 lines
-  const lineWidth = Math.max(cols - 4, 10);
-  const bodyLines: string[] = [];
-  let remaining = preview;
-  for (let i = 0; i < 2; i++) {
-    if (!remaining) break;
-    if (remaining.length <= lineWidth || i === 1) {
-      bodyLines.push(remaining.length > lineWidth ? remaining.slice(0, lineWidth - 1) + '\u2026' : remaining);
-      break;
-    }
-    bodyLines.push(remaining.slice(0, lineWidth));
-    remaining = remaining.slice(lineWidth);
-  }
-  // Pad to exactly 2 body lines for consistent height
-  while (bodyLines.length < 2) bodyLines.push('');
+  const header = `${selected ? BOLD : ''}${fg256(labelColor)}CLAUDE${RESET}  ${fg256(COLORS.timestamp)}${timestamp}${RESET}`;
 
   return (
     <Box flexDirection="column">
-      <Text>{bgLine256(`${bar}${' '.repeat(cols - 1)}`, cols, bgColor)}</Text>
-      <Text>{bgLine256(headerContent, cols, bgColor)}</Text>
+      <AccentBar cols={_cols} color={barColor} />
+      <Text>{header}</Text>
       {bodyLines.map((line, i) => (
-        <Text key={i}>{bgLine256(`${bar} ${fg256(textColor)}${line} `, cols, bgColor)}</Text>
+        <Text key={i}>{`  ${line}`}</Text>
       ))}
-      <Text>{bgLine256(`${bar}${' '.repeat(cols - 1)}`, cols, bgColor)}</Text>
+      <Text> </Text>
     </Box>
   );
 }
@@ -383,7 +361,12 @@ function SystemItem({
   return <Text>{`${prefix} ${symbol} ${styledText}`}</Text>;
 }
 
-function DisplayItemRenderer({ item, selected, cols }: ItemRendererProps): React.ReactElement {
+function DisplayItemRenderer({
+  item,
+  selected,
+  cols,
+  bodyLines,
+}: ItemRendererProps & { bodyLines: string[] | null }): React.ReactElement {
   if (item.kind === 'tool-call') {
     return <ToolCallItem item={item} selected={selected} cols={cols} />;
   }
@@ -393,23 +376,22 @@ function DisplayItemRenderer({ item, selected, cols }: ItemRendererProps): React
 
   const msg = item.msg;
   if (msg.type === 'user') {
-    return <UserItem msg={msg} selected={selected} cols={cols} />;
+    return <UserItem msg={msg} selected={selected} cols={cols} bodyLines={bodyLines ?? []} />;
   }
   if (msg.type === 'assistant') {
-    return <AssistantItem msg={msg} selected={selected} cols={cols} />;
+    return <AssistantItem msg={msg} selected={selected} cols={cols} bodyLines={bodyLines ?? []} />;
   }
   return <SystemItem msg={msg} selected={selected} cols={cols} />;
 }
 
 // ─── Item Height Helper ────────────────────────────────────────────────
+//
+// Message items have variable height (accent bar + header + body + trailing).
+// Height = 3 + bodyLines.length. Non-message items are single-line.
 
-function getItemHeight(item: DisplayItem): number {
-  if (item.kind === 'tool-call') return 1;
-  if (item.kind === 'thinking') return 1;
-  if (item.kind === 'message') {
-    if (item.msg.type === 'user') return 6; // margin + header + 3 body + margin
-    if (item.msg.type === 'assistant') return 5; // margin + header + 2 body + margin
-    return 1; // system/other single line
+function computeItemHeight(item: DisplayItem, bodyLines: string[] | null): number {
+  if (item.kind === 'message' && bodyLines !== null) {
+    return 3 + bodyLines.length;
   }
   return 1;
 }
@@ -421,8 +403,7 @@ interface ScrollBarProps {
   scrollOffset: number;
   totalItems: number;
   totalMessageCount: number; // total from API, not just loaded
-  getItemHeight: (item: DisplayItem) => number;
-  items: DisplayItem[];
+  itemHeights: number[];
 }
 
 function ScrollBar({
@@ -430,8 +411,7 @@ function ScrollBar({
   scrollOffset,
   totalItems,
   totalMessageCount,
-  getItemHeight: getH,
-  items,
+  itemHeights,
 }: ScrollBarProps): React.ReactElement {
   if (totalItems === 0) {
     const track = Array.from({ length: viewportHeight }, () => ' ');
@@ -448,7 +428,7 @@ function ScrollBar({
 
   // Calculate loaded content height in lines
   let loadedLines = 0;
-  for (const item of items) loadedLines += getH(item);
+  for (const h of itemHeights) loadedLines += h;
 
   // Estimate total content height based on total message count.
   // Use average line height from loaded items to project the full height.
@@ -457,8 +437,8 @@ function ScrollBar({
 
   // Calculate scroll position in lines
   let scrolledLines = 0;
-  for (let i = 0; i < scrollOffset && i < items.length; i++) {
-    scrolledLines += getH(items[i]);
+  for (let i = 0; i < scrollOffset && i < itemHeights.length; i++) {
+    scrolledLines += itemHeights[i];
   }
   // Offset scrolledLines by the unloaded portion (items before loadedOffsetLow)
   const unloadedItems = totalMessageCount - totalItems;
@@ -531,6 +511,23 @@ export function MessagesView({
 
   const allDisplayItems = useMemo(() => buildDisplayItems(allMessages), [allMessages]);
   const displayItems = useMemo(() => applyDisplayFilters(allDisplayItems, filters), [allDisplayItems, filters]);
+
+  // Precompute body lines per message item — variable-height content needed by
+  // both renderers and scroll/viewport math. cols-1 reserves the scrollbar col.
+  const itemBodyLines = useMemo<(string[] | null)[]>(() => {
+    const innerCols = cols - 1;
+    return displayItems.map((item) => {
+      if (item.kind !== 'message') return null;
+      if (item.msg.type === 'user') return buildUserBodyLines(item.msg, innerCols, LINE_CAP);
+      if (item.msg.type === 'assistant') return buildAssistantBodyLines(item.msg, innerCols, LINE_CAP);
+      return null;
+    });
+  }, [displayItems, cols]);
+
+  const itemHeights = useMemo<number[]>(
+    () => displayItems.map((item, i) => computeItemHeight(item, itemBodyLines[i])),
+    [displayItems, itemBodyLines],
+  );
 
   const { selectedIndex, scrollOffset, moveUp, moveDown, jumpTo } = useListNavigation({
     itemCount: displayItems.length,
@@ -625,12 +622,12 @@ export function MessagesView({
   const viewportLines = Math.max(termRows - 8, 5); // header + filter chips + hrule + footer
 
   // Collect visible items within viewport line budget
-  const visibleItems: Array<{ item: DisplayItem; index: number }> = [];
+  const visibleItems: Array<{ item: DisplayItem; index: number; bodyLines: string[] | null }> = [];
   let usedLines = 0;
   for (let i = scrollOffset; i < displayItems.length; i++) {
-    const h = getItemHeight(displayItems[i]);
+    const h = itemHeights[i];
     if (usedLines + h > viewportLines && usedLines > 0) break;
-    visibleItems.push({ item: displayItems[i], index: i });
+    visibleItems.push({ item: displayItems[i], index: i, bodyLines: itemBodyLines[i] });
     usedLines += h;
   }
 
@@ -651,12 +648,13 @@ export function MessagesView({
         <Box height={viewportLines}>
           {/* Message content — leave 1 col for scrollbar */}
           <Box flexDirection="column" flexGrow={1}>
-            {visibleItems.map(({ item, index }) => (
+            {visibleItems.map(({ item, index, bodyLines }) => (
               <DisplayItemRenderer
                 key={`${index}-${item.kind}`}
                 item={item}
                 selected={index === selectedIndex}
                 cols={cols - 1}
+                bodyLines={bodyLines}
               />
             ))}
             {padLines > 0 && <Box height={padLines} />}
@@ -667,8 +665,7 @@ export function MessagesView({
             scrollOffset={scrollOffset}
             totalItems={displayItems.length}
             totalMessageCount={totalCount}
-            getItemHeight={getItemHeight}
-            items={displayItems}
+            itemHeights={itemHeights}
           />
         </Box>
       )}
