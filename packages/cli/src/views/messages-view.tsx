@@ -1,14 +1,13 @@
 /**
- * MessagesView — Display items with filter chips, accent bars, tool calls
+ * MessagesView — Line-based scrollable transcript with filter chips
  *
- * The most complex view. Handles:
- * - User/Claude message blocks fronted by a full-width colored accent bar
- *   (green for user, orange for Claude), Claude body rendered as markdown
- * - Tool call single-line items with category colors
- * - Thinking items with inline preview
- * - System/metadata items
- * - Filter toggles (1-6)
- * - Backward pagination (loads older messages on scroll)
+ * Items (messages, tool calls, thinking, system) are flattened to a single
+ * line stream so scrolling advances one terminal row at a time. Items can
+ * straddle the viewport boundary, which keeps the viewport densely filled
+ * even when individual items are taller than it.
+ *
+ * Selection is still item-based (↑/↓); scrollOffset is computed from the
+ * selected item's line range to keep it visible.
  */
 
 import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
@@ -17,7 +16,6 @@ import type { ProjectListItem, SessionListItem, SessionMessage } from '@vibecook
 import { useViewNav } from './context.js';
 import { HRule } from './chrome.js';
 import { useApi } from './shell.js';
-import { useListNavigation } from './hooks.js';
 import { formatTokens, formatRelativeTime, formatDuration } from '../lib/format.js';
 import { renderMarkdownText } from '../lib/message-render.js';
 import {
@@ -62,7 +60,7 @@ function stripAnsi(s: string): string {
   return s.replace(/\x1b\[[0-9;]*m/g, '');
 }
 
-// ─── Body-line builders (pre-computed for variable-height items) ──────
+// ─── Body-line builders ────────────────────────────────────────────────
 
 function extractUserText(msg: SessionMessage): string {
   const content = (msg as any).message.content;
@@ -110,10 +108,6 @@ function buildAssistantBodyLines(msg: SessionMessage, cols: number, cap: number)
   return capLines(renderMarkdownText(text, mdWidth), cap);
 }
 
-function AccentBar({ cols, color }: { cols: number; color: number }): React.ReactElement {
-  return <Text>{`${fg256(color)}${'\u2500'.repeat(cols)}${RESET}`}</Text>;
-}
-
 // ─── Filter Chips ──────────────────────────────────────────────────────
 
 function buildFilterChips(filters: FilterState): string {
@@ -127,25 +121,13 @@ function buildFilterChips(filters: FilterState): string {
   }).join(pc.dim('  '));
 }
 
-// ─── Item Renderers ────────────────────────────────────────────────────
+// ─── Line builders (item → terminal rows as strings) ──────────────────
 
-interface ItemRendererProps {
-  item: DisplayItem;
-  selected: boolean;
-  cols: number;
+function buildAccentBar(cols: number, color: number): string {
+  return `${fg256(color)}${'\u2500'.repeat(cols)}${RESET}`;
 }
 
-function UserItem({
-  msg,
-  selected,
-  cols,
-  bodyLines,
-}: {
-  msg: SessionMessage;
-  selected: boolean;
-  cols: number;
-  bodyLines: string[];
-}): React.ReactElement {
+function buildUserLines(msg: SessionMessage, bodyLines: string[], cols: number, selected: boolean): string[] {
   const barColor = selected ? COLORS.userLabel : COLORS.userLabelDim;
   const labelColor = selected ? COLORS.userLabel : COLORS.userLabelDim;
   const textColor = selected ? COLORS.userTextSelected : COLORS.userText;
@@ -156,57 +138,31 @@ function UserItem({
   const headerPad = Math.max(1, cols - rightVis.length - 1);
   const header = `${' '.repeat(headerPad)}${fg256(COLORS.timestamp)}${timestamp}  ${selected ? BOLD : ''}${fg256(labelColor)}${labelVis}${RESET}`;
 
-  return (
-    <Box flexDirection="column">
-      <AccentBar cols={cols} color={barColor} />
-      <Text>{header}</Text>
-      {bodyLines.map((line, i) => {
-        const visLen = stripAnsi(line).length;
-        const pad = Math.max(1, cols - visLen - 1);
-        return <Text key={i}>{`${' '.repeat(pad)}${fg256(textColor)}${line}${RESET}`}</Text>;
-      })}
-      <Text> </Text>
-    </Box>
-  );
+  const out: string[] = [buildAccentBar(cols, barColor), header];
+  for (const line of bodyLines) {
+    const visLen = stripAnsi(line).length;
+    const pad = Math.max(1, cols - visLen - 1);
+    out.push(`${' '.repeat(pad)}${fg256(textColor)}${line}${RESET}`);
+  }
+  out.push('');
+  return out;
 }
 
-function AssistantItem({
-  msg,
-  selected,
-  cols: _cols,
-  bodyLines,
-}: {
-  msg: SessionMessage;
-  selected: boolean;
-  cols: number;
-  bodyLines: string[];
-}): React.ReactElement {
+function buildAssistantLines(msg: SessionMessage, bodyLines: string[], cols: number, selected: boolean): string[] {
   const barColor = selected ? COLORS.claudeLabel : COLORS.claudeLabelDim;
   const labelColor = selected ? COLORS.claudeLabel : COLORS.claudeLabelDim;
   const timestamp = 'timestamp' in msg && (msg as any).timestamp ? formatRelativeTime((msg as any).timestamp) : '';
   const header = `${selected ? BOLD : ''}${fg256(labelColor)}CLAUDE${RESET}  ${fg256(COLORS.timestamp)}${timestamp}${RESET}`;
 
-  return (
-    <Box flexDirection="column">
-      <AccentBar cols={_cols} color={barColor} />
-      <Text>{header}</Text>
-      {bodyLines.map((line, i) => (
-        <Text key={i}>{`  ${line}`}</Text>
-      ))}
-      <Text> </Text>
-    </Box>
-  );
+  const out: string[] = [buildAccentBar(cols, barColor), header];
+  for (const line of bodyLines) {
+    out.push(`  ${line}`);
+  }
+  out.push('');
+  return out;
 }
 
-function ToolCallItem({
-  item,
-  selected,
-  cols,
-}: {
-  item: DisplayItem & { kind: 'tool-call' };
-  selected: boolean;
-  cols: number;
-}): React.ReactElement {
+function buildToolCallLine(item: DisplayItem & { kind: 'tool-call' }, cols: number, selected: boolean): string {
   const cat = getToolCategory(item.toolName);
   const colorFn = TOOL_CATEGORY_COLORS[cat];
   const prefix = selected ? colorFn('\u258E') : ' ';
@@ -240,24 +196,16 @@ function ToolCallItem({
       : pc.dim(input.length > maxInputLen ? input.slice(0, maxInputLen - 1) + '\u2026' : input)
     : '';
 
-  return <Text>{`${prefix} ${catLabel} ${badge}  ${inputText}  ${status} ${resultHint}`}</Text>;
+  return `${prefix} ${catLabel} ${badge}  ${inputText}  ${status} ${resultHint}`;
 }
 
-function ThinkingItem({
-  item,
-  selected,
-  cols,
-}: {
-  item: DisplayItem & { kind: 'thinking' };
-  selected: boolean;
-  cols: number;
-}): React.ReactElement {
+function buildThinkingLine(item: DisplayItem & { kind: 'thinking' }, cols: number, selected: boolean): string {
   const prefix = selected ? pc.magenta('\u258E') : ' ';
   const dots = selected ? pc.magenta('\u00B7\u00B7\u00B7') : pc.dim('\u00B7\u00B7\u00B7');
   const label = selected ? pc.white('thinking') : pc.dim('thinking');
 
   if (item.redacted) {
-    return <Text>{`${prefix} ${dots} ${label}  ${pc.dim('(redacted)')}`}</Text>;
+    return `${prefix} ${dots} ${label}  ${pc.dim('(redacted)')}`;
   }
 
   const tokensLabel = item.tokenEstimate > 0 ? pc.dim(`~${formatTokens(item.tokenEstimate)}`) : '';
@@ -268,18 +216,10 @@ function ThinkingItem({
     firstLine.trim().length > maxPreview ? firstLine.trim().slice(0, maxPreview - 1) + '\u2026' : firstLine.trim();
   const preview = selected ? pc.italic(pc.dim(previewText)) : pc.dim(pc.italic(previewText));
 
-  return <Text>{`${prefix} ${dots} ${label}  ${tokensLabel}  ${preview}`}</Text>;
+  return `${prefix} ${dots} ${label}  ${tokensLabel}  ${preview}`;
 }
 
-function SystemItem({
-  msg,
-  selected,
-  cols,
-}: {
-  msg: SessionMessage;
-  selected: boolean;
-  cols: number;
-}): React.ReactElement {
+function buildSystemLine(msg: SessionMessage, cols: number, selected: boolean): string {
   const prefix = selected ? pc.dim('\u258E') : ' ';
   let symbol: string;
   let text: string;
@@ -358,36 +298,17 @@ function SystemItem({
   }
 
   const styledText = selected ? pc.white(text) : pc.dim(text);
-  return <Text>{`${prefix} ${symbol} ${styledText}`}</Text>;
+  return `${prefix} ${symbol} ${styledText}`;
 }
 
-function DisplayItemRenderer({
-  item,
-  selected,
-  cols,
-  bodyLines,
-}: ItemRendererProps & { bodyLines: string[] | null }): React.ReactElement {
-  if (item.kind === 'tool-call') {
-    return <ToolCallItem item={item} selected={selected} cols={cols} />;
-  }
-  if (item.kind === 'thinking') {
-    return <ThinkingItem item={item} selected={selected} cols={cols} />;
-  }
-
+function buildItemLines(item: DisplayItem, bodyLines: string[] | null, cols: number, selected: boolean): string[] {
+  if (item.kind === 'tool-call') return [buildToolCallLine(item, cols, selected)];
+  if (item.kind === 'thinking') return [buildThinkingLine(item, cols, selected)];
   const msg = item.msg;
-  if (msg.type === 'user') {
-    return <UserItem msg={msg} selected={selected} cols={cols} bodyLines={bodyLines ?? []} />;
-  }
-  if (msg.type === 'assistant') {
-    return <AssistantItem msg={msg} selected={selected} cols={cols} bodyLines={bodyLines ?? []} />;
-  }
-  return <SystemItem msg={msg} selected={selected} cols={cols} />;
+  if (msg.type === 'user') return buildUserLines(msg, bodyLines ?? [], cols, selected);
+  if (msg.type === 'assistant') return buildAssistantLines(msg, bodyLines ?? [], cols, selected);
+  return [buildSystemLine(msg, cols, selected)];
 }
-
-// ─── Item Height Helper ────────────────────────────────────────────────
-//
-// Message items have variable height (accent bar + header + body + trailing).
-// Height = 3 + bodyLines.length. Non-message items are single-line.
 
 function computeItemHeight(item: DisplayItem, bodyLines: string[] | null): number {
   if (item.kind === 'message' && bodyLines !== null) {
@@ -400,24 +321,23 @@ function computeItemHeight(item: DisplayItem, bodyLines: string[] | null): numbe
 
 interface ScrollBarProps {
   viewportHeight: number;
-  scrollOffset: number;
-  totalItems: number;
-  totalMessageCount: number; // total from API, not just loaded
-  itemHeights: number[];
+  scrollLines: number;
+  loadedLines: number;
+  estimatedTotalLines: number;
+  unloadedLinesBefore: number;
 }
 
 function ScrollBar({
   viewportHeight,
-  scrollOffset,
-  totalItems,
-  totalMessageCount,
-  itemHeights,
+  scrollLines,
+  loadedLines,
+  estimatedTotalLines,
+  unloadedLinesBefore,
 }: ScrollBarProps): React.ReactElement {
-  if (totalItems === 0) {
-    const track = Array.from({ length: viewportHeight }, () => ' ');
+  if (loadedLines === 0) {
     return (
       <Box flexDirection="column" width={1}>
-        {track.map((_, i) => (
+        {Array.from({ length: viewportHeight }, (_, i) => (
           <Text key={i} dimColor>
             {' '}
           </Text>
@@ -426,31 +346,14 @@ function ScrollBar({
     );
   }
 
-  // Calculate loaded content height in lines
-  let loadedLines = 0;
-  for (const h of itemHeights) loadedLines += h;
-
-  // Estimate total content height based on total message count.
-  // Use average line height from loaded items to project the full height.
-  const avgHeight = loadedLines / totalItems;
-  const estimatedTotalLines = Math.round(avgHeight * totalMessageCount);
-
-  // Calculate scroll position in lines
-  let scrolledLines = 0;
-  for (let i = 0; i < scrollOffset && i < itemHeights.length; i++) {
-    scrolledLines += itemHeights[i];
-  }
-  // Offset scrolledLines by the unloaded portion (items before loadedOffsetLow)
-  const unloadedItems = totalMessageCount - totalItems;
-  const unloadedLines = Math.round(unloadedItems * avgHeight);
-  scrolledLines += unloadedLines;
-
-  const ratio = estimatedTotalLines > viewportHeight ? scrolledLines / (estimatedTotalLines - viewportHeight) : 0;
-  const thumbHeight = Math.max(
-    1,
-    Math.round((viewportHeight / Math.max(estimatedTotalLines, viewportHeight)) * viewportHeight),
+  const scrolledLines = scrollLines + unloadedLinesBefore;
+  const totalForRatio = Math.max(estimatedTotalLines, viewportHeight);
+  const ratio = totalForRatio > viewportHeight ? scrolledLines / (totalForRatio - viewportHeight) : 0;
+  const thumbHeight = Math.max(1, Math.round((viewportHeight / totalForRatio) * viewportHeight));
+  const thumbStart = Math.min(
+    Math.max(0, Math.round(ratio * (viewportHeight - thumbHeight))),
+    viewportHeight - thumbHeight,
   );
-  const thumbStart = Math.min(Math.round(ratio * (viewportHeight - thumbHeight)), viewportHeight - thumbHeight);
 
   const trackChars: string[] = [];
   for (let i = 0; i < viewportHeight; i++) {
@@ -512,27 +415,110 @@ export function MessagesView({
   const allDisplayItems = useMemo(() => buildDisplayItems(allMessages), [allMessages]);
   const displayItems = useMemo(() => applyDisplayFilters(allDisplayItems, filters), [allDisplayItems, filters]);
 
-  // Precompute body lines per message item — variable-height content needed by
-  // both renderers and scroll/viewport math. cols-1 reserves the scrollbar col.
-  const itemBodyLines = useMemo<(string[] | null)[]>(() => {
-    const innerCols = cols - 1;
-    return displayItems.map((item) => {
-      if (item.kind !== 'message') return null;
-      if (item.msg.type === 'user') return buildUserBodyLines(item.msg, innerCols, LINE_CAP);
-      if (item.msg.type === 'assistant') return buildAssistantBodyLines(item.msg, innerCols, LINE_CAP);
-      return null;
-    });
-  }, [displayItems, cols]);
+  const innerCols = cols - 1; // reserve 1 col for scrollbar
+
+  // Body lines per message item (selection-independent; wrapping + markdown).
+  const itemBodyLines = useMemo<(string[] | null)[]>(
+    () =>
+      displayItems.map((item) => {
+        if (item.kind !== 'message') return null;
+        if (item.msg.type === 'user') return buildUserBodyLines(item.msg, innerCols, LINE_CAP);
+        if (item.msg.type === 'assistant') return buildAssistantBodyLines(item.msg, innerCols, LINE_CAP);
+        return null;
+      }),
+    [displayItems, innerCols],
+  );
 
   const itemHeights = useMemo<number[]>(
     () => displayItems.map((item, i) => computeItemHeight(item, itemBodyLines[i])),
     [displayItems, itemBodyLines],
   );
 
-  const { selectedIndex, scrollOffset, moveUp, moveDown, jumpTo } = useListNavigation({
-    itemCount: displayItems.length,
-    itemHeight: 2, // approximate: mix of 1-line and 4-line items
-  });
+  // Cumulative line-start offset per item (e.g. item i starts at line itemLineStarts[i]).
+  const itemLineStarts = useMemo<number[]>(() => {
+    const starts = new Array<number>(itemHeights.length);
+    let pos = 0;
+    for (let i = 0; i < itemHeights.length; i++) {
+      starts[i] = pos;
+      pos += itemHeights[i];
+    }
+    return starts;
+  }, [itemHeights]);
+
+  const totalLoadedLines = useMemo<number>(() => itemHeights.reduce((a, b) => a + b, 0), [itemHeights]);
+
+  // Flattened line stream (selection-independent). Selected item's lines are
+  // patched in at render time so selection changes are cheap.
+  const allLinesUnselected = useMemo<string[]>(() => {
+    const out: string[] = [];
+    displayItems.forEach((item, idx) => {
+      const lines = buildItemLines(item, itemBodyLines[idx], innerCols, false);
+      for (const text of lines) out.push(text);
+    });
+    return out;
+  }, [displayItems, itemBodyLines, innerCols]);
+
+  const [selectedIndex, setSelectedIndex] = useState(initialIndex ?? 0);
+  const [scrollLines, setScrollLines] = useState(0);
+
+  const selectedItemLines = useMemo<string[]>(() => {
+    const item = displayItems[selectedIndex];
+    if (!item) return [];
+    return buildItemLines(item, itemBodyLines[selectedIndex] ?? null, innerCols, true);
+  }, [displayItems, itemBodyLines, innerCols, selectedIndex]);
+
+  // Viewport budget in lines (filter chips + hrule + footer reserved).
+  const viewportLines = Math.max(termRows - 8, 5);
+
+  // Adjust scrollLines so the target item is visible. Scrolling policy:
+  //   - Item taller than viewport: align its top to viewport top.
+  //   - Item fits: if above viewport, align top; if below, align bottom.
+  //   - Item already visible: no change.
+  const adjustScroll = useCallback(
+    (targetIndex: number) => {
+      if (targetIndex < 0 || targetIndex >= itemHeights.length) return;
+      const start = itemLineStarts[targetIndex];
+      const end = start + itemHeights[targetIndex];
+      setScrollLines((prev) => {
+        const itemTaller = end - start > viewportLines;
+        const fullyVisible = start >= prev && end <= prev + viewportLines;
+        if (fullyVisible) return prev;
+        if (start < prev) return start; // above viewport
+        if (itemTaller) return start; // too tall: align top
+        return Math.max(0, end - viewportLines); // below: align bottom
+      });
+    },
+    [itemHeights, itemLineStarts, viewportLines],
+  );
+
+  const moveSelection = useCallback(
+    (next: number) => {
+      const clamped = Math.max(0, Math.min(next, displayItems.length - 1));
+      setSelectedIndex(clamped);
+      adjustScroll(clamped);
+    },
+    [displayItems.length, adjustScroll],
+  );
+
+  const moveUp = useCallback(() => moveSelection(selectedIndex - 1), [moveSelection, selectedIndex]);
+  const moveDown = useCallback(() => moveSelection(selectedIndex + 1), [moveSelection, selectedIndex]);
+  const jumpTo = useCallback((i: number) => moveSelection(i), [moveSelection]);
+
+  // Clamp selection + reposition when displayItems shrinks (e.g. filter toggle).
+  useEffect(() => {
+    if (displayItems.length === 0) return;
+    if (selectedIndex >= displayItems.length) {
+      moveSelection(displayItems.length - 1);
+    } else {
+      adjustScroll(selectedIndex);
+    }
+  }, [displayItems.length, viewportLines, selectedIndex, moveSelection, adjustScroll]);
+
+  // Clamp scrollLines to valid range whenever content shrinks.
+  useEffect(() => {
+    const maxScroll = Math.max(0, totalLoadedLines - viewportLines);
+    setScrollLines((prev) => Math.min(prev, maxScroll));
+  }, [totalLoadedLines, viewportLines]);
 
   // Jump to initialIndex once display items are loaded
   const initialJumpDone = useRef(false);
@@ -617,22 +603,28 @@ export function MessagesView({
     { isActive: !nav.searchMode },
   );
 
-  // Calculate visible range
-  // We need variable-height items, so do line-based viewport math
-  const viewportLines = Math.max(termRows - 8, 5); // header + filter chips + hrule + footer
+  // Collect visible lines: slice from allLinesUnselected, patch selected item's lines.
+  const selectedStart = displayItems[selectedIndex] ? itemLineStarts[selectedIndex] : -1;
+  const selectedEnd = selectedStart >= 0 ? selectedStart + itemHeights[selectedIndex] : -1;
 
-  // Collect visible items within viewport line budget
-  const visibleItems: Array<{ item: DisplayItem; index: number; bodyLines: string[] | null }> = [];
-  let usedLines = 0;
-  for (let i = scrollOffset; i < displayItems.length; i++) {
-    const h = itemHeights[i];
-    if (usedLines + h > viewportLines && usedLines > 0) break;
-    visibleItems.push({ item: displayItems[i], index: i, bodyLines: itemBodyLines[i] });
-    usedLines += h;
+  const visibleLines: string[] = [];
+  for (let i = 0; i < viewportLines; i++) {
+    const absLine = scrollLines + i;
+    if (absLine >= allLinesUnselected.length) break;
+    if (absLine >= selectedStart && absLine < selectedEnd) {
+      const lineInItem = absLine - selectedStart;
+      visibleLines.push(selectedItemLines[lineInItem] ?? allLinesUnselected[absLine]);
+    } else {
+      visibleLines.push(allLinesUnselected[absLine]);
+    }
   }
+  const padLines = Math.max(0, viewportLines - visibleLines.length);
 
-  // Pad remaining viewport lines so the footer stays fixed at the bottom
-  const padLines = Math.max(0, viewportLines - usedLines);
+  // Scrollbar estimation: project total height from avg line/item from loaded set.
+  const avgLinesPerItem = displayItems.length > 0 ? totalLoadedLines / displayItems.length : 1;
+  const unloadedItems = Math.max(0, totalCount - allMessages.length);
+  const unloadedLinesBefore = Math.round(unloadedItems * avgLinesPerItem);
+  const estimatedTotalLines = totalLoadedLines + unloadedLinesBefore;
 
   return (
     <Box flexDirection="column">
@@ -648,24 +640,18 @@ export function MessagesView({
         <Box height={viewportLines}>
           {/* Message content — leave 1 col for scrollbar */}
           <Box flexDirection="column" flexGrow={1}>
-            {visibleItems.map(({ item, index, bodyLines }) => (
-              <DisplayItemRenderer
-                key={`${index}-${item.kind}`}
-                item={item}
-                selected={index === selectedIndex}
-                cols={cols - 1}
-                bodyLines={bodyLines}
-              />
+            {visibleLines.map((line, i) => (
+              <Text key={i}>{line}</Text>
             ))}
             {padLines > 0 && <Box height={padLines} />}
           </Box>
           {/* Scrollbar track */}
           <ScrollBar
             viewportHeight={viewportLines}
-            scrollOffset={scrollOffset}
-            totalItems={displayItems.length}
-            totalMessageCount={totalCount}
-            itemHeights={itemHeights}
+            scrollLines={scrollLines}
+            loadedLines={totalLoadedLines}
+            estimatedTotalLines={estimatedTotalLines}
+            unloadedLinesBefore={unloadedLinesBefore}
           />
         </Box>
       )}
