@@ -4,7 +4,7 @@
  *
  * This command is fully non-interactive (no Ink UI), designed for scripting
  * and agents. It speaks to each Claude Code session's channel MCP server via
- * the WebSocket protocol defined in @vibecook/spaghetti-core.
+ * the WebSocket protocol defined in @vibecook/spaghetti-sdk.
  */
 
 import {
@@ -14,7 +14,7 @@ import {
   type SessionInfo,
   type ChannelIncoming,
   type ChannelMessage,
-} from '@vibecook/spaghetti-core';
+} from '@vibecook/spaghetti-sdk';
 import { theme } from '../lib/color.js';
 import { formatRelativeTime, formatNumber } from '../lib/format.js';
 import { renderTable } from '../lib/table.js';

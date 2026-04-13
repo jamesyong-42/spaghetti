@@ -19,7 +19,7 @@
   },
   "dependencies": {
     "@inkjs/ui": "^2.0.0",
-    "@vibecook/spaghetti-core": "workspace:*",
+    "@vibecook/spaghetti-sdk": "workspace:*",
     "cli-truncate": "^4.0.0",
     "commander": "^13.1.0",
     "ink": "^6.8.0",

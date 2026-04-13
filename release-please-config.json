@@ -19,7 +19,7 @@
         },
         {
           "type": "json",
-          "path": "packages/core/package.json",
+          "path": "packages/sdk/package.json",
           "jsonpath": "$.version"
         }
       ]

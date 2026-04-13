@@ -37,7 +37,7 @@ async function main(): Promise<void> {
       const { render } = await import('ink');
       const React = await import('react');
       const { Shell } = await import('./views/shell.js');
-      const { createSpaghettiService } = await import('@vibecook/spaghetti-core');
+      const { createSpaghettiService } = await import('@vibecook/spaghetti-sdk');
 
       const service = createSpaghettiService();
       // Don't initialize here — let Shell handle it with BootView

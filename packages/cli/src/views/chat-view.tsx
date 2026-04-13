@@ -25,7 +25,7 @@ import {
   type EditMessage,
   type PermissionRequestMessage,
   type StatusMessage,
-} from '@vibecook/spaghetti-core';
+} from '@vibecook/spaghetti-sdk';
 import { useViewNav } from './context.js';
 import { useTerminalSize } from './hooks.js';
 import { Header, HRule } from './chrome.js';

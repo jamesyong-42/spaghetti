@@ -7,7 +7,7 @@ import type {
   StoreStats,
   SearchResultSet,
   InitProgress,
-} from '@vibecook/spaghetti-core';
+} from '../index.js';
 import { useSpaghettiAPI } from './context.js';
 import { ProjectCard } from './components/ProjectCard.js';
 import { SessionCard } from './components/SessionCard.js';

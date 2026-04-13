@@ -1,5 +1,5 @@
 import React from 'react';
-import type { SessionListItem } from '@vibecook/spaghetti-core';
+import type { SessionListItem } from '../../index.js';
 import { formatRelativeTime, formatTokenCount, formatDuration } from '../utils/formatters.js';
 
 export function SessionCard({

@@ -6,8 +6,8 @@
  * synchronous parsing. A spinner relying on setInterval would freeze.
  */
 
-import { createSpaghettiService } from '@vibecook/spaghetti-core';
-import type { SpaghettiAPI } from '@vibecook/spaghetti-core';
+import { createSpaghettiService } from '@vibecook/spaghetti-sdk';
+import type { SpaghettiAPI } from '@vibecook/spaghetti-sdk';
 import pc from 'picocolors';
 import { isTTY } from './terminal.js';
 

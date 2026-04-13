@@ -12,8 +12,8 @@ import {
   getHookEventCategory,
   getHookEventSummary,
   HOOK_CATEGORY_LABELS,
-} from '@vibecook/spaghetti-core';
-import type { HookEvent, HookEventCategory, HookEventWatcher } from '@vibecook/spaghetti-core';
+} from '@vibecook/spaghetti-sdk';
+import type { HookEvent, HookEventCategory, HookEventWatcher } from '@vibecook/spaghetti-sdk';
 import { useViewNav } from './context.js';
 import { useListNavigation } from './hooks.js';
 import { Header, HRule } from './chrome.js';

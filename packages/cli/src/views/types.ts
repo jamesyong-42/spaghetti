@@ -3,7 +3,7 @@
  */
 
 import type React from 'react';
-import type { ProjectListItem, SessionListItem } from '@vibecook/spaghetti-core';
+import type { ProjectListItem, SessionListItem } from '@vibecook/spaghetti-sdk';
 
 // ─── View Types ────────────────────────────────────────────────────────
 

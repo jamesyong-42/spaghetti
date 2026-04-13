@@ -27,7 +27,7 @@ export interface SpaghettiServiceOptions {
  * Create a fully wired SpaghettiAPI instance.
  *
  * Usage:
- *   import { createSpaghettiService } from '@vibecook/spaghetti-core';
+ *   import { createSpaghettiService } from '@vibecook/spaghetti-sdk';
  *
  *   const spaghetti = createSpaghettiService();
  *   await spaghetti.initialize();

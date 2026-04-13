@@ -51,9 +51,9 @@ jobs:
       - name: Build
         run: pnpm build
 
-      - name: Publish @vibecook/spaghetti-core
+      - name: Publish @vibecook/spaghetti-sdk
         run: npm publish --access public --provenance
-        working-directory: packages/core
+        working-directory: packages/sdk
         env:
           NPM_CONFIG_PROVENANCE: true
 

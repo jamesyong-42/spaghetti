@@ -11,7 +11,7 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { Box, Text, useApp, useInput } from 'ink';
 import { createRequire } from 'node:module';
-import type { SpaghettiAPI } from '@vibecook/spaghetti-core';
+import type { SpaghettiAPI } from '@vibecook/spaghetti-sdk';
 import type { ViewEntry, ViewNav, ViewContext } from './types.js';
 import { ViewNavProvider } from './context.js';
 import { Header, Footer, HRule } from './chrome.js';

@@ -12,7 +12,7 @@
 
 import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import { Box, Text, useInput, useStdout } from 'ink';
-import type { ProjectListItem, SessionListItem, SessionMessage } from '@vibecook/spaghetti-core';
+import type { ProjectListItem, SessionListItem, SessionMessage } from '@vibecook/spaghetti-sdk';
 import { useViewNav } from './context.js';
 import { HRule } from './chrome.js';
 import { useApi } from './shell.js';

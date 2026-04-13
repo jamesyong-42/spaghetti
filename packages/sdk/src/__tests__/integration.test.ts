@@ -1,10 +1,10 @@
 /**
- * Integration test for @vibecook/spaghetti-core
+ * Integration test for @vibecook/spaghetti-sdk
  *
  * Exercises the full pipeline against real ~/.claude data using the
  * built-in node:test runner. No extra dependencies required.
  *
- * Run with: npx tsx packages/core/src/__tests__/integration.test.ts
+ * Run with: npx tsx packages/sdk/src/__tests__/integration.test.ts
  */
 
 import { test, describe } from 'node:test';
@@ -34,7 +34,7 @@ const hasClaudeProjects = existsSync(claudeProjectsDir);
 // TEST SUITE
 // ═══════════════════════════════════════════════════════════════════════════
 
-describe('@vibecook/spaghetti-core integration', { skip: !hasClaudeProjects }, () => {
+describe('@vibecook/spaghetti-sdk integration', { skip: !hasClaudeProjects }, () => {
   // ── 1. Initialize ──────────────────────────────────────────────────────
 
   test('1. Initialize the service', async () => {

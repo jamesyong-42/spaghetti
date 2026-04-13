@@ -4,7 +4,7 @@
 
 import React, { useMemo } from 'react';
 import { Box, Text, useInput } from 'ink';
-import type { ProjectListItem } from '@vibecook/spaghetti-core';
+import type { ProjectListItem } from '@vibecook/spaghetti-sdk';
 import { useViewNav } from './context.js';
 import { useApi } from './shell.js';
 import { useListNavigation, useTerminalSize } from './hooks.js';

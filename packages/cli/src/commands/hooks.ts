@@ -7,8 +7,8 @@ import {
   getHookEventSummary,
   getHookEventCategory,
   HOOK_CATEGORY_LABELS,
-} from '@vibecook/spaghetti-core';
-import type { HookEvent, HookEventName } from '@vibecook/spaghetti-core';
+} from '@vibecook/spaghetti-sdk';
+import type { HookEvent, HookEventName } from '@vibecook/spaghetti-sdk';
 import { theme } from '../lib/color.js';
 import { existsSync } from 'node:fs';
 

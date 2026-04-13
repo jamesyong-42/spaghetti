@@ -39,17 +39,18 @@ Spaghetti is built around four related use cases:
 - Browse Claude Code projects, sessions, messages, plans, todos, memory files, and subagent transcripts.
 - Run fast full-text search over indexed message content with SQLite FTS5.
 - Surface operational tooling around Claude Code plugins, hook events, and active channel sessions.
-- Reuse the same indexed data through a standalone library and an experimental React UI package.
+- Reuse the same indexed data through a standalone SDK that ships both a core API and a React component layer.
 
-In practice, the CLI is the primary product today. The core package is reusable and stable enough to script against. The UI package is more of a playground than a finished app.
+In practice, the CLI is the primary product today. The SDK is reusable and stable enough to script against. Its React export is more of a playground than a finished app.
+
+> **Breaking change (0.5.0):** `@vibecook/spaghetti-core` and the private `@vibecook/spaghetti-ui` have been merged into a single published package `@vibecook/spaghetti-sdk`. Import core API from `@vibecook/spaghetti-sdk`; import React components from `@vibecook/spaghetti-sdk/react`. The old `@vibecook/spaghetti-core` package is deprecated on npm.
 
 ## Packages
 
-This repo is a `pnpm` workspace with five packages:
+This repo is a `pnpm` workspace with four packages:
 
 - `packages/cli` — `@vibecook/spaghetti`, the published terminal app.
-- `packages/core` — `@vibecook/spaghetti-core`, the parsing, indexing, and query library.
-- `packages/ui` — `@vibecook/spaghetti-ui`, private React components and playground surfaces.
+- `packages/sdk` — `@vibecook/spaghetti-sdk`, the parsing/indexing/query library plus React components (subpath export `/react`).
 - `packages/claude-code-hooks-plugin` — Claude Code plugin assets for hook capture.
 - `packages/claude-code-channels-plugin` — a Bun-based MCP/WebSocket bridge for live chat with running Claude Code sessions.
 
@@ -57,10 +58,10 @@ This repo is a `pnpm` workspace with five packages:
 
 The codebase has a fairly clean layered split:
 
-1. `@vibecook/spaghetti-core`
-   Reads Claude Code files from `~/.claude`, parses them into domain types, ingests them into SQLite, and exposes query APIs.
+1. `@vibecook/spaghetti-sdk`
+   Reads Claude Code files from `~/.claude`, parses them into domain types, ingests them into SQLite, and exposes query APIs. Ships React components under the `/react` subpath.
 2. `@vibecook/spaghetti`
-   Wraps the core API in a command-driven terminal experience: Ink TUI for interactive use, Commander-based subcommands for scripts.
+   Wraps the SDK in a command-driven terminal experience: Ink TUI for interactive use, Commander-based subcommands for scripts.
 3. Plugin and channel packages
    Extend Claude Code itself so Spaghetti can monitor hook events and interact with live sessions.
 
@@ -70,7 +71,7 @@ The codebase has a fairly clean layered split:
                         │
                         ▼
          ┌──────────────────────────────┐
-         │ @vibecook/spaghetti-core     │
+         │ @vibecook/spaghetti-sdk      │
          │ parser + ingest + query      │
          └──────────────┬───────────────┘
                         │
@@ -238,10 +239,10 @@ doctor            -> filesystem + plugin state probes     -> health report
 
 ## Library Usage
 
-The core package can be used directly:
+The SDK can be used directly:
 
 ```ts
-import { createSpaghettiService } from '@vibecook/spaghetti-core';
+import { createSpaghettiService } from '@vibecook/spaghetti-sdk';
 
 const spaghetti = createSpaghettiService();
 await spaghetti.initialize();
@@ -267,28 +268,25 @@ Useful API entry points include:
 - `getStats()`
 - `onProgress()` / `onReady()` / `onChange()`
 
-## UI Package
+## React Components
 
-`@vibecook/spaghetti-ui` is private and currently best understood as a component playground around the core API. It exports:
+The SDK exports a React component playground under the `/react` subpath:
 
-- a provider/context wrapper
-- project and session cards
-- message rendering components
-- a detail overlay
-- `AgentDataPlayground`
+```ts
+import { SpaghettiProvider, AgentDataPlayground } from '@vibecook/spaghetti-sdk/react';
+```
 
-It is not the primary interface of the repo today.
+Available exports include a provider/context wrapper, project and session cards, message rendering components, a detail overlay, and the `AgentDataPlayground`. It is not the primary interface of the repo today.
 
 ## Project Structure
 
 ```text
 spaghetti/
   packages/
-    cli/       Published terminal app
-    core/      Parsing, storage, indexing, query API
-    ui/        Experimental React package
-    plugin/    Claude Code plugin assets for hook capture
-    channel/   Bun-based live chat bridge
+    cli/                           Published terminal app
+    sdk/                           SDK: parsing, storage, query API + React components
+    claude-code-hooks-plugin/      Claude Code plugin assets for hook capture
+    claude-code-channels-plugin/   Bun-based live chat bridge
   docs/        Design notes, implementation plans, RFCs
   scripts/     Validation utilities against real ~/.claude data
 ```

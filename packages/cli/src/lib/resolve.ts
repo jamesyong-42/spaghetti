@@ -2,7 +2,7 @@
  * Smart resolution — fuzzy matching for projects and sessions
  */
 
-import type { ProjectListItem, SessionListItem } from '@vibecook/spaghetti-core';
+import type { ProjectListItem, SessionListItem } from '@vibecook/spaghetti-sdk';
 import path from 'node:path';
 
 /**

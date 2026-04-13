@@ -4,7 +4,7 @@
 
 import React, { useMemo, useCallback } from 'react';
 import { Box, Text, useInput, useStdout } from 'ink';
-import type { SearchResultSet, SearchResult } from '@vibecook/spaghetti-core';
+import type { SearchResultSet, SearchResult } from '@vibecook/spaghetti-sdk';
 import { useViewNav } from './context.js';
 import { useApi } from './shell.js';
 import { useListNavigation } from './hooks.js';

@@ -2,7 +2,7 @@
  * Subagents command — list and view subagent messages
  */
 
-import type { SpaghettiAPI } from '@vibecook/spaghetti-core';
+import type { SpaghettiAPI } from '@vibecook/spaghetti-sdk';
 import { theme } from '../lib/color.js';
 import { formatNumber } from '../lib/format.js';
 import { renderTable } from '../lib/table.js';

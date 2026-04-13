@@ -6,7 +6,7 @@
  * filter categories, and tool input/result summaries.
  */
 
-import type { SessionMessage } from '@vibecook/spaghetti-core';
+import type { SessionMessage } from '@vibecook/spaghetti-sdk';
 import pc from 'picocolors';
 
 // ─── Display Item Types ────────────────────────────────────────────────
