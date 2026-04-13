@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.5.1](https://github.com/jamesyong-42/spaghetti/compare/spaghetti-v0.5.0...spaghetti-v0.5.1) (2026-04-13)
+
+
+### Bug Fixes
+
+* **ci:** use pnpm publish to rewrite workspace:* and ignore lock file ([be3b500](https://github.com/jamesyong-42/spaghetti/commit/be3b500fba185c7b00dc1ac3da6e89f7b6a62016))
+* **packages:** add README to sdk and cli npm bundles ([e322f2d](https://github.com/jamesyong-42/spaghetti/commit/e322f2d3a96792245ee30dea27a879fb396b7f5d))
+
 ## [0.5.0](https://github.com/jamesyong-42/spaghetti/compare/spaghetti-v0.4.0...spaghetti-v0.5.0) (2026-04-13)
 
 
