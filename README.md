@@ -50,8 +50,8 @@ This repo is a `pnpm` workspace with five packages:
 - `packages/cli` — `@vibecook/spaghetti`, the published terminal app.
 - `packages/core` — `@vibecook/spaghetti-core`, the parsing, indexing, and query library.
 - `packages/ui` — `@vibecook/spaghetti-ui`, private React components and playground surfaces.
-- `packages/plugin` — Claude Code plugin assets for hook capture.
-- `packages/channel` — a Bun-based MCP/WebSocket bridge for live chat with running Claude Code sessions.
+- `packages/claude-code-hooks-plugin` — Claude Code plugin assets for hook capture.
+- `packages/claude-code-channels-plugin` — a Bun-based MCP/WebSocket bridge for live chat with running Claude Code sessions.
 
 ## Architecture
 
@@ -301,7 +301,7 @@ spaghetti/
 
 Additional package-specific note:
 
-- `packages/channel` uses Bun for local development of the channel server
+- `packages/claude-code-channels-plugin` uses Bun for local development of the channel server
 
 ## Install
 

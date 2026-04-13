@@ -1,5 +1,5 @@
 {
-  "name": "@vibecook/spaghetti-plugin",
+  "name": "@vibecook/claude-code-hooks-plugin",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -12,6 +12,6 @@
   "repository": {
     "type": "git",
     "url": "https://github.com/jamesyong-42/spaghetti.git",
-    "directory": "packages/plugin"
+    "directory": "packages/claude-code-hooks-plugin"
   }
 }
