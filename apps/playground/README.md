@@ -2,6 +2,10 @@
 
 Private Electron desktop app demonstrating `@vibecook/spaghetti-sdk` end-to-end.
 
+## Requirements
+
+Node 24 (see root `.nvmrc`). `nvm use` before working in this directory.
+
 ## Commands
 
 ```bash
@@ -10,9 +14,30 @@ pnpm -F @vibecook/spaghetti-playground build   # produce out/{main,preload,rende
 pnpm -F @vibecook/spaghetti-playground start   # preview a built bundle
 ```
 
-The `postinstall` script runs `electron-rebuild` to recompile `better-sqlite3`
-against Electron's ABI. This fails fast if your toolchain is missing (Xcode
-CLT, Python 3, node-gyp prerequisites) — fix the error rather than skipping.
+## Native module (`better-sqlite3`) ABI note
+
+`better-sqlite3` is a native module and only has **one** copy in the pnpm
+store, shared between `packages/sdk` (tested under Node) and this app (runs
+under Electron). Node and Electron use different V8 ABIs, so the binary
+can't satisfy both at once.
+
+The workflow:
+
+- `pnpm install` builds the binary for **Node** (via prebuild-install).
+  `pnpm test:packages` works out of the box.
+- `pnpm -F @vibecook/spaghetti-playground dev` (or `start`) has a `predev`
+  hook that runs `electron-rebuild`, which recompiles the binary for
+  **Electron**'s ABI. The app then launches.
+- After running the app, the binary is Electron-ABI. To run SDK tests
+  again, rebuild for Node:
+  ```bash
+  pnpm -F @vibecook/spaghetti-playground rebuild:node
+  # or from anywhere:
+  pnpm rebuild better-sqlite3
+  ```
+
+Requires Xcode CLT (macOS) / Python 3 / node-gyp prerequisites to compile
+from source if the prebuild isn't available.
 
 ## Architecture
 
