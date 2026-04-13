@@ -15,7 +15,7 @@
     "typecheck": "tsc --noEmit",
     "dev": "tsup --watch",
     "postbuild": "node -e \"try{require('fs').chmodSync('dist/bin.js',0o755)}catch{}\"",
-    "test": "FORCE_COLOR=1 node --import tsx --test src/__tests__/*.test.ts"
+    "test": "cross-env FORCE_COLOR=1 node --import tsx --test src/__tests__/*.test.ts"
   },
   "dependencies": {
     "@inkjs/ui": "^2.0.0",
@@ -47,6 +47,7 @@
     "@types/node": "^22.0.0",
     "@types/react": "^19.2.14",
     "@types/ws": "^8.5.0",
+    "cross-env": "^7.0.3",
     "tsup": "^8.4.0",
     "tsx": "^4.19.0",
     "typescript": "^5.7.0"
