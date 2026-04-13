@@ -28,9 +28,9 @@
     "validate": "bash scripts/validate-all.sh",
     "test:packages": "pnpm --filter @vibecook/spaghetti-sdk test && pnpm --filter @vibecook/spaghetti test",
     "test": "pnpm typecheck && pnpm validate && pnpm test:packages",
-    "lint": "eslint 'packages/*/src/**/*.{ts,tsx}'",
-    "format:check": "prettier --check 'packages/*/src/**/*.{ts,tsx}'",
-    "format": "prettier --write 'packages/*/src/**/*.{ts,tsx}'"
+    "lint": "eslint 'packages/*/src/**/*.{ts,tsx}' 'apps/*/src/**/*.{ts,tsx}'",
+    "format:check": "prettier --check 'packages/*/src/**/*.{ts,tsx}' 'apps/*/src/**/*.{ts,tsx}'",
+    "format": "prettier --write 'packages/*/src/**/*.{ts,tsx}' 'apps/*/src/**/*.{ts,tsx}'"
   },
   "engines": {
     "node": ">=18"

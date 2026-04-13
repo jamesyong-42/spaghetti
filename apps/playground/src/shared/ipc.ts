@@ -1,0 +1,100 @@
+/**
+ * IPC contract between main and renderer.
+ *
+ * Every method maps 1:1 to a channel of the form `spaghetti:<method>` that the
+ * main process exposes via ipcMain.handle, and the preload forwards through
+ * contextBridge.exposeInMainWorld('spaghetti', …).
+ *
+ * The subset of the SDK's SpaghettiAPI exposed here is everything a read-only
+ * agent-data browser needs — list/read/search, plus the initialization
+ * lifecycle. Mutations aren't surfaced (the playground is read-only).
+ *
+ * Progress and change events are exposed as one-way channels from main →
+ * renderer (no invoke), wrapped by `onProgress` / `onReady` / `onChange` on
+ * the window.spaghetti surface. Each returns an unsubscribe function.
+ */
+
+import type {
+  MessagePage,
+  ProjectListItem,
+  SessionListItem,
+  SubagentListItem,
+  SubagentMessagePage,
+} from '@vibecook/spaghetti-sdk';
+import type {
+  InitProgress,
+  SearchQuery,
+  SearchResultSet,
+  SegmentChangeBatch,
+  StoreStats,
+} from '@vibecook/spaghetti-sdk';
+
+export interface ReadyInfo {
+  durationMs: number;
+}
+
+export interface SpaghettiIPC {
+  // Lifecycle ---------------------------------------------------------------
+  isReady(): Promise<boolean>;
+
+  // Projects ----------------------------------------------------------------
+  getProjectList(): Promise<ProjectListItem[]>;
+  getProjectMemory(projectSlug: string): Promise<string | null>;
+
+  // Sessions ----------------------------------------------------------------
+  getSessionList(projectSlug: string): Promise<SessionListItem[]>;
+  getSessionMessages(projectSlug: string, sessionId: string, limit?: number, offset?: number): Promise<MessagePage>;
+  getSessionTodos(projectSlug: string, sessionId: string): Promise<unknown[]>;
+  getSessionPlan(projectSlug: string, sessionId: string): Promise<unknown | null>;
+  getSessionTask(projectSlug: string, sessionId: string): Promise<unknown | null>;
+  getToolResult(projectSlug: string, sessionId: string, toolUseId: string): Promise<string | null>;
+
+  // Subagents ---------------------------------------------------------------
+  getSessionSubagents(projectSlug: string, sessionId: string): Promise<SubagentListItem[]>;
+  getSubagentMessages(
+    projectSlug: string,
+    sessionId: string,
+    agentId: string,
+    limit?: number,
+    offset?: number,
+  ): Promise<SubagentMessagePage>;
+
+  // Search / stats ----------------------------------------------------------
+  search(query: SearchQuery): Promise<SearchResultSet>;
+  getStats(): Promise<StoreStats>;
+}
+
+/**
+ * Event listener registration API. Each `on*` returns an unsubscribe fn that
+ * removes the listener when called.
+ */
+export interface SpaghettiEvents {
+  onProgress(cb: (progress: InitProgress) => void): () => void;
+  onReady(cb: (info: ReadyInfo) => void): () => void;
+  onChange(cb: (batch: SegmentChangeBatch) => void): () => void;
+}
+
+export type SpaghettiBridge = SpaghettiIPC & SpaghettiEvents;
+
+// Channel names — single source of truth, shared between preload and main.
+export const IPC_CHANNELS = {
+  isReady: 'spaghetti:isReady',
+  getProjectList: 'spaghetti:getProjectList',
+  getProjectMemory: 'spaghetti:getProjectMemory',
+  getSessionList: 'spaghetti:getSessionList',
+  getSessionMessages: 'spaghetti:getSessionMessages',
+  getSessionTodos: 'spaghetti:getSessionTodos',
+  getSessionPlan: 'spaghetti:getSessionPlan',
+  getSessionTask: 'spaghetti:getSessionTask',
+  getToolResult: 'spaghetti:getToolResult',
+  getSessionSubagents: 'spaghetti:getSessionSubagents',
+  getSubagentMessages: 'spaghetti:getSubagentMessages',
+  search: 'spaghetti:search',
+  getStats: 'spaghetti:getStats',
+} as const;
+
+export const EVENT_CHANNELS = {
+  progress: 'spaghetti:event:progress',
+  ready: 'spaghetti:event:ready',
+  change: 'spaghetti:event:change',
+} as const;
