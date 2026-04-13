@@ -4,14 +4,15 @@
 
 Spaghetti is a TypeScript monorepo centered on a local-first data pipeline for Claude Code artifacts. It parses `~/.claude`, stores a normalized SQLite index, exposes a queryable core library, and ships a terminal app with both a full-screen TUI and one-shot CLI commands.
 
-[![npm version](https://img.shields.io/npm/v/@vibecook/spaghetti.svg)](https://www.npmjs.com/package/@vibecook/spaghetti)
+[![npm version](https://img.shields.io/npm/v/@vibecook/spaghetti.svg?label=@vibecook/spaghetti)](https://www.npmjs.com/package/@vibecook/spaghetti)
+[![npm version](https://img.shields.io/npm/v/@vibecook/spaghetti-sdk.svg?label=@vibecook/spaghetti-sdk)](https://www.npmjs.com/package/@vibecook/spaghetti-sdk)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.7-blue.svg)](https://www.typescriptlang.org/)
 [![Node](https://img.shields.io/badge/node-%3E%3D18-brightgreen.svg)](https://nodejs.org/)
 [![CI](https://github.com/jamesyong-42/spaghetti/actions/workflows/ci.yml/badge.svg)](https://github.com/jamesyong-42/spaghetti/actions/workflows/ci.yml)
 
 ```text
-╭ Spaghetti v0.4.0 ──────────────────────────────────────────────────────╮
+╭ Spaghetti v0.5.0 ──────────────────────────────────────────────────────╮
 │                                                                        │
 │  ▄▀▀ █▀█ ▄▀▄ █▀▀ █ █ █▀▀ ▀█▀ ▀█▀ █      Projects           79         │
 │  ▀▄▄ █▀▀ █▀█ █ █ █▀█ █▀   █   █  █      Sessions        1,247         │
@@ -27,10 +28,11 @@ Spaghetti is a TypeScript monorepo centered on a local-first data pipeline for C
 | Surface | Current State | Notes |
 |---|---|---|
 | Terminal app | Primary interface | Ink TUI plus one-shot CLI commands |
-| Core library | Reusable | Public API over parsed/indexed Claude Code data |
+| SDK | Reusable | Published library over parsed/indexed Claude Code data |
 | Hook monitoring | Working | Reads `~/.spaghetti/hooks/events.jsonl` |
 | Live chat channel | Experimental | Bun MCP/WebSocket bridge |
-| React UI package | Experimental | Component playground, not main product |
+| React components | Experimental | `@vibecook/spaghetti-sdk/react`, not main product |
+| Electron playground | Experimental | `apps/playground`, desktop demo of the SDK |
 
 ## What It Does
 
@@ -43,16 +45,25 @@ Spaghetti is built around four related use cases:
 
 In practice, the CLI is the primary product today. The SDK is reusable and stable enough to script against. Its React export is more of a playground than a finished app.
 
-> **Breaking change (0.5.0):** `@vibecook/spaghetti-core` and the private `@vibecook/spaghetti-ui` have been merged into a single published package `@vibecook/spaghetti-sdk`. Import core API from `@vibecook/spaghetti-sdk`; import React components from `@vibecook/spaghetti-sdk/react`. The old `@vibecook/spaghetti-core` package is deprecated on npm.
+> **Breaking change (0.5.0):** `@vibecook/spaghetti-core` and the private `@vibecook/spaghetti-ui` were merged into a single published package `@vibecook/spaghetti-sdk`. Import the core API from `@vibecook/spaghetti-sdk` and React components from `@vibecook/spaghetti-sdk/react`. The old `@vibecook/spaghetti-core` is deprecated.
 
-## Packages
+## Workspace layout
 
-This repo is a `pnpm` workspace with four packages:
+This repo is a `pnpm` workspace.
 
-- `packages/cli` — `@vibecook/spaghetti`, the published terminal app.
-- `packages/sdk` — `@vibecook/spaghetti-sdk`, the parsing/indexing/query library plus React components (subpath export `/react`).
+**Published packages**
+
+- `packages/cli` — [`@vibecook/spaghetti`](https://www.npmjs.com/package/@vibecook/spaghetti), the terminal app.
+- `packages/sdk` — [`@vibecook/spaghetti-sdk`](https://www.npmjs.com/package/@vibecook/spaghetti-sdk), the parsing/indexing/query library plus React components (subpath export `/react`).
+
+**Private packages**
+
 - `packages/claude-code-hooks-plugin` — Claude Code plugin assets for hook capture.
 - `packages/claude-code-channels-plugin` — a Bun-based MCP/WebSocket bridge for live chat with running Claude Code sessions.
+
+**Apps**
+
+- `apps/playground` — an Electron desktop app that demonstrates the SDK end-to-end (React renderer backed by SDK core over an IPC bridge). Not published.
 
 ## Architecture
 
@@ -282,9 +293,11 @@ Available exports include a provider/context wrapper, project and session cards,
 
 ```text
 spaghetti/
+  apps/
+    playground/                    Electron desktop demo of the SDK
   packages/
-    cli/                           Published terminal app
-    sdk/                           SDK: parsing, storage, query API + React components
+    cli/                           Published terminal app (@vibecook/spaghetti)
+    sdk/                           SDK: parsing, storage, query API + React components (@vibecook/spaghetti-sdk)
     claude-code-hooks-plugin/      Claude Code plugin assets for hook capture
     claude-code-channels-plugin/   Bun-based live chat bridge
   docs/        Design notes, implementation plans, RFCs
@@ -293,13 +306,14 @@ spaghetti/
 
 ## Requirements
 
-- Node.js `>=18` for the main workspace and published packages
+- Node.js 24 for development (see `.nvmrc`); published packages target `>=18`
 - `pnpm` for workspace development
 - a local Claude Code data directory at `~/.claude` for real usage
 
-Additional package-specific note:
+Additional package-specific notes:
 
 - `packages/claude-code-channels-plugin` uses Bun for local development of the channel server
+- `apps/playground` is an Electron app — `better-sqlite3` is a shared native dep, see its `README` for the ABI switcheroo between Node (tests) and Electron (app)
 
 ## Install
 
@@ -329,7 +343,7 @@ pnpm test
 
 - workspace typechecking
 - schema/type validation scripts against real Claude Code data
-- package test suites for `core` and `cli`
+- package test suites for `sdk` and `cli`
 
 ## Releases
 
