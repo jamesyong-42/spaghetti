@@ -7,3 +7,4 @@ out/
 .spaghetti/
 .idea/
 .superpowers/
+.claude/scheduled_tasks.lock
