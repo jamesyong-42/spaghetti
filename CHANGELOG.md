@@ -1,5 +1,29 @@
 # Changelog
 
+## [0.5.0](https://github.com/jamesyong-42/spaghetti/compare/spaghetti-v0.4.0...spaghetti-v0.5.0) (2026-04-13)
+
+
+### ⚠ BREAKING CHANGES
+
+* @vibecook/spaghetti-core and @vibecook/spaghetti-ui are replaced by a single package @vibecook/spaghetti-sdk with subpath exports:
+
+### Features
+
+* **apps:** add electron playground using @vibecook/spaghetti-sdk ([5dcfe26](https://github.com/jamesyong-42/spaghetti/commit/5dcfe26e1cd5adcdf99e902d6516d55a7baa1e33))
+* **cli:** redesign message blocks in TUI messages view ([2e65c6e](https://github.com/jamesyong-42/spaghetti/commit/2e65c6e7a7a6aa7bced893c5abb62944cb6d73aa))
+* **cli:** render assistant markdown in TUI detail view ([c7eaa49](https://github.com/jamesyong-42/spaghetti/commit/c7eaa4969be5c81face4ae060c3baa5db49f2b4a))
+* merge spaghetti-core and spaghetti-ui into @vibecook/spaghetti-sdk ([fabf345](https://github.com/jamesyong-42/spaghetti/commit/fabf345acc7cd7d138aa1256092147fd1f50dad3))
+
+
+### Bug Fixes
+
+* **cli:** use cross-env for FORCE_COLOR=1 in tests ([17a1682](https://github.com/jamesyong-42/spaghetti/commit/17a16823b1dfe12869b6157a9f96de98a9e63383))
+
+
+### Performance Improvements
+
+* **cli:** switch TUI messages view to line-based scrolling ([be04066](https://github.com/jamesyong-42/spaghetti/commit/be04066ac15c669193ed4b57882c70afedb16c92))
+
 ## [0.4.0](https://github.com/jamesyong-42/spaghetti/compare/spaghetti-v0.3.3...spaghetti-v0.4.0) (2026-04-10)
 
 
