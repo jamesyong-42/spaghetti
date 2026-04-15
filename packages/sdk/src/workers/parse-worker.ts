@@ -93,8 +93,9 @@ port.on('message', (msg: MainToWorkerMessage) => {
           messageBatch.push(JSON.stringify(message));
           batchByteOffsets.push(byteOffset);
 
-          // Flush when batch reaches threshold (150 messages)
-          if (messageBatch.length >= 150) {
+          // Flush when batch reaches threshold (500 messages — larger batches
+          // reduce IPC round-trips between worker and main thread)
+          if (messageBatch.length >= 500) {
             flushBatch();
             batchStartIndex = index + 1;
           }

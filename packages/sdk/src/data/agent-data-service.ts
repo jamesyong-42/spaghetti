@@ -220,18 +220,27 @@ export class AgentDataServiceImpl extends EventEmitter implements ClaudeCodeAgen
     // Discover project slugs to decide on parallel vs sequential
     const slugs = this.discoverProjectSlugs();
 
-    if (slugs.length >= 4 && isWorkerThreadsAvailable()) {
-      try {
-        await this.coldStartParallel(slugs);
-      } catch {
-        // Worker threads may fail in bundled environments (e.g., tsup inlines
-        // the worker script as a data URL which isn't a valid worker path).
-        // Fall back to sequential parsing gracefully.
-        this.emitProgress('parsing', 'Workers unavailable, falling back to sequential...');
+    // Enable bulk ingest optimizations: disable FTS triggers and use
+    // aggressive SQLite PRAGMAs for maximum write throughput.
+    this.ingestService.beginBulkIngest();
+
+    try {
+      if (slugs.length >= 4 && isWorkerThreadsAvailable()) {
+        try {
+          await this.coldStartParallel(slugs);
+        } catch {
+          // Worker threads may fail in bundled environments (e.g., tsup inlines
+          // the worker script as a data URL which isn't a valid worker path).
+          // Fall back to sequential parsing gracefully.
+          this.emitProgress('parsing', 'Workers unavailable, falling back to sequential...');
+          await this.coldStartSequential();
+        }
+      } else {
         await this.coldStartSequential();
       }
-    } else {
-      await this.coldStartSequential();
+    } finally {
+      // Restore FTS triggers, rebuild FTS index, restore safe PRAGMAs
+      this.ingestService.endBulkIngest();
     }
 
     // Save fingerprints for all session JSONL files we can find
@@ -277,7 +286,7 @@ export class AgentDataServiceImpl extends EventEmitter implements ClaudeCodeAgen
     const totalProjects = slugs.length;
     this.emitProgress('parsing', `Parsing ${totalProjects} projects...`, 0, totalProjects);
 
-    const pool = createWorkerPool({ maxWorkers: 4 });
+    const pool = createWorkerPool();
 
     this.ingestService.beginTransaction();
 
@@ -406,10 +415,18 @@ export class AgentDataServiceImpl extends EventEmitter implements ClaudeCodeAgen
   ): Promise<void> {
     this.emitProgress('reconciling', 'Warm start: checking for changes...');
 
+    // Build a lookup map from path → fingerprint for efficient access
+    const fpMap = new Map<string, { path: string; mtimeMs: number; size: number; bytePosition?: number }>();
+    for (const fp of existingFingerprints) {
+      fpMap.set(fp.path, fp);
+    }
+
     // Check which files have changed since last parse
     // Skip recovery:// fingerprints — those track imported legacy data
     const changedFiles: string[] = [];
     const removedFiles: string[] = [];
+    // Track JSONL files that only grew (appended) — eligible for incremental parse
+    const grownFiles: Array<{ path: string; oldSize: number; oldBytePosition: number }> = [];
 
     for (const fp of existingFingerprints) {
       if (fp.path.startsWith('recovery://')) continue;
@@ -417,8 +434,39 @@ export class AgentDataServiceImpl extends EventEmitter implements ClaudeCodeAgen
       if (!stats) {
         removedFiles.push(fp.path);
       } else if (stats.mtimeMs !== fp.mtimeMs || stats.size !== fp.size) {
-        changedFiles.push(fp.path);
+        // Detect append-only growth: mtime changed, size grew, and we have a byte position
+        if (
+          fp.path.endsWith('.jsonl') &&
+          stats.size > fp.size &&
+          fp.bytePosition !== undefined &&
+          fp.bytePosition > 0
+        ) {
+          grownFiles.push({ path: fp.path, oldSize: fp.size, oldBytePosition: fp.bytePosition });
+        } else {
+          changedFiles.push(fp.path);
+        }
       }
+    }
+
+    // Also detect new JSONL files on disk that we don't have fingerprints for
+    const newFiles: string[] = [];
+    const projectsDir = path.join(this.claudeDir, 'projects');
+    try {
+      const projectPaths = this.fileService.scanDirectorySync(projectsDir, { includeDirectories: true });
+      for (const projectPath of projectPaths) {
+        try {
+          const files = this.fileService.scanDirectorySync(projectPath, { pattern: '*.jsonl' });
+          for (const filePath of files) {
+            if (!fpMap.has(filePath)) {
+              newFiles.push(filePath);
+            }
+          }
+        } catch {
+          // skip bad project directory
+        }
+      }
+    } catch {
+      // projects dir doesn't exist
     }
 
     // Recovery check: detect projects that have sessions in the DB but 0
@@ -426,7 +474,7 @@ export class AgentDataServiceImpl extends EventEmitter implements ClaudeCodeAgen
     // to parse JSONL files (e.g. stale sessions-index.json).  If we find
     // any, force a full re-parse to recover the lost data.
     let needsRecovery = false;
-    if (changedFiles.length === 0 && removedFiles.length === 0) {
+    if (changedFiles.length === 0 && removedFiles.length === 0 && grownFiles.length === 0 && newFiles.length === 0) {
       needsRecovery = this.hasProjectsWithMissingMessages();
       if (!needsRecovery) {
         this.emitProgress('reconciling', 'No changes detected, using cached data.');
@@ -435,41 +483,242 @@ export class AgentDataServiceImpl extends EventEmitter implements ClaudeCodeAgen
       this.emitProgress('reconciling', 'Detected projects with 0 messages — triggering recovery re-parse...');
     }
 
-    // Re-parse only from disk files. Use a MERGE strategy: re-ingest from
-    // disk (which uses UPSERT) without deleting first. This preserves
-    // recovered legacy data that has no corresponding disk files.
+    if (needsRecovery) {
+      // Full re-parse needed for recovery
+      await this.warmStartFullReparse('Recovery re-parse: fixing projects with missing messages...');
+      return;
+    }
+
+    // If only JSONL files grew (most common warm-start scenario: active session
+    // appended new messages), do incremental parsing instead of full re-parse.
+    // We also handle new files by doing a full parse of just those sessions.
+    if (changedFiles.length === 0 && removedFiles.length === 0) {
+      // Only grown + new files — incremental warm start
+      const totalFiles = grownFiles.length + newFiles.length;
+      this.emitProgress(
+        'parsing',
+        `Incremental update: ${grownFiles.length} grown, ${newFiles.length} new files...`,
+        0,
+        totalFiles,
+      );
+
+      this.ingestService.beginTransaction();
+      try {
+        let processed = 0;
+
+        // Incrementally parse appended data from grown files
+        for (const gf of grownFiles) {
+          this.incrementalParseJsonl(gf.path, gf.oldBytePosition);
+          processed++;
+          this.emitProgress('parsing', `Incremental: ${path.basename(gf.path)}`, processed, totalFiles);
+        }
+
+        // Fully parse new files (these are sessions we haven't seen before)
+        for (const filePath of newFiles) {
+          this.fullParseNewJsonl(filePath);
+          processed++;
+          this.emitProgress('parsing', `New: ${path.basename(filePath)}`, processed, totalFiles);
+        }
+
+        this.ingestService.commitTransaction();
+      } catch (error) {
+        this.ingestService.rollbackTransaction();
+        throw error;
+      }
+
+      // Update fingerprints for changed files
+      this.saveAllFingerprints();
+      this.emitProgress('indexing', 'Incremental warm start complete.');
+      return;
+    }
+
+    // Files were modified in a non-append way or removed — determine which
+    // projects are affected and only re-parse those.
+    const affectedSlugs = this.getAffectedProjectSlugs(changedFiles, removedFiles);
+    if (affectedSlugs.length === 0) {
+      // Edge case: changed files couldn't be mapped to projects. Do full re-parse.
+      await this.warmStartFullReparse(
+        `Re-parsing: ${changedFiles.length} changed, ${removedFiles.length} removed files...`,
+      );
+      return;
+    }
+
     this.emitProgress(
       'parsing',
-      needsRecovery
-        ? 'Recovery re-parse: fixing projects with missing messages...'
-        : `Re-parsing: ${changedFiles.length} changed, ${removedFiles.length} removed files...`,
+      `Re-parsing ${affectedSlugs.length} affected projects (${changedFiles.length} changed, ${removedFiles.length} removed)...`,
     );
-
-    // Parse project by project with event-loop yields so UI can update
-    const slugs = this.discoverProjectSlugs();
-    const totalProjects = slugs.length;
 
     this.ingestService.beginTransaction();
     try {
-      for (let i = 0; i < slugs.length; i++) {
-        const slug = slugs[i];
+      for (let i = 0; i < affectedSlugs.length; i++) {
+        const slug = affectedSlugs[i];
         this.parser.parseProjectStreaming(this.claudeDir, slug, this.ingestService);
         this.ingestService.onProjectComplete(slug);
-        this.emitProgress('parsing', `Parsed ${slug}`, i + 1, totalProjects);
+        this.emitProgress('parsing', `Parsed ${slug}`, i + 1, affectedSlugs.length);
 
-        // Yield to the event loop so UI can render progress updates
-        if (i < slugs.length - 1) {
+        if (i < affectedSlugs.length - 1) {
           await new Promise<void>((resolve) => setImmediate(resolve));
         }
       }
+
+      // Also handle grown/new files from other projects
+      for (const gf of grownFiles) {
+        this.incrementalParseJsonl(gf.path, gf.oldBytePosition);
+      }
+      for (const filePath of newFiles) {
+        this.fullParseNewJsonl(filePath);
+      }
+
       this.ingestService.commitTransaction();
     } catch (error) {
       this.ingestService.rollbackTransaction();
       throw error;
     }
 
-    // Update fingerprints
     this.saveAllFingerprints();
+    this.emitProgress('indexing', 'Warm start complete.');
+  }
+
+  /**
+   * Full re-parse of all projects — used as fallback for recovery or when
+   * changes can't be handled incrementally. Uses parallel workers when available.
+   */
+  private async warmStartFullReparse(message: string): Promise<void> {
+    this.emitProgress('parsing', message);
+
+    const slugs = this.discoverProjectSlugs();
+    const totalProjects = slugs.length;
+
+    // Enable bulk ingest optimizations for full re-parse
+    this.ingestService.beginBulkIngest();
+
+    try {
+      // Use parallel parsing for full re-parse when beneficial
+      if (slugs.length >= 4 && isWorkerThreadsAvailable()) {
+        try {
+          await this.coldStartParallel(slugs);
+          this.saveAllFingerprints();
+          this.emitProgress('indexing', 'Warm start full re-parse complete.');
+          return;
+        } catch {
+          this.emitProgress('parsing', 'Workers unavailable, falling back to sequential...');
+        }
+      }
+
+      this.ingestService.beginTransaction();
+      try {
+        for (let i = 0; i < slugs.length; i++) {
+          const slug = slugs[i];
+          this.parser.parseProjectStreaming(this.claudeDir, slug, this.ingestService);
+          this.ingestService.onProjectComplete(slug);
+          this.emitProgress('parsing', `Parsed ${slug}`, i + 1, totalProjects);
+
+          if (i < slugs.length - 1) {
+            await new Promise<void>((resolve) => setImmediate(resolve));
+          }
+        }
+        this.ingestService.commitTransaction();
+      } catch (error) {
+        this.ingestService.rollbackTransaction();
+        throw error;
+      }
+    } finally {
+      this.ingestService.endBulkIngest();
+    }
+
+    this.saveAllFingerprints();
+  }
+
+  /**
+   * Incrementally parse new lines appended to a JSONL file from a given byte position.
+   */
+  private incrementalParseJsonl(filePath: string, fromBytePosition: number): void {
+    // Extract slug and sessionId from the file path
+    // Path format: <claudeDir>/projects/<slug>/<sessionId>.jsonl
+    const parts = filePath.split(path.sep);
+    const fileName = parts[parts.length - 1];
+    const slug = parts[parts.length - 2];
+    const sessionId = fileName.replace('.jsonl', '');
+
+    if (!slug || !sessionId) return;
+
+    let messageCount = 0;
+    try {
+      this.fileService.readJsonlStreaming<SessionMessage>(
+        filePath,
+        (message, index, byteOffset) => {
+          this.ingestService.onMessage(slug, sessionId, message, index, byteOffset);
+          messageCount++;
+        },
+        { fromBytePosition },
+      );
+    } catch {
+      // File read failed — skip
+    }
+
+    if (messageCount > 0) {
+      // Update the session's byte position fingerprint
+      const stats = this.fileService.getStats(filePath);
+      if (stats) {
+        this.ingestService.upsertFingerprint({
+          path: filePath,
+          mtimeMs: stats.mtimeMs,
+          size: stats.size,
+          bytePosition: stats.size,
+        });
+      }
+    }
+  }
+
+  /**
+   * Fully parse a new JSONL file that we haven't seen before.
+   */
+  private fullParseNewJsonl(filePath: string): void {
+    const parts = filePath.split(path.sep);
+    const fileName = parts[parts.length - 1];
+    const slug = parts[parts.length - 2];
+    const sessionId = fileName.replace('.jsonl', '');
+
+    if (!slug || !sessionId) return;
+
+    let messageCount = 0;
+    let lastBytePosition = 0;
+    try {
+      const streamResult = this.fileService.readJsonlStreaming<SessionMessage>(
+        filePath,
+        (message, index, byteOffset) => {
+          this.ingestService.onMessage(slug, sessionId, message, index, byteOffset);
+          messageCount++;
+          lastBytePosition = byteOffset;
+        },
+      );
+      lastBytePosition = streamResult.finalBytePosition;
+    } catch {
+      // File read failed — skip
+    }
+
+    if (messageCount > 0) {
+      this.ingestService.onSessionComplete(slug, sessionId, messageCount, lastBytePosition);
+    }
+  }
+
+  /**
+   * Determine which project slugs are affected by the changed/removed files.
+   */
+  private getAffectedProjectSlugs(changedFiles: string[], removedFiles: string[]): string[] {
+    const affected = new Set<string>();
+    const projectsDir = path.join(this.claudeDir, 'projects');
+
+    for (const filePath of [...changedFiles, ...removedFiles]) {
+      // Extract slug from path: <claudeDir>/projects/<slug>/...
+      if (filePath.startsWith(projectsDir)) {
+        const relative = filePath.substring(projectsDir.length + 1);
+        const slug = relative.split(path.sep)[0];
+        if (slug) affected.add(slug);
+      }
+    }
+
+    return [...affected];
   }
 
   /**
@@ -516,10 +765,13 @@ export class AgentDataServiceImpl extends EventEmitter implements ClaudeCodeAgen
           for (const filePath of files) {
             const stats = this.fileService.getStats(filePath);
             if (stats) {
+              // Save file size as bytePosition so incremental parsing can
+              // resume from where we left off on the next warm start.
               this.ingestService.upsertFingerprint({
                 path: filePath,
                 mtimeMs: stats.mtimeMs,
                 size: stats.size,
+                bytePosition: stats.size,
               });
             }
           }

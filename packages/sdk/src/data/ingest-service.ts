@@ -40,6 +40,12 @@ export interface IngestService extends ProjectParseSink {
   commitTransaction(): void;
   rollbackTransaction(): void;
 
+  // Bulk ingest optimization
+  /** Disable FTS triggers and set aggressive PRAGMAs for bulk ingestion. */
+  beginBulkIngest(): void;
+  /** Re-enable FTS triggers, rebuild the FTS index, and restore PRAGMAs. */
+  endBulkIngest(): void;
+
   // Maintenance
   vacuum(): void;
   rebuildFts(): void;
@@ -513,6 +519,80 @@ class IngestServiceImpl implements IngestService {
         // rolled back (e.g., if the DB connection was lost).
       }
       this.inTransaction = false;
+    }
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Bulk ingest optimization
+  // ─────────────────────────────────────────────────────────────────────────
+
+  private inBulkMode = false;
+
+  beginBulkIngest(): void {
+    if (this.inBulkMode) return;
+    this.inBulkMode = true;
+
+    // Drop FTS auto-sync triggers to avoid per-row overhead during bulk insert
+    try {
+      this.db.exec('DROP TRIGGER IF EXISTS messages_ai');
+    } catch {
+      /* ignore */
+    }
+    try {
+      this.db.exec('DROP TRIGGER IF EXISTS messages_ad');
+    } catch {
+      /* ignore */
+    }
+    try {
+      this.db.exec('DROP TRIGGER IF EXISTS messages_au');
+    } catch {
+      /* ignore */
+    }
+
+    // Aggressive PRAGMAs for bulk write performance
+    try {
+      this.db.exec('PRAGMA synchronous = OFF');
+      this.db.exec('PRAGMA cache_size = -64000'); // 64MB cache
+    } catch {
+      /* ignore */
+    }
+  }
+
+  endBulkIngest(): void {
+    if (!this.inBulkMode) return;
+    this.inBulkMode = false;
+
+    // Recreate FTS triggers
+    try {
+      this.db.exec(`
+        CREATE TRIGGER IF NOT EXISTS messages_ai AFTER INSERT ON messages BEGIN
+          INSERT INTO search_fts(rowid, text_content) VALUES (new.id, new.text_content);
+        END;
+        CREATE TRIGGER IF NOT EXISTS messages_ad AFTER DELETE ON messages BEGIN
+          INSERT INTO search_fts(search_fts, rowid, text_content) VALUES ('delete', old.id, old.text_content);
+        END;
+        CREATE TRIGGER IF NOT EXISTS messages_au AFTER UPDATE ON messages BEGIN
+          INSERT INTO search_fts(search_fts, rowid, text_content) VALUES ('delete', old.id, old.text_content);
+          INSERT INTO search_fts(rowid, text_content) VALUES (new.id, new.text_content);
+        END;
+      `);
+    } catch {
+      /* ignore — triggers may already exist */
+    }
+
+    // Rebuild the FTS index in one shot (much faster than per-row trigger inserts)
+    try {
+      this.rebuildFts();
+    } catch {
+      /* ignore */
+    }
+
+    // Restore safe PRAGMAs
+    try {
+      this.db.exec('PRAGMA synchronous = NORMAL');
+      this.db.exec('PRAGMA cache_size = -2000'); // default ~2MB
+    } catch {
+      /* ignore */
     }
   }
 
