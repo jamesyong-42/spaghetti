@@ -20,7 +20,7 @@ import type {
 import type { ProjectParseSink } from './parse-sink.js';
 
 // Sentinel object used to break out of streaming JSONL reads early
-const EARLY_EXIT = Symbol('EARLY_EXIT');
+const EARLY_EXIT_SIGNAL = Symbol('EARLY_EXIT_SIGNAL');
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // PROJECT PARSER OPTIONS
@@ -386,12 +386,12 @@ export class ProjectParserImpl implements ProjectParser {
             }
             // We found the first user message — throw to exit early.
             // The streaming reader will catch this and stop reading.
-            throw EARLY_EXIT;
+            throw EARLY_EXIT_SIGNAL;
           }
         });
       } catch (e) {
         // Ignore the early exit signal; any other error means can't read
-        if (e !== EARLY_EXIT) {
+        if (e !== EARLY_EXIT_SIGNAL) {
           // can't read — firstPrompt stays empty
         }
       }

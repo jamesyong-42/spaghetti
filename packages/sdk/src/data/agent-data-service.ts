@@ -474,7 +474,9 @@ export class AgentDataServiceImpl extends EventEmitter implements ClaudeCodeAgen
     // to parse JSONL files (e.g. stale sessions-index.json).  If we find
     // any, force a full re-parse to recover the lost data.
     let needsRecovery = false;
-    if (changedFiles.length === 0 && removedFiles.length === 0 && grownFiles.length === 0 && newFiles.length === 0) {
+    const hasNoChanges =
+      changedFiles.length === 0 && removedFiles.length === 0 && grownFiles.length === 0 && newFiles.length === 0;
+    if (hasNoChanges) {
       needsRecovery = this.hasProjectsWithMissingMessages();
       if (!needsRecovery) {
         this.emitProgress('reconciling', 'No changes detected, using cached data.');
@@ -630,17 +632,25 @@ export class AgentDataServiceImpl extends EventEmitter implements ClaudeCodeAgen
   }
 
   /**
-   * Incrementally parse new lines appended to a JSONL file from a given byte position.
+   * Extract project slug and session ID from a JSONL file path.
+   * Path format: <claudeDir>/projects/<slug>/<sessionId>.jsonl
    */
-  private incrementalParseJsonl(filePath: string, fromBytePosition: number): void {
-    // Extract slug and sessionId from the file path
-    // Path format: <claudeDir>/projects/<slug>/<sessionId>.jsonl
+  private extractProjectInfo(filePath: string): { slug: string; sessionId: string } | null {
     const parts = filePath.split(path.sep);
     const fileName = parts[parts.length - 1];
     const slug = parts[parts.length - 2];
     const sessionId = fileName.replace('.jsonl', '');
+    if (!slug || !sessionId) return null;
+    return { slug, sessionId };
+  }
 
-    if (!slug || !sessionId) return;
+  /**
+   * Incrementally parse new lines appended to a JSONL file from a given byte position.
+   */
+  private incrementalParseJsonl(filePath: string, fromBytePosition: number): void {
+    const info = this.extractProjectInfo(filePath);
+    if (!info) return;
+    const { slug, sessionId } = info;
 
     let messageCount = 0;
     try {
@@ -674,12 +684,9 @@ export class AgentDataServiceImpl extends EventEmitter implements ClaudeCodeAgen
    * Fully parse a new JSONL file that we haven't seen before.
    */
   private fullParseNewJsonl(filePath: string): void {
-    const parts = filePath.split(path.sep);
-    const fileName = parts[parts.length - 1];
-    const slug = parts[parts.length - 2];
-    const sessionId = fileName.replace('.jsonl', '');
-
-    if (!slug || !sessionId) return;
+    const info = this.extractProjectInfo(filePath);
+    if (!info) return;
+    const { slug, sessionId } = info;
 
     let messageCount = 0;
     let lastBytePosition = 0;
