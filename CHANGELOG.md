@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.2](https://github.com/jamesyong-42/spaghetti/compare/spaghetti-v0.5.1...spaghetti-v0.5.2) (2026-04-15)
+
+
+### Performance Improvements
+
+* optimize cold start and warm start data parsing ([#9](https://github.com/jamesyong-42/spaghetti/issues/9)) ([eeb2a69](https://github.com/jamesyong-42/spaghetti/commit/eeb2a69c821af8bd64b694d5c347544fec8fe970))
+
 ## [0.5.1](https://github.com/jamesyong-42/spaghetti/compare/spaghetti-v0.5.0...spaghetti-v0.5.1) (2026-04-13)
 
 
