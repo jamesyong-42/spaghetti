@@ -47,8 +47,8 @@ class WorkerPoolImpl implements WorkerPool {
   private workers: Worker[] = [];
 
   constructor(options?: WorkerPoolOptions) {
-    // Leave 1 core for main thread SQLite writes, cap at 4
-    this.maxWorkers = options?.maxWorkers ?? Math.min(os.cpus().length - 1, 4);
+    // Leave 1 core for main thread SQLite writes, cap at 8 (up from 4)
+    this.maxWorkers = options?.maxWorkers ?? Math.min(os.cpus().length - 1, 8);
     if (this.maxWorkers < 1) this.maxWorkers = 1;
 
     // Resolve worker script path relative to this file

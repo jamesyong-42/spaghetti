@@ -19,6 +19,9 @@ import type {
 } from '../types/index.js';
 import type { ProjectParseSink } from './parse-sink.js';
 
+// Sentinel object used to break out of streaming JSONL reads early
+const EARLY_EXIT_SIGNAL = Symbol('EARLY_EXIT_SIGNAL');
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // PROJECT PARSER OPTIONS
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -45,12 +48,30 @@ export interface ProjectParser {
 // ═══════════════════════════════════════════════════════════════════════════════
 
 export class ProjectParserImpl implements ProjectParser {
+  // Cached plan index to avoid re-scanning plan files for every project.
+  // Keyed by claudeDir so it auto-invalidates if the directory changes.
+  private cachedPlanIndex: Map<string, PlanFile> | null = null;
+  private cachedPlanIndexClaudeDir: string | null = null;
+
   constructor(private fileService: FileService) {}
+
+  /**
+   * Get or build the plan index, caching it for the lifetime of this parser
+   * instance (i.e. for one full cold/warm start cycle).
+   */
+  private getPlanIndex(claudeDir: string): Map<string, PlanFile> {
+    if (this.cachedPlanIndex && this.cachedPlanIndexClaudeDir === claudeDir) {
+      return this.cachedPlanIndex;
+    }
+    this.cachedPlanIndex = this.buildPlanIndex(claudeDir);
+    this.cachedPlanIndexClaudeDir = claudeDir;
+    return this.cachedPlanIndex;
+  }
 
   parseAllProjects(claudeDir: string, options?: ProjectParserOptions): Project[] {
     const projectsDir = path.join(claudeDir, 'projects');
     const projects: Project[] = [];
-    const planIndex = this.buildPlanIndex(claudeDir);
+    const planIndex = this.getPlanIndex(claudeDir);
 
     try {
       const projectPaths = this.fileService.scanDirectorySync(projectsDir, {
@@ -75,7 +96,7 @@ export class ProjectParserImpl implements ProjectParser {
 
   parseAllProjectsStreaming(claudeDir: string, sink: ProjectParseSink, options?: ProjectParserOptions): void {
     const projectsDir = path.join(claudeDir, 'projects');
-    const planIndex = this.buildPlanIndex(claudeDir);
+    const planIndex = this.getPlanIndex(claudeDir);
 
     // Emit all plans first
     for (const [planSlug, plan] of planIndex) {
@@ -101,7 +122,7 @@ export class ProjectParserImpl implements ProjectParser {
   }
 
   parseProjectStreaming(claudeDir: string, slug: string, sink: ProjectParseSink, options?: ProjectParserOptions): void {
-    const planIndex = this.buildPlanIndex(claudeDir);
+    const planIndex = this.getPlanIndex(claudeDir);
 
     // Emit all plans first (same as parseAllProjectsStreaming)
     for (const [planSlug, plan] of planIndex) {
@@ -208,7 +229,7 @@ export class ProjectParserImpl implements ProjectParser {
   }
 
   parseProject(claudeDir: string, slug: string, options?: ProjectParserOptions): Project | null {
-    const planIndex = this.buildPlanIndex(claudeDir);
+    const planIndex = this.getPlanIndex(claudeDir);
     return this.parseProjectInternal(claudeDir, slug, options, planIndex);
   }
 
@@ -243,7 +264,7 @@ export class ProjectParserImpl implements ProjectParser {
     const entry = sessionsIndex.entries.find((e) => e.sessionId === sessionId);
     if (!entry) return null;
 
-    const planIndex = this.buildPlanIndex(claudeDir);
+    const planIndex = this.getPlanIndex(claudeDir);
     try {
       return this.buildSession(claudeDir, projectDir, slug, entry, undefined, planIndex);
     } catch {
@@ -344,10 +365,11 @@ export class ProjectParserImpl implements ProjectParser {
       const stats = this.fileService.getStats(filePath);
       if (!stats) continue;
 
+      // Use streaming reader with early exit to extract just the first
+      // user prompt without loading the entire file into memory.
       let firstPrompt = '';
       try {
-        const result = this.fileService.readJsonlSync<Record<string, unknown>>(filePath);
-        for (const msg of result.entries) {
+        this.fileService.readJsonlStreaming<Record<string, unknown>>(filePath, (msg) => {
           const message = msg.message as Record<string, unknown> | undefined;
           if (message?.role === 'user') {
             const content = message.content;
@@ -362,11 +384,16 @@ export class ProjectParserImpl implements ProjectParser {
                 }
               }
             }
-            break;
+            // We found the first user message — throw to exit early.
+            // The streaming reader will catch this and stop reading.
+            throw EARLY_EXIT_SIGNAL;
           }
+        });
+      } catch (e) {
+        // Ignore the early exit signal; any other error means can't read
+        if (e !== EARLY_EXIT_SIGNAL) {
+          // can't read — firstPrompt stays empty
         }
-      } catch {
-        // can't read
       }
 
       const modifiedIso = new Date(stats.mtimeMs).toISOString();
