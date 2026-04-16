@@ -1,6 +1,6 @@
 {
   "name": "spaghetti",
-  "version": "0.5.2",
+  "version": "0.6.0-rc.0",
   "private": true,
   "type": "module",
   "description": "Untangle your Claude Code history — browse, search, and analyze all your conversations from the terminal",
