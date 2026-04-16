@@ -1,0 +1,28 @@
+{
+  "name": "@vibecook/spaghetti-sdk-native-linux-x64-gnu",
+  "version": "0.5.2",
+  "description": "Native (Rust) ingest core for @vibecook/spaghetti-sdk — linux-x64-gnu binary",
+  "cpu": ["x64"],
+  "os": ["linux"],
+  "libc": ["glibc"],
+  "main": "spaghetti.linux-x64-gnu.node",
+  "files": ["spaghetti.linux-x64-gnu.node"],
+  "license": "MIT",
+  "author": "James Yong",
+  "engines": {
+    "node": ">=18"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/jamesyong-42/spaghetti.git",
+    "directory": "crates/spaghetti-napi"
+  },
+  "homepage": "https://github.com/jamesyong-42/spaghetti#readme",
+  "bugs": {
+    "url": "https://github.com/jamesyong-42/spaghetti/issues"
+  }
+}
