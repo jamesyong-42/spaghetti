@@ -1,0 +1,57 @@
+{
+  "name": "@vibecook/spaghetti-sdk-native",
+  "version": "0.5.2",
+  "description": "Native (Rust) ingest core for @vibecook/spaghetti-sdk",
+  "main": "index.js",
+  "types": "index.d.ts",
+  "license": "MIT",
+  "author": "James Yong",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/jamesyong-42/spaghetti.git",
+    "directory": "crates/spaghetti-napi"
+  },
+  "homepage": "https://github.com/jamesyong-42/spaghetti#readme",
+  "bugs": {
+    "url": "https://github.com/jamesyong-42/spaghetti/issues"
+  },
+  "keywords": [
+    "claude",
+    "claude-code",
+    "napi",
+    "rust",
+    "sqlite"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "sideEffects": false,
+  "files": [
+    "index.js",
+    "index.d.ts",
+    "*.node"
+  ],
+  "napi": {
+    "binaryName": "spaghetti",
+    "targets": [
+      "x86_64-apple-darwin",
+      "aarch64-apple-darwin",
+      "x86_64-unknown-linux-gnu",
+      "aarch64-unknown-linux-gnu",
+      "x86_64-pc-windows-msvc"
+    ]
+  },
+  "scripts": {
+    "build": "napi build --platform --release",
+    "build:debug": "napi build --platform",
+    "prepublishOnly": "napi prepublish -t npm",
+    "artifacts": "napi artifacts"
+  },
+  "devDependencies": {
+    "@napi-rs/cli": "^3.0.0"
+  }
+}

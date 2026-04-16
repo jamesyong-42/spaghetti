@@ -9,6 +9,7 @@ permissions:
   contents: write
   pull-requests: write
   id-token: write
+  actions: write # needed to dispatch napi-build.yml
 
 jobs:
   release-please:
@@ -21,6 +22,16 @@ jobs:
         uses: googleapis/release-please-action@v4
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
+
+      # GITHUB_TOKEN releases don't trigger 'release: created' events, so we
+      # dispatch the napi-build workflow explicitly. It runs the 5-target
+      # build matrix and publishes @vibecook/spaghetti-sdk-native to npm.
+      - name: Trigger NAPI build and publish
+        if: ${{ steps.release.outputs.release_created }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh workflow run napi-build.yml --repo "${{ github.repository }}" --ref "${{ steps.release.outputs.tag_name }}"
 
   publish:
     needs: release-please
@@ -51,6 +62,27 @@ jobs:
       - name: Build
         run: pnpm build
 
+      # The SDK depends on @vibecook/spaghetti-sdk-native — which is published
+      # by napi-build.yml, dispatched concurrently above. npm registry indexing
+      # can take several minutes after publish, so poll until the matching
+      # version is visible before publishing the SDK.
+      - name: Wait for @vibecook/spaghetti-sdk-native on npm
+        run: |
+          VERSION=$(node -p "require('./packages/sdk/package.json').version")
+          echo "Waiting for @vibecook/spaghetti-sdk-native@${VERSION} on npm..."
+          for i in $(seq 1 30); do
+            if npm view "@vibecook/spaghetti-sdk-native@${VERSION}" version 2>/dev/null; then
+              echo "Found @vibecook/spaghetti-sdk-native@${VERSION}"
+              exit 0
+            fi
+            echo "Attempt $i/30 — not yet available, waiting 30s..."
+            sleep 30
+          done
+          echo "::warning::@vibecook/spaghetti-sdk-native@${VERSION} not found after 15 min. Publishing anyway."
+
+      # Use `pnpm publish`, not `npm publish`, so that `workspace:*`
+      # dependency specifiers get rewritten to concrete version ranges in
+      # the published package.json.
       - name: Publish @vibecook/spaghetti-sdk
         run: pnpm publish --access public --no-git-checks
         working-directory: packages/sdk

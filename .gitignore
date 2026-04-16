@@ -8,3 +8,7 @@ out/
 .idea/
 .superpowers/
 .claude/scheduled_tasks.lock
+
+# Rust
+target/
+*.node

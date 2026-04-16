@@ -1,0 +1,208 @@
+name: NAPI Build
+
+# Builds @vibecook/spaghetti-sdk-native for all 5 targets, tests the
+# resulting .node binaries on 3 hosts, and publishes platform packages
+# + the main package to npm with provenance.
+#
+# Triggered by release.yml on release_created, or manually via
+# workflow_dispatch (useful for debugging).
+
+env:
+  DEBUG: napi:*
+  MACOSX_DEPLOYMENT_TARGET: '10.13'
+
+permissions:
+  contents: write
+  id-token: write
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        settings:
+          - host: macos-latest
+            target: aarch64-apple-darwin
+            build: |
+              cd crates/spaghetti-napi
+              npx napi build --platform --release --target aarch64-apple-darwin
+              strip -x *.node
+
+          - host: macos-latest
+            target: x86_64-apple-darwin
+            build: |
+              cd crates/spaghetti-napi
+              npx napi build --platform --release --target x86_64-apple-darwin
+              strip -x *.node
+
+          - host: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            build: |
+              cd crates/spaghetti-napi
+              npx napi build --platform --release --target x86_64-unknown-linux-gnu
+              strip *.node
+
+          - host: ubuntu-latest
+            target: aarch64-unknown-linux-gnu
+            build: |
+              cd crates/spaghetti-napi
+              npx napi build --platform --release --target aarch64-unknown-linux-gnu
+              aarch64-linux-gnu-strip *.node
+
+          - host: windows-latest
+            target: x86_64-pc-windows-msvc
+            build: |
+              cd crates/spaghetti-napi
+              npx napi build --platform --release --target x86_64-pc-windows-msvc
+
+    name: Build - ${{ matrix.settings.target }}
+    runs-on: ${{ matrix.settings.host }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v5
+
+      # pnpm must be on PATH before setup-node, which auto-validates the
+      # `packageManager` field in root package.json and fails if missing.
+      # We also disable `package-manager-cache` because this job uses
+      # `npm install`, not pnpm — leaving the auto-cache on causes the
+      # post-step to fail when the pnpm store path doesn't exist.
+      - name: Install pnpm
+        run: npm install -g pnpm@9
+
+      - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v5
+        with:
+          node-version: 24
+          package-manager-cache: false
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.settings.target }}
+
+      - name: Install cross-compilation tools (aarch64-linux)
+        if: matrix.settings.target == 'aarch64-unknown-linux-gnu'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
+
+      - name: Install dependencies
+        run: |
+          cd crates/spaghetti-napi
+          npm install
+
+      - name: Build native addon
+        env:
+          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
+        run: ${{ matrix.settings.build }}
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v5
+        with:
+          name: bindings-${{ matrix.settings.target }}
+          path: crates/spaghetti-napi/*.node
+          if-no-files-found: error
+
+  test:
+    name: Test bindings
+    needs: build
+    runs-on: ${{ matrix.settings.host }}
+    strategy:
+      fail-fast: false
+      matrix:
+        settings:
+          - host: macos-latest
+            target: aarch64-apple-darwin
+          - host: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+          - host: windows-latest
+            target: x86_64-pc-windows-msvc
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v5
+
+      - name: Install pnpm
+        run: npm install -g pnpm@9
+
+      - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v5
+        with:
+          node-version: 24
+          package-manager-cache: false
+
+      - name: Install dependencies
+        run: |
+          cd crates/spaghetti-napi
+          npm install
+
+      - name: Download artifact
+        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5
+        with:
+          name: bindings-${{ matrix.settings.target }}
+          path: crates/spaghetti-napi
+
+      - name: Smoke test bindings
+        run: |
+          cd crates/spaghetti-napi
+          node -e "const m = require('./index.js'); if (!m.nativeVersion) { throw new Error('nativeVersion export missing'); } console.log('Loaded OK, nativeVersion =', m.nativeVersion());"
+
+  publish:
+    name: Publish to npm
+    needs: [test]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v5
+
+      - name: Install pnpm
+        run: npm install -g pnpm@9
+
+      - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v5
+        with:
+          node-version: 24
+          # This job uses `npm install` under crates/spaghetti-napi, not pnpm,
+          # so disable auto-cache to avoid post-step path validation errors.
+          package-manager-cache: false
+
+      - name: Install dependencies
+        run: |
+          cd crates/spaghetti-napi
+          npm install
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5
+        with:
+          path: crates/spaghetti-napi/artifacts
+
+      - name: Move artifacts
+        run: |
+          cd crates/spaghetti-napi
+          npx napi artifacts
+
+      # Sync platform package.json versions to match the main package.
+      # `napi prepublish` would normally do this, but we skip it because it
+      # runs child `npm publish` calls that don't inherit OIDC context.
+      - name: Sync platform package versions
+        run: |
+          cd crates/spaghetti-napi
+          VERSION=$(node -p "require('./package.json').version")
+          echo "Syncing platform packages to $VERSION"
+          for pkg in npm/*/; do
+            (cd "$pkg" && npm version "$VERSION" --no-git-tag-version --allow-same-version)
+          done
+
+      # Publish each platform package individually with --provenance.
+      # We skip the main package's prepublishOnly hook (napi prepublish)
+      # because it runs child `npm publish` calls that don't inherit OIDC.
+      - name: Publish platform packages
+        run: |
+          for pkg in crates/spaghetti-napi/npm/*/; do
+            echo "Publishing $(basename $pkg)..."
+            (cd "$pkg" && npm publish --provenance --access public --registry https://registry.npmjs.org)
+          done
+
+      - name: Publish main package
+        run: |
+          cd crates/spaghetti-napi
+          npm publish --provenance --access public --registry https://registry.npmjs.org --ignore-scripts
