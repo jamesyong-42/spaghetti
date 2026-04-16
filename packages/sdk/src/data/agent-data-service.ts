@@ -42,6 +42,7 @@ import type { IngestService } from './ingest-service.js';
 import type { ClaudeCodeParser } from '../parser/claude-code-parser.js';
 import type { FileService } from '../io/index.js';
 import { createWorkerPool, isWorkerThreadsAvailable, type WorkerToMainMessage } from '../workers/index.js';
+import { isNativeIngestEnabled, loadNativeAddon } from '../native.js';
 
 // Re-export types used by app-service
 export {
@@ -174,6 +175,19 @@ export class AgentDataServiceImpl extends EventEmitter implements ClaudeCodeAgen
 
   async initialize(): Promise<void> {
     const startTime = Date.now();
+
+    // RFC 003 Phase 0: smoke-test the native addon when the feature flag is
+    // on. Real ingest integration lands in Phase 4 (cutover). For now we
+    // just log that we saw it, so you can verify prebuilds load on each
+    // platform. The TS path always runs regardless.
+    if (isNativeIngestEnabled()) {
+      const native = loadNativeAddon();
+      if (native) {
+        console.log(`[spaghetti-sdk] native addon loaded: ${native.nativeVersion()}`);
+      } else {
+        console.log('[spaghetti-sdk] SPAG_NATIVE_INGEST=1 but native addon unavailable; using TS path');
+      }
+    }
 
     try {
       // Ensure the DB directory exists
