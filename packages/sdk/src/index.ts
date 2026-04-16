@@ -45,3 +45,6 @@ export * from './api.js';
 // Factory
 export { createSpaghettiService, type SpaghettiServiceOptions } from './create.js';
 export { createSpaghettiAppService } from './app-service.js';
+
+// Native addon bridge (RFC 003)
+export { loadNativeAddon, isNativeIngestEnabled, type NativeAddon } from './native.js';
