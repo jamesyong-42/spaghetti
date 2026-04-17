@@ -8,14 +8,40 @@ description = "NAPI-RS bindings for the spaghetti ingest core (published to npm,
 publish = false
 
 [lib]
-crate-type = ["cdylib"]
+crate-type = ["cdylib", "rlib"]
 
 [lints]
 workspace = true
 
 [dependencies]
+# NAPI
 napi.workspace = true
 napi-derive.workspace = true
+
+# JSON
+sonic-rs.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+
+# SQLite
+rusqlite.workspace = true
+
+# Concurrency
+crossbeam-channel.workspace = true
+rayon.workspace = true
+
+# Errors
+thiserror.workspace = true
+anyhow.workspace = true
+
+# Tracing
+tracing.workspace = true
+tracing-subscriber.workspace = true
+
+# Filesystem / text
+walkdir.workspace = true
+regex.workspace = true
+once_cell.workspace = true
 
 [build-dependencies]
 napi-build.workspace = true
