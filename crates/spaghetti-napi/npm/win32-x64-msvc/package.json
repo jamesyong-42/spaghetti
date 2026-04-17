@@ -1,11 +1,17 @@
 {
   "name": "@vibecook/spaghetti-sdk-native-win32-x64-msvc",
-  "version": "0.5.2",
+  "version": "0.5.3",
   "description": "Native (Rust) ingest core for @vibecook/spaghetti-sdk — win32-x64-msvc binary",
-  "cpu": ["x64"],
-  "os": ["win32"],
+  "cpu": [
+    "x64"
+  ],
+  "os": [
+    "win32"
+  ],
   "main": "spaghetti.win32-x64-msvc.node",
-  "files": ["spaghetti.win32-x64-msvc.node"],
+  "files": [
+    "spaghetti.win32-x64-msvc.node"
+  ],
   "license": "MIT",
   "author": "James Yong",
   "engines": {
