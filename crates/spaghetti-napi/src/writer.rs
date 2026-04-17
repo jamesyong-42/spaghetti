@@ -29,12 +29,14 @@
 //!
 //! # Bulk ingest
 //!
-//! Unlike the TS `beginBulkIngest` which drops+recreates the triggers,
-//! this writer keeps the triggers on and only tweaks PRAGMAs
-//! (`synchronous = OFF`, `temp_store = MEMORY`). The TS trigger-drop is
-//! an optimisation we defer to a later commit — correctness first.
+//! Matches the TS `beginBulkIngest` pattern: the three FTS auto-sync
+//! triggers are dropped up front, messages are inserted against an
+//! index-free FTS content table, and the index is rebuilt in one pass
+//! via the `'rebuild'` command in [`finish`] before the triggers are
+//! recreated. Combined with `synchronous = OFF` and an enlarged page
+//! cache this is the main lever for cold-ingest throughput.
 //!
-//! Populated in RFC 003 commit 1.5.
+//! Populated in RFC 003 commit 1.5; trigger-drop added in RFC 004 Item 2.
 
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -293,19 +295,33 @@ impl Writer {
     /// - `synchronous = OFF` — skip fsync per transaction (WAL durability
     ///   is still provided by the journal file; we trade a crash-window
     ///   for throughput, matching TS `beginBulkIngest`).
+    /// - `journal_mode = MEMORY` — keep the rollback journal in RAM.
+    ///   Combined with `synchronous = OFF` this means a crash mid-ingest
+    ///   leaves a half-written DB, which is acceptable because the DB is
+    ///   a rebuild-from-source cache: the next warm-start detects
+    ///   corruption via schema/version checks and re-ingests.
     /// - `temp_store = MEMORY` — keep sort/index scratch off disk.
-    /// - `cache_size = -64000` — 64MB page cache.
+    /// - `cache_size = -256000` — 256MB page cache, large enough that a
+    ///   ~1GB-sized SQLite output doesn't thrash the page cache mid-bulk.
+    /// - `mmap_size = 30_000_000_000` — allow SQLite to memory-map up to
+    ///   ~30GB of the DB file so reads served from the page cache bypass
+    ///   the POSIX I/O stack.
     ///
-    /// The FTS5 triggers are **not** dropped here (unlike the TS path).
-    /// Keeping them on preserves correctness; a future commit can revisit.
+    /// Also drops the three FTS auto-sync triggers so the hot-path
+    /// INSERT into `messages` does not synchronously update `search_fts`
+    /// for every row. [`finish`] rebuilds the FTS index, recreates the
+    /// triggers, and restores `journal_mode = WAL` before closing.
     pub fn open_for_bulk_ingest(&mut self) -> Result<(), WriterError> {
         if self.bulk_mode {
             return Ok(());
         }
         self.bulk_mode = true;
         self.conn.pragma_update(None, "synchronous", "OFF")?;
+        self.conn.pragma_update(None, "journal_mode", "MEMORY")?;
         self.conn.pragma_update(None, "temp_store", "MEMORY")?;
-        self.conn.pragma_update(None, "cache_size", -64_000i64)?;
+        self.conn.pragma_update(None, "cache_size", -256_000i64)?;
+        self.conn.pragma_update(None, "mmap_size", 30_000_000_000i64)?;
+        schema::drop_fts_triggers(&self.conn)?;
         Ok(())
     }
 
@@ -336,13 +352,22 @@ impl Writer {
 
     /// Restore normal PRAGMAs and close. Takes `self` by value so the
     /// connection is dropped on return.
+    ///
+    /// When the writer was in bulk mode, rebuilds `search_fts` from
+    /// `messages` and recreates the auto-sync triggers so the FTS index
+    /// is back in lock-step with the content table before the connection
+    /// is dropped.
     pub fn finish(mut self) -> Result<(), WriterError> {
         if self.in_transaction {
             self.rollback_transaction();
         }
         if self.bulk_mode {
+            // FTS rebuild is large but single-pass; done inside an
+            // implicit transaction so the index flips atomically.
+            schema::rebuild_fts_and_recreate_triggers(&self.conn)?;
             // Restore safe defaults; mirrors TS `endBulkIngest`.
             self.conn.pragma_update(None, "synchronous", "NORMAL")?;
+            self.conn.pragma_update(None, "journal_mode", "WAL")?;
             self.conn.pragma_update(None, "cache_size", -2_000i64)?;
             self.bulk_mode = false;
         }
@@ -1022,6 +1047,74 @@ mod tests {
             )
             .unwrap();
         assert_eq!(agent_type, "task");
+    }
+
+    /// Full bulk-ingest roundtrip on a file-backed DB: `open_for_bulk_ingest`
+    /// drops the FTS triggers, messages are inserted without per-row FTS
+    /// sync, and `finish` rebuilds the index + recreates the triggers.
+    /// After finish, `search_fts` row count must match `messages`, and the
+    /// triggers must be back so a follow-up warm INSERT syncs incrementally.
+    #[test]
+    fn bulk_ingest_rebuilds_fts_at_finish() {
+        let tmp = tempfile::tempdir().unwrap();
+        let db_path = tmp.path().join("bulk-fts.sqlite");
+
+        // Bulk ingest scope: write three messages with triggers dropped.
+        {
+            let mut w = Writer::new(&db_path).expect("open db");
+            w.open_for_bulk_ingest().expect("bulk on");
+
+            // Triggers should be gone mid-bulk.
+            let trigger_count: i64 = w
+                .conn
+                .query_row(
+                    "SELECT COUNT(*) FROM sqlite_master WHERE type='trigger' AND name LIKE 'messages_%'",
+                    [],
+                    |r| r.get(0),
+                )
+                .unwrap();
+            assert_eq!(trigger_count, 0, "FTS triggers must be dropped in bulk mode");
+
+            let (tx, rx) = unbounded::<IngestEvent>();
+            tx.send(IngestEvent::Project {
+                slug: "p1".into(),
+                original_path: "/tmp/p1".into(),
+                sessions_index_json: "{}".into(),
+            })
+            .unwrap();
+            tx.send(message_event("p1", "s1", 0)).unwrap();
+            tx.send(message_event("p1", "s1", 1)).unwrap();
+            tx.send(message_event("p1", "s1", 2)).unwrap();
+            tx.send(IngestEvent::ProjectComplete {
+                slug: "p1".into(),
+                duration_ms: 0,
+            })
+            .unwrap();
+            drop(tx);
+
+            w.run(rx).expect("run");
+            w.finish().expect("finish");
+        }
+
+        // Reopen read-only and verify rebuild + triggers restored.
+        let conn = Connection::open(&db_path).expect("reopen");
+        let msgs: i64 = conn
+            .query_row("SELECT COUNT(*) FROM messages", [], |r| r.get(0))
+            .unwrap();
+        let fts: i64 = conn
+            .query_row("SELECT COUNT(*) FROM search_fts", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(msgs, 3);
+        assert_eq!(fts, msgs, "search_fts must match messages after rebuild");
+
+        let triggers: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type='trigger' AND name LIKE 'messages_%'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(triggers, 3, "auto-sync triggers must be recreated by finish");
     }
 
     /// `open_for_bulk_ingest` sets synchronous=OFF; `finish` restores
