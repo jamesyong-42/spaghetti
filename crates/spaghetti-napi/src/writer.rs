@@ -320,7 +320,8 @@ impl Writer {
         self.conn.pragma_update(None, "journal_mode", "MEMORY")?;
         self.conn.pragma_update(None, "temp_store", "MEMORY")?;
         self.conn.pragma_update(None, "cache_size", -256_000i64)?;
-        self.conn.pragma_update(None, "mmap_size", 30_000_000_000i64)?;
+        self.conn
+            .pragma_update(None, "mmap_size", 30_000_000_000i64)?;
         schema::drop_fts_triggers(&self.conn)?;
         Ok(())
     }
@@ -1073,7 +1074,10 @@ mod tests {
                     |r| r.get(0),
                 )
                 .unwrap();
-            assert_eq!(trigger_count, 0, "FTS triggers must be dropped in bulk mode");
+            assert_eq!(
+                trigger_count, 0,
+                "FTS triggers must be dropped in bulk mode"
+            );
 
             let (tx, rx) = unbounded::<IngestEvent>();
             tx.send(IngestEvent::Project {
@@ -1114,7 +1118,10 @@ mod tests {
                 |r| r.get(0),
             )
             .unwrap();
-        assert_eq!(triggers, 3, "auto-sync triggers must be recreated by finish");
+        assert_eq!(
+            triggers, 3,
+            "auto-sync triggers must be recreated by finish"
+        );
     }
 
     /// `open_for_bulk_ingest` sets synchronous=OFF; `finish` restores
