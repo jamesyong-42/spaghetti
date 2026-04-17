@@ -195,14 +195,30 @@ jobs:
       # Publish each platform package individually with --provenance.
       # We skip the main package's prepublishOnly hook (napi prepublish)
       # because it runs child `npm publish` calls that don't inherit OIDC.
+      #
+      # Prereleases (versions containing `-`, e.g. 0.6.0-rc.0) must be
+      # published under a dist-tag other than `latest` or npm rejects
+      # them. Detect and pass `--tag next` when needed.
       - name: Publish platform packages
         run: |
+          VERSION=$(node -p "require('./crates/spaghetti-napi/package.json').version")
+          TAG_ARG=""
+          if [[ "$VERSION" == *-* ]]; then
+            TAG_ARG="--tag next"
+            echo "Prerelease detected ($VERSION) — publishing with --tag next"
+          fi
           for pkg in crates/spaghetti-napi/npm/*/; do
             echo "Publishing $(basename $pkg)..."
-            (cd "$pkg" && npm publish --provenance --access public --registry https://registry.npmjs.org)
+            (cd "$pkg" && npm publish --provenance --access public --registry https://registry.npmjs.org $TAG_ARG)
           done
 
       - name: Publish main package
         run: |
           cd crates/spaghetti-napi
-          npm publish --provenance --access public --registry https://registry.npmjs.org --ignore-scripts
+          VERSION=$(node -p "require('./package.json').version")
+          TAG_ARG=""
+          if [[ "$VERSION" == *-* ]]; then
+            TAG_ARG="--tag next"
+            echo "Prerelease detected ($VERSION) — publishing with --tag next"
+          fi
+          npm publish --provenance --access public --registry https://registry.npmjs.org --ignore-scripts $TAG_ARG
