@@ -34,11 +34,13 @@
 //! Populated in RFC 003 commit 1.7.
 
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 use std::time::Instant;
 
-use crossbeam_channel::bounded;
+use crossbeam_channel::{bounded, unbounded};
 use napi::bindgen_prelude::{AsyncTask, Env, Error, Result, Status, Task};
 use napi_derive::napi;
+use rayon::prelude::*;
 
 use crate::parse_sink::IngestEvent;
 use crate::project_parser::ProjectParser;
@@ -126,9 +128,32 @@ impl Task for IngestTask {
 // Orchestration (no NAPI types below)
 // ═══════════════════════════════════════════════════════════════════════════
 
-/// Channel capacity between parser(s) and writer. Large enough to absorb
-/// a few parser bursts without blocking; small enough to bound memory.
-const EVENT_CHANNEL_CAPACITY: usize = 4_096;
+/// Channel capacity per parser worker. The total channel size is this
+/// multiplied by `parallelism`, so a fleet of 8 parsers gets 32k slots.
+/// Each slot is one `IngestEvent` (≈ 1KB for a Message variant), so the
+/// memory ceiling scales with parallelism up to ~32MB — well inside the
+/// desktop-app envelope.
+const CHANNEL_CAPACITY_PER_WORKER: usize = 4_096;
+
+/// Ceiling on parsing parallelism. Beyond this, contention on the single
+/// SQLite writer makes additional parsers wait on `sender.send` rather
+/// than doing useful CPU work.
+const MAX_PARALLELISM: usize = 8;
+
+/// Resolve the effective parser-thread count.
+///
+/// - `None` or `Some(0)` → `min(available_parallelism, MAX_PARALLELISM)`.
+/// - `Some(n)` → clamp to `[1, MAX_PARALLELISM]`.
+fn resolve_parallelism(requested: Option<u32>) -> usize {
+    let default = std::thread::available_parallelism()
+        .map(|n| n.get())
+        .unwrap_or(4)
+        .min(MAX_PARALLELISM);
+    match requested {
+        None | Some(0) => default,
+        Some(n) => (n as usize).clamp(1, MAX_PARALLELISM),
+    }
+}
 
 /// Fatal ingest errors — these reject the NAPI promise. Non-fatal
 /// per-project errors are reported via `IngestStats.errors`.
@@ -180,10 +205,14 @@ pub(crate) fn run_ingest(
     let resolved = ResolvedOptions::from(opts)?;
 
     let slugs = scan_project_slugs(&resolved.claude_dir)?;
+    let parallelism = resolve_parallelism(opts.parallelism);
 
-    // Writer gets its own thread so parser work can overlap with SQLite
-    // writes. Channel is bounded so a fast parser can't exhaust memory.
-    let (sender, receiver) = bounded::<IngestEvent>(EVENT_CHANNEL_CAPACITY);
+    // Channel scales with parallelism so parsers don't constantly block
+    // on a saturated buffer. The writer is still single-threaded (SQLite
+    // single-writer constraint), so beyond ~8 parsers the buffer mostly
+    // queues work rather than unlocking additional throughput.
+    let capacity = CHANNEL_CAPACITY_PER_WORKER.saturating_mul(parallelism);
+    let (sender, receiver) = bounded::<IngestEvent>(capacity);
     let db_path = resolved.db_path.clone();
 
     let writer_handle = std::thread::Builder::new()
@@ -199,22 +228,68 @@ pub(crate) fn run_ingest(
         )
         .map_err(IngestInternalError::Io)?;
 
-    // Parse each project sequentially (Phase 2 parallelises with rayon).
+    // Parse projects in parallel via a dedicated rayon pool. Using a
+    // local pool (not the global one) means we control the thread count
+    // precisely and don't contend with whatever else might be using the
+    // global rayon pool (e.g. later rayon-using code in the same crate).
+    //
     // Parser errors below the project-boundary level are already emitted
-    // as IngestEvent::WorkerError inside the parser, so here we only
-    // surface unrecoverable channel-closed errors.
-    let parser = ProjectParser::new();
-    let mut errors: Vec<IngestError> = Vec::new();
-    for slug in &slugs {
-        if let Err(e) = parser.parse_project(&resolved.claude_dir, slug, &sender) {
-            errors.push(IngestError {
-                slug: slug.clone(),
-                message: e.to_string(),
-            });
-            // Channel closed means the writer has died; no point continuing.
-            break;
-        }
-    }
+    // as IngestEvent::WorkerError inside parse_project; here we only
+    // collect ChannelClosed / other unrecoverable failures. `filter_map`
+    // lets every parser finish its own project before we reduce to a
+    // Vec<IngestError>.
+    let pool = rayon::ThreadPoolBuilder::new()
+        .num_threads(parallelism)
+        .thread_name(|i| format!("spaghetti-parser-{i}"))
+        .build()
+        .map_err(|e| {
+            IngestInternalError::Io(std::io::Error::other(format!(
+                "failed to build rayon pool: {e}"
+            )))
+        })?;
+
+    // Serialize per-project event streams onto the shared channel so the
+    // writer sees each project's events contiguously. Without this, events
+    // from N parallel parsers interleave, forcing the writer to commit+
+    // re-open the per-project transaction on every slug switch — which
+    // both inflates the `projects_processed` counter and triggers one
+    // fsync per slug flip instead of one per project.
+    //
+    // Each parser builds its full event stream in a local unbounded
+    // channel (memory cost is bounded by project size, typically a few
+    // MB), then drains it into the shared channel while holding a mutex.
+    // The drain is fast — just a tight loop of enum moves — so the lock
+    // is held only briefly.
+    let drain_lock: Mutex<()> = Mutex::new(());
+    let errors: Vec<IngestError> = pool.install(|| {
+        slugs
+            .par_iter()
+            .filter_map(|slug| {
+                let parser = ProjectParser::new();
+                let (local_tx, local_rx) = unbounded::<IngestEvent>();
+                let parse_result = parser.parse_project(&resolved.claude_dir, slug, &local_tx);
+                drop(local_tx);
+
+                // Drain local → shared. Holding the drain_lock keeps this
+                // project's events contiguous on the shared channel. If the
+                // shared sender is disconnected (writer died), we abandon
+                // remaining events rather than error — the orchestrator
+                // reports the parse error regardless.
+                let _guard = drain_lock.lock().expect("drain_lock poisoned");
+                for ev in local_rx.iter() {
+                    if sender.send(ev).is_err() {
+                        break;
+                    }
+                }
+                drop(_guard);
+
+                parse_result.err().map(|e| IngestError {
+                    slug: slug.clone(),
+                    message: e.to_string(),
+                })
+            })
+            .collect()
+    });
     drop(sender);
 
     let writer_stats: WriterStats = writer_handle

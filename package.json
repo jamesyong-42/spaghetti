@@ -28,6 +28,7 @@
     "validate": "bash scripts/validate-all.sh",
     "test:packages": "pnpm --filter @vibecook/spaghetti-sdk test && pnpm --filter @vibecook/spaghetti test",
     "test:ingest-diff": "tsx scripts/ingest-diff.ts",
+    "bench:ingest": "tsx scripts/bench-ingest.ts",
     "test": "pnpm typecheck && pnpm validate && pnpm test:packages",
     "lint": "eslint 'packages/*/src/**/*.{ts,tsx}' 'apps/*/src/**/*.{ts,tsx}'",
     "format:check": "prettier --check 'packages/*/src/**/*.{ts,tsx}' 'apps/*/src/**/*.{ts,tsx}'",
