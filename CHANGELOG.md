@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.5](https://github.com/jamesyong-42/spaghetti/compare/spaghetti-v0.5.4...spaghetti-v0.5.5) (2026-04-17)
+
+
+### Performance Improvements
+
+* **napi:** RFC 003 Phase 2 — rayon parallelism + bench harness ([#16](https://github.com/jamesyong-42/spaghetti/issues/16)) ([41e459d](https://github.com/jamesyong-42/spaghetti/commit/41e459db5037820b376d70c253dee121e0e3c322))
+
 ## [0.5.4](https://github.com/jamesyong-42/spaghetti/compare/spaghetti-v0.5.3...spaghetti-v0.5.4) (2026-04-17)
 
 
