@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.3](https://github.com/jamesyong-42/spaghetti/compare/spaghetti-v0.5.2...spaghetti-v0.5.3) (2026-04-17)
+
+
+### Bug Fixes
+
+* **ci:** commit napi index stubs, handle prerelease publish tag ([#12](https://github.com/jamesyong-42/spaghetti/issues/12)) ([562b9f1](https://github.com/jamesyong-42/spaghetti/commit/562b9f13d685eca8206376d3fa8b5c998cc538e6))
+
 ## [0.5.2](https://github.com/jamesyong-42/spaghetti/compare/spaghetti-v0.5.1...spaghetti-v0.5.2) (2026-04-15)
 
 

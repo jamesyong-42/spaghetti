@@ -1,11 +1,17 @@
 {
   "name": "@vibecook/spaghetti-sdk-native-darwin-arm64",
-  "version": "0.5.2",
+  "version": "0.5.3",
   "description": "Native (Rust) ingest core for @vibecook/spaghetti-sdk — darwin-arm64 binary",
-  "cpu": ["arm64"],
-  "os": ["darwin"],
+  "cpu": [
+    "arm64"
+  ],
+  "os": [
+    "darwin"
+  ],
   "main": "spaghetti.darwin-arm64.node",
-  "files": ["spaghetti.darwin-arm64.node"],
+  "files": [
+    "spaghetti.darwin-arm64.node"
+  ],
   "license": "MIT",
   "author": "James Yong",
   "engines": {
