@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.7](https://github.com/jamesyong-42/spaghetti/compare/spaghetti-v0.5.6...spaghetti-v0.5.7) (2026-04-17)
+
+
+### Features
+
+* **sdk:** wire native ingest as default; add rebuildIndex() ([#20](https://github.com/jamesyong-42/spaghetti/issues/20)) ([c1df75a](https://github.com/jamesyong-42/spaghetti/commit/c1df75aa3a51d1331bfec1b33009b8569ce30b89))
+
 ## [0.5.6](https://github.com/jamesyong-42/spaghetti/compare/spaghetti-v0.5.5...spaghetti-v0.5.6) (2026-04-17)
 
 
