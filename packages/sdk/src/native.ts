@@ -31,11 +31,25 @@ export interface NativeIngestStats {
   errors: Array<{ slug: string; message: string }>;
 }
 
+export interface NativeIngestProgress {
+  /** `scanning` | `parsing` | `finalizing` */
+  phase: string;
+  projectsDone: number;
+  projectsTotal: number;
+  elapsedMs: number;
+}
+
+export type NativeProgressCallback = (progress: NativeIngestProgress) => void;
+
 export interface NativeAddon {
   /** Returns the semver of the loaded native addon. */
   nativeVersion(): string;
-  /** Run a full ingest and resolve to the stats. */
-  ingest(opts: NativeIngestOptions): Promise<NativeIngestStats>;
+  /**
+   * Run a full ingest and resolve to the stats. Optionally receives a
+   * progress callback invoked from the libuv worker thread (safe from
+   * any thread — caller need not synchronise).
+   */
+  ingest(opts: NativeIngestOptions, onProgress?: NativeProgressCallback): Promise<NativeIngestStats>;
 }
 
 let cached: NativeAddon | null | undefined;

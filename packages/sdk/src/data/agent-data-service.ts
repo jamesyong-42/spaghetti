@@ -234,11 +234,39 @@ export class AgentDataServiceImpl extends EventEmitter implements ClaudeCodeAgen
   private async initializeWithNative(native: NonNullable<ReturnType<typeof loadNativeAddon>>): Promise<void> {
     this.emitProgress('parsing', `Running native ingest (${native.nativeVersion()})...`);
 
-    await native.ingest({
-      claudeDir: this.claudeDir,
-      dbPath: this.dbPath,
-      mode: 'warm',
-    });
+    await native.ingest(
+      {
+        claudeDir: this.claudeDir,
+        dbPath: this.dbPath,
+        mode: 'warm',
+      },
+      (progress) => {
+        // Map native phases to the SDK's user-facing progress events.
+        // 'parsing' ticks per-project-complete so the UI shows steady
+        // movement (e.g. "Parsing project 12/112...").
+        switch (progress.phase) {
+          case 'scanning':
+            this.emitProgress(
+              'parsing',
+              `Scanning ${progress.projectsTotal} projects...`,
+              progress.projectsDone,
+              progress.projectsTotal,
+            );
+            break;
+          case 'parsing':
+            this.emitProgress(
+              'parsing',
+              `Parsing projects... ${progress.projectsDone}/${progress.projectsTotal}`,
+              progress.projectsDone,
+              progress.projectsTotal,
+            );
+            break;
+          case 'finalizing':
+            this.emitProgress('storing', 'Writing fingerprints...', progress.projectsDone, progress.projectsTotal);
+            break;
+        }
+      },
+    );
 
     // Open both services against the (now-populated) DB. The ingest
     // service stays open for post-init writes like hook-event appends;
