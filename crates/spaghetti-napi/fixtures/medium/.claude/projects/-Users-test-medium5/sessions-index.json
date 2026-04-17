@@ -1,0 +1,32 @@
+{
+  "version": 1,
+  "originalPath": "/Users/test/medium5",
+  "entries": [
+    {
+      "sessionId": "3239d143-f42c-9a09-6d17-ade7b3bcaa58",
+      "fullPath": "/Users/jamesyong/Projects/project100/p008/spaghetti/crates/spaghetti-napi/fixtures/medium/.claude/projects/-Users-test-medium5/3239d143-f42c-9a09-6d17-ade7b3bcaa58.jsonl",
+      "fileMtime": 1775001600000,
+      "firstPrompt": "Exercise attachment + saved_hook_context + last-prompt.",
+      "summary": "",
+      "messageCount": 5,
+      "created": "2026-04-01T00:00:00.000Z",
+      "modified": "2026-04-01T00:00:00.000Z",
+      "gitBranch": "main",
+      "projectPath": "/Users/test/medium5",
+      "isSidechain": false
+    },
+    {
+      "sessionId": "b51c144a-f8e9-81bb-5233-f18f18187aef",
+      "fullPath": "/Users/jamesyong/Projects/project100/p008/spaghetti/crates/spaghetti-napi/fixtures/medium/.claude/projects/-Users-test-medium5/b51c144a-f8e9-81bb-5233-f18f18187aef.jsonl",
+      "fileMtime": 1775001600000,
+      "firstPrompt": "Explain this function.",
+      "summary": "",
+      "messageCount": 10,
+      "created": "2026-04-01T00:00:00.000Z",
+      "modified": "2026-04-01T00:00:00.000Z",
+      "gitBranch": "main",
+      "projectPath": "/Users/test/medium5",
+      "isSidechain": false
+    }
+  ]
+}

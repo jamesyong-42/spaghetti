@@ -1,0 +1,32 @@
+{
+  "version": 1,
+  "originalPath": "/Users/test/medium3",
+  "entries": [
+    {
+      "sessionId": "51d57672-6155-14f6-b020-07fe7fed3f39",
+      "fullPath": "/Users/jamesyong/Projects/project100/p008/spaghetti/crates/spaghetti-napi/fixtures/medium/.claude/projects/-Users-test-medium3/51d57672-6155-14f6-b020-07fe7fed3f39.jsonl",
+      "fileMtime": 1775001600000,
+      "firstPrompt": "Exercise every system subtype.",
+      "summary": "",
+      "messageCount": 9,
+      "created": "2026-04-01T00:00:00.000Z",
+      "modified": "2026-04-01T00:00:00.000Z",
+      "gitBranch": "main",
+      "projectPath": "/Users/test/medium3",
+      "isSidechain": false
+    },
+    {
+      "sessionId": "1876e8de-70cb-33b8-95a8-d3aa31fedf24",
+      "fullPath": "/Users/jamesyong/Projects/project100/p008/spaghetti/crates/spaghetti-napi/fixtures/medium/.claude/projects/-Users-test-medium3/1876e8de-70cb-33b8-95a8-d3aa31fedf24.jsonl",
+      "fileMtime": 1775001600000,
+      "firstPrompt": "Summarise the diff.",
+      "summary": "",
+      "messageCount": 10,
+      "created": "2026-04-01T00:00:00.000Z",
+      "modified": "2026-04-01T00:00:00.000Z",
+      "gitBranch": "main",
+      "projectPath": "/Users/test/medium3",
+      "isSidechain": false
+    }
+  ]
+}

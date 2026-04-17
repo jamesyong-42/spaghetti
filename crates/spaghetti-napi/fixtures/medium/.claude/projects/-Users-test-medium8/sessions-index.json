@@ -1,0 +1,32 @@
+{
+  "version": 1,
+  "originalPath": "/Users/test/medium8",
+  "entries": [
+    {
+      "sessionId": "5ace5ace-9001-c4ea-8a3a-8eeecd19eba6",
+      "fullPath": "/Users/jamesyong/Projects/project100/p008/spaghetti/crates/spaghetti-napi/fixtures/medium/.claude/projects/-Users-test-medium8/5ace5ace-9001-c4ea-8a3a-8eeecd19eba6.jsonl",
+      "fileMtime": 1775001600000,
+      "firstPrompt": "Why does the test fail?",
+      "summary": "",
+      "messageCount": 8,
+      "created": "2026-04-01T00:00:00.000Z",
+      "modified": "2026-04-01T00:00:00.000Z",
+      "gitBranch": "main",
+      "projectPath": "/Users/test/medium8",
+      "isSidechain": false
+    },
+    {
+      "sessionId": "5ace5ace-1308-5bfa-b5e5-33328004aa4a",
+      "fullPath": "/Users/jamesyong/Projects/project100/p008/spaghetti/crates/spaghetti-napi/fixtures/medium/.claude/projects/-Users-test-medium8/5ace5ace-1308-5bfa-b5e5-33328004aa4a.jsonl",
+      "fileMtime": 1775001600000,
+      "firstPrompt": "Add error handling around the IO call.",
+      "summary": "",
+      "messageCount": 9,
+      "created": "2026-04-01T00:00:00.000Z",
+      "modified": "2026-04-01T00:00:00.000Z",
+      "gitBranch": "main",
+      "projectPath": "/Users/test/medium8",
+      "isSidechain": false
+    }
+  ]
+}
