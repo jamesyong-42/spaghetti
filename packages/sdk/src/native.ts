@@ -12,6 +12,8 @@
 
 import { createRequire } from 'node:module';
 
+import { resolveEngine } from './settings.js';
+
 export interface NativeIngestOptions {
   claudeDir: string;
   dbPath: string;
@@ -59,14 +61,15 @@ export function loadNativeAddon(): NativeAddon | null {
 /**
  * Whether the native ingest path is enabled.
  *
- * - Default: **on**. Returns true unless `SPAG_NATIVE_INGEST=0` is set.
- * - `SPAG_NATIVE_INGEST=1` → on (explicit)
- * - `SPAG_NATIVE_INGEST=0` → off (forces the pure-TS fallback)
+ * Resolves via the shared `resolveEngine()` helper — honours (in order)
+ * `SPAG_ENGINE=ts|rs`, legacy `SPAG_NATIVE_INGEST=0|1`, the persisted
+ * engine setting in `~/.spaghetti/config.json`, and the default (`rs`).
  *
  * If the addon itself is missing or fails to load, the SDK falls back
- * to the TS path regardless of this setting. This helper only gates the
- * *preference*; actual resolution is `isNativeIngestEnabled() && loadNativeAddon() !== null`.
+ * to the TS path regardless of this setting. This helper only gates
+ * the *preference*; actual resolution is
+ * `isNativeIngestEnabled() && loadNativeAddon() !== null`.
  */
 export function isNativeIngestEnabled(): boolean {
-  return process.env.SPAG_NATIVE_INGEST !== '0';
+  return resolveEngine() === 'rs';
 }

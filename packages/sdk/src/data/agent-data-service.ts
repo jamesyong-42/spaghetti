@@ -43,6 +43,7 @@ import type { ClaudeCodeParser } from '../parser/claude-code-parser.js';
 import type { FileService } from '../io/index.js';
 import { createWorkerPool, isWorkerThreadsAvailable, type WorkerToMainMessage } from '../workers/index.js';
 import { isNativeIngestEnabled, loadNativeAddon } from '../native.js';
+import { defaultDbPathForEngine, resolveEngine } from '../settings.js';
 
 // Re-export types used by app-service
 export {
@@ -132,7 +133,9 @@ export interface AgentDataServiceOptions {
 // ═══════════════════════════════════════════════════════════════════════════
 
 function getDefaultDbPath(): string {
-  return path.join(os.homedir(), '.spaghetti', 'cache', 'spaghetti.db');
+  // Each ingest engine keeps its own DB file so switching engines
+  // doesn't force a re-ingest, and results are comparable side-by-side.
+  return defaultDbPathForEngine(resolveEngine());
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
