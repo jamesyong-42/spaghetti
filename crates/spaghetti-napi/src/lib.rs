@@ -14,6 +14,7 @@
 
 use napi_derive::napi;
 
+pub mod fingerprint;
 pub mod fts_text;
 pub mod ingest;
 pub mod jsonl_reader;
