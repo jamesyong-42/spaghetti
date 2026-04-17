@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.4](https://github.com/jamesyong-42/spaghetti/compare/spaghetti-v0.5.3...spaghetti-v0.5.4) (2026-04-17)
+
+
+### Features
+
+* **napi:** RFC 003 Phase 1 — Rust ingest core (cold-start parity) ([#14](https://github.com/jamesyong-42/spaghetti/issues/14)) ([925d364](https://github.com/jamesyong-42/spaghetti/commit/925d3644160f05ce47bb52b4b0b32263c8b2ab75))
+
 ## [0.5.3](https://github.com/jamesyong-42/spaghetti/compare/spaghetti-v0.5.2...spaghetti-v0.5.3) (2026-04-17)
 
 
