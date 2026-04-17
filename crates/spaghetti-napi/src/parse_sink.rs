@@ -146,6 +146,30 @@ pub enum IngestEvent {
     /// inline. In Rust we prefer to transport them so the orchestrator
     /// can record them in the final `IngestStats.errors` list.
     WorkerError { slug: String, error: String },
+
+    /// Truncate the `source_files` table. Emitted by the orchestrator
+    /// before a batch of `Fingerprint` events so warm-fallback re-ingests
+    /// start from a clean slate — stale paths (files that were deleted
+    /// between runs) don't linger as ghost fingerprints.
+    ClearSourceFiles,
+
+    /// Warm-start fingerprint record — one row to UPSERT into
+    /// `source_files`. Emitted by the orchestrator after all per-project
+    /// events have been flushed, so the writer persists fingerprints
+    /// inside its own transaction(s) without needing a second connection.
+    ///
+    /// Used for both cold ingest (where stored = empty, so every
+    /// discovered file yields a Fingerprint event) and warm-fallback
+    /// (where the full re-ingest repopulates source_files from scratch).
+    Fingerprint {
+        path: String,
+        mtime_ms: f64,
+        size: u64,
+        byte_position: Option<u64>,
+        category: String,
+        project_slug: Option<String>,
+        session_id: Option<String>,
+    },
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
