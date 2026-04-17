@@ -108,7 +108,7 @@ impl ProjectParser {
         let original_path = sessions_index
             .original_path
             .clone()
-            .unwrap_or_else(|| slug_to_path_naive(slug));
+            .unwrap_or_else(|| slug_to_path(slug));
 
         // 2. Emit the Project event
         events.send(IngestEvent::Project {
@@ -434,7 +434,7 @@ fn discover_session_entries(
     let slug_fallback = project_dir
         .file_name()
         .and_then(|s| s.to_str())
-        .map(slug_to_path_naive);
+        .map(slug_to_path);
     let project_path = original_path
         .map(str::to_owned)
         .or(slug_fallback)
@@ -702,28 +702,72 @@ fn read_task(claude_dir: &Path, session_id: &str) -> Option<TaskEntry> {
     })
 }
 
-// ─── Slug → path (best-effort) ──────────────────────────────────────────────
+// ─── Slug → path (filesystem-probing) ───────────────────────────────────────
 
-/// Naive port of TS `slugToPath` — replaces leading `-` with `/` and every
-/// remaining `-` with `/`. The TS version also probes the filesystem to
-/// resolve legitimate hyphens in directory names; we skip that here
-/// because (a) the parser only uses `original_path` for display, and
-/// (b) the probing is inherently racy and adds I/O we'd rather avoid on
-/// the hot ingest path.
-fn slug_to_path_naive(slug: &str) -> String {
+/// Reconstruct the absolute path a project slug was derived from.
+///
+/// Claude Code encodes project paths into slugs by replacing every `/`
+/// with `-`. Reversing the encoding naively (every `-` → `/`) corrupts
+/// legitimate hyphens in directory names — e.g. a slug like
+/// `-Users-me-Projects-vibe-ctl` can decode to either
+/// `/Users/me/Projects/vibe/ctl` or `/Users/me/Projects/vibe-ctl`
+/// depending on what actually exists on disk.
+///
+/// We resolve the ambiguity the same way the TS parser does: probe the
+/// filesystem from left to right. At each position, try the longest
+/// remaining suffix first (`vibe-ctl`, then `vibe-ctl-specs`, etc.). If
+/// stat() succeeds, consume that range as a single segment and move on.
+/// Fall back to the next-longest, and finally to a single segment.
+///
+/// For slugs whose underlying project dir no longer exists (stale
+/// state, deleted project), the probe fails for every candidate and we
+/// degrade gracefully to the naive `-` → `/` mapping — the display
+/// path may be wrong but ingest still works.
+fn slug_to_path(slug: &str) -> String {
+    let has_leading_dash = slug.starts_with('-');
     let trimmed = slug.strip_prefix('-').unwrap_or(slug);
-    let mut out = String::with_capacity(slug.len() + 1);
-    if slug.starts_with('-') {
-        out.push('/');
-    }
-    for ch in trimmed.chars() {
-        if ch == '-' {
-            out.push('/');
+    if trimmed.is_empty() {
+        return if has_leading_dash {
+            "/".to_string()
         } else {
-            out.push(ch);
+            String::new()
+        };
+    }
+
+    let parts: Vec<&str> = trimmed.split('-').collect();
+    let mut resolved = String::new();
+    let prefix = if has_leading_dash { "/" } else { "" };
+
+    let mut i = 0;
+    while i < parts.len() {
+        let mut matched = false;
+        for end in (i + 1..=parts.len()).rev() {
+            let candidate_segment = parts[i..end].join("-");
+            let full_candidate = format!("{prefix}{resolved}/{candidate_segment}");
+            // Trim any duplicate leading slash when resolved is empty.
+            let probe_path = full_candidate.replace("//", "/");
+            if std::fs::metadata(&probe_path).is_ok() {
+                if resolved.is_empty() {
+                    resolved.push_str(&candidate_segment);
+                } else {
+                    resolved.push('/');
+                    resolved.push_str(&candidate_segment);
+                }
+                i = end;
+                matched = true;
+                break;
+            }
+        }
+        if !matched {
+            if !resolved.is_empty() {
+                resolved.push('/');
+            }
+            resolved.push_str(parts[i]);
+            i += 1;
         }
     }
-    out
+
+    format!("{prefix}{resolved}")
 }
 
 /// Format an epoch-millisecond timestamp as an ISO 8601 string matching
