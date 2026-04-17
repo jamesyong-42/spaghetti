@@ -1,0 +1,45 @@
+{
+  "version": 1,
+  "originalPath": "/Users/test/project3",
+  "entries": [
+    {
+      "sessionId": "f0b5e9e0-9d2e-784c-47fe-707d93b458ab",
+      "fullPath": "/Users/jamesyong/Projects/project100/p008/spaghetti/crates/spaghetti-napi/fixtures/small/.claude/projects/-Users-test-project3/f0b5e9e0-9d2e-784c-47fe-707d93b458ab.jsonl",
+      "fileMtime": 1775001600000,
+      "firstPrompt": "What does the error \"cannot borrow as mutable\" mean?",
+      "summary": "",
+      "messageCount": 17,
+      "created": "2026-04-01T00:00:00.000Z",
+      "modified": "2026-04-01T00:00:00.000Z",
+      "gitBranch": "main",
+      "projectPath": "/Users/test/project3",
+      "isSidechain": false
+    },
+    {
+      "sessionId": "1b286cf4-a385-400c-be15-10085858d5df",
+      "fullPath": "/Users/jamesyong/Projects/project100/p008/spaghetti/crates/spaghetti-napi/fixtures/small/.claude/projects/-Users-test-project3/1b286cf4-a385-400c-be15-10085858d5df.jsonl",
+      "fileMtime": 1775001600000,
+      "firstPrompt": "Convert this callback-based API to async/await.",
+      "summary": "",
+      "messageCount": 18,
+      "created": "2026-04-01T00:00:00.000Z",
+      "modified": "2026-04-01T00:00:00.000Z",
+      "gitBranch": "main",
+      "projectPath": "/Users/test/project3",
+      "isSidechain": false
+    },
+    {
+      "sessionId": "77f29845-9d5a-c8e7-ceaf-c2a68af9dc3b",
+      "fullPath": "/Users/jamesyong/Projects/project100/p008/spaghetti/crates/spaghetti-napi/fixtures/small/.claude/projects/-Users-test-project3/77f29845-9d5a-c8e7-ceaf-c2a68af9dc3b.jsonl",
+      "fileMtime": 1775001600000,
+      "firstPrompt": "Convert this callback-based API to async/await.",
+      "summary": "",
+      "messageCount": 16,
+      "created": "2026-04-01T00:00:00.000Z",
+      "modified": "2026-04-01T00:00:00.000Z",
+      "gitBranch": "main",
+      "projectPath": "/Users/test/project3",
+      "isSidechain": false
+    }
+  ]
+}
