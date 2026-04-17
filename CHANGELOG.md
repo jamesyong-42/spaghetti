@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.6](https://github.com/jamesyong-42/spaghetti/compare/spaghetti-v0.5.5...spaghetti-v0.5.6) (2026-04-17)
+
+
+### Features
+
+* **napi:** RFC 003 Phase 3 — warm-start fast path ([#18](https://github.com/jamesyong-42/spaghetti/issues/18)) ([450d8c5](https://github.com/jamesyong-42/spaghetti/commit/450d8c58544d72f5d8b11e2af8bf841aa937bcdd))
+
 ## [0.5.5](https://github.com/jamesyong-42/spaghetti/compare/spaghetti-v0.5.4...spaghetti-v0.5.5) (2026-04-17)
 
 
