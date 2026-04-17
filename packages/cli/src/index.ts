@@ -31,6 +31,7 @@ import { chatCommand } from './commands/chat.js';
 import type { ChatOptions } from './commands/chat.js';
 import { pluginCommand } from './commands/plugin.js';
 import { doctorCommand } from './commands/doctor.js';
+import { engineCommand } from './commands/engine.js';
 import { theme } from './lib/color.js';
 import { uninstallCommand } from './commands/uninstall.js';
 import { updateCommand } from './lib/updater.js';
@@ -407,6 +408,16 @@ export function createProgram(): Command {
     });
 
   program.addCommand(doctorCmd);
+
+  // Engine command (does not need SpaghettiAPI — reads/writes settings only)
+  program
+    .command('engine')
+    .description('Show or switch the active ingest engine (ts | rs)')
+    .argument('[target]', 'Engine to switch to: `ts` (TypeScript) or `rs` (Rust native)')
+    .option('--json', 'Output as JSON')
+    .action(async (target: string | undefined, opts: { json?: boolean }) => {
+      await engineCommand(target, opts);
+    });
 
   // Uninstall command
   program

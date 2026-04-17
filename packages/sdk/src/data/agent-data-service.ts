@@ -43,6 +43,7 @@ import type { ClaudeCodeParser } from '../parser/claude-code-parser.js';
 import type { FileService } from '../io/index.js';
 import { createWorkerPool, isWorkerThreadsAvailable, type WorkerToMainMessage } from '../workers/index.js';
 import { isNativeIngestEnabled, loadNativeAddon } from '../native.js';
+import { defaultDbPathForEngine, resolveEngine } from '../settings.js';
 
 // Re-export types used by app-service
 export {
@@ -132,7 +133,9 @@ export interface AgentDataServiceOptions {
 // ═══════════════════════════════════════════════════════════════════════════
 
 function getDefaultDbPath(): string {
-  return path.join(os.homedir(), '.spaghetti', 'cache', 'spaghetti.db');
+  // Each ingest engine keeps its own DB file so switching engines
+  // doesn't force a re-ingest, and results are comparable side-by-side.
+  return defaultDbPathForEngine(resolveEngine());
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -231,11 +234,39 @@ export class AgentDataServiceImpl extends EventEmitter implements ClaudeCodeAgen
   private async initializeWithNative(native: NonNullable<ReturnType<typeof loadNativeAddon>>): Promise<void> {
     this.emitProgress('parsing', `Running native ingest (${native.nativeVersion()})...`);
 
-    await native.ingest({
-      claudeDir: this.claudeDir,
-      dbPath: this.dbPath,
-      mode: 'warm',
-    });
+    await native.ingest(
+      {
+        claudeDir: this.claudeDir,
+        dbPath: this.dbPath,
+        mode: 'warm',
+      },
+      (progress) => {
+        // Map native phases to the SDK's user-facing progress events.
+        // 'parsing' ticks per-project-complete so the UI shows steady
+        // movement (e.g. "Parsing project 12/112...").
+        switch (progress.phase) {
+          case 'scanning':
+            this.emitProgress(
+              'parsing',
+              `Scanning ${progress.projectsTotal} projects...`,
+              progress.projectsDone,
+              progress.projectsTotal,
+            );
+            break;
+          case 'parsing':
+            this.emitProgress(
+              'parsing',
+              `Parsing projects... ${progress.projectsDone}/${progress.projectsTotal}`,
+              progress.projectsDone,
+              progress.projectsTotal,
+            );
+            break;
+          case 'finalizing':
+            this.emitProgress('storing', 'Writing fingerprints...', progress.projectsDone, progress.projectsTotal);
+            break;
+        }
+      },
+    );
 
     // Open both services against the (now-populated) DB. The ingest
     // service stays open for post-init writes like hook-event appends;

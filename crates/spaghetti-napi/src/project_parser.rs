@@ -108,7 +108,7 @@ impl ProjectParser {
         let original_path = sessions_index
             .original_path
             .clone()
-            .unwrap_or_else(|| slug_to_path_naive(slug));
+            .unwrap_or_else(|| slug_to_path(slug));
 
         // 2. Emit the Project event
         events.send(IngestEvent::Project {
@@ -434,7 +434,7 @@ fn discover_session_entries(
     let slug_fallback = project_dir
         .file_name()
         .and_then(|s| s.to_str())
-        .map(slug_to_path_naive);
+        .map(slug_to_path);
     let project_path = original_path
         .map(str::to_owned)
         .or(slug_fallback)
@@ -459,15 +459,25 @@ fn discover_session_entries(
             .map(|d| d.as_secs_f64() * 1000.0)
             .unwrap_or(0.0);
 
+        // Port of the TS discoverSessionEntries: set `created` and
+        // `modified` from file mtime as ISO-8601 (matches what
+        // `new Date(mtimeMs).toISOString()` produces), and peek at the
+        // file's first user message for `first_prompt`. Without these,
+        // projects that have no sessions-index.json end up with blank
+        // timestamps (UI sort-by-modified breaks) and all sessions
+        // labeled "No prompt".
+        let modified_iso = epoch_ms_to_iso8601(file_mtime);
+        let first_prompt = peek_first_user_prompt(&path).unwrap_or_else(|| "No prompt".to_owned());
+
         out.push(SessionIndexEntry {
             session_id,
             full_path: path.to_string_lossy().into_owned(),
             file_mtime,
-            first_prompt: "No prompt".to_owned(),
+            first_prompt,
             summary: String::new(),
             message_count: 0,
-            created: String::new(),
-            modified: String::new(),
+            created: modified_iso.clone(),
+            modified: modified_iso,
             git_branch: String::new(),
             project_path: project_path.clone(),
             is_sidechain: false,
@@ -692,28 +702,142 @@ fn read_task(claude_dir: &Path, session_id: &str) -> Option<TaskEntry> {
     })
 }
 
-// ─── Slug → path (best-effort) ──────────────────────────────────────────────
+// ─── Slug → path (filesystem-probing) ───────────────────────────────────────
 
-/// Naive port of TS `slugToPath` — replaces leading `-` with `/` and every
-/// remaining `-` with `/`. The TS version also probes the filesystem to
-/// resolve legitimate hyphens in directory names; we skip that here
-/// because (a) the parser only uses `original_path` for display, and
-/// (b) the probing is inherently racy and adds I/O we'd rather avoid on
-/// the hot ingest path.
-fn slug_to_path_naive(slug: &str) -> String {
+/// Reconstruct the absolute path a project slug was derived from.
+///
+/// Claude Code encodes project paths into slugs by replacing every `/`
+/// with `-`. Reversing the encoding naively (every `-` → `/`) corrupts
+/// legitimate hyphens in directory names — e.g. a slug like
+/// `-Users-me-Projects-vibe-ctl` can decode to either
+/// `/Users/me/Projects/vibe/ctl` or `/Users/me/Projects/vibe-ctl`
+/// depending on what actually exists on disk.
+///
+/// We resolve the ambiguity the same way the TS parser does: probe the
+/// filesystem from left to right. At each position, try the longest
+/// remaining suffix first (`vibe-ctl`, then `vibe-ctl-specs`, etc.). If
+/// stat() succeeds, consume that range as a single segment and move on.
+/// Fall back to the next-longest, and finally to a single segment.
+///
+/// For slugs whose underlying project dir no longer exists (stale
+/// state, deleted project), the probe fails for every candidate and we
+/// degrade gracefully to the naive `-` → `/` mapping — the display
+/// path may be wrong but ingest still works.
+fn slug_to_path(slug: &str) -> String {
+    let has_leading_dash = slug.starts_with('-');
     let trimmed = slug.strip_prefix('-').unwrap_or(slug);
-    let mut out = String::with_capacity(slug.len() + 1);
-    if slug.starts_with('-') {
-        out.push('/');
-    }
-    for ch in trimmed.chars() {
-        if ch == '-' {
-            out.push('/');
+    if trimmed.is_empty() {
+        return if has_leading_dash {
+            "/".to_string()
         } else {
-            out.push(ch);
+            String::new()
+        };
+    }
+
+    let parts: Vec<&str> = trimmed.split('-').collect();
+    let mut resolved = String::new();
+    let prefix = if has_leading_dash { "/" } else { "" };
+
+    let mut i = 0;
+    while i < parts.len() {
+        let mut matched = false;
+        for end in (i + 1..=parts.len()).rev() {
+            let candidate_segment = parts[i..end].join("-");
+            let full_candidate = format!("{prefix}{resolved}/{candidate_segment}");
+            // Trim any duplicate leading slash when resolved is empty.
+            let probe_path = full_candidate.replace("//", "/");
+            if std::fs::metadata(&probe_path).is_ok() {
+                if resolved.is_empty() {
+                    resolved.push_str(&candidate_segment);
+                } else {
+                    resolved.push('/');
+                    resolved.push_str(&candidate_segment);
+                }
+                i = end;
+                matched = true;
+                break;
+            }
+        }
+        if !matched {
+            if !resolved.is_empty() {
+                resolved.push('/');
+            }
+            resolved.push_str(parts[i]);
+            i += 1;
         }
     }
-    out
+
+    format!("{prefix}{resolved}")
+}
+
+/// Format an epoch-millisecond timestamp as an ISO 8601 string matching
+/// what JS `new Date(ms).toISOString()` produces (e.g. `2026-04-17T14:36:40.342Z`).
+/// Used to populate `created` / `modified` on discovered sessions so the
+/// SDK's sort-by-modified-at queries work when sessions-index.json is
+/// absent.
+fn epoch_ms_to_iso8601(ms: f64) -> String {
+    use time::format_description::well_known::{iso8601, Iso8601};
+
+    // Clamp to the representable range; negative or absurd values just
+    // fall back to the epoch, matching how JS rounds NaN → "Invalid Date".
+    let nanos = (ms * 1_000_000.0) as i128;
+    let dt = time::OffsetDateTime::from_unix_timestamp_nanos(nanos)
+        .unwrap_or(time::OffsetDateTime::UNIX_EPOCH);
+
+    // JS's toISOString() renders milliseconds (3 digits) in UTC with a
+    // trailing 'Z'. `Iso8601::DEFAULT` would emit nanoseconds, so use a
+    // 3-digit subsecond config to match JS byte-for-byte.
+    const CFG: iso8601::EncodedConfig = iso8601::Config::DEFAULT
+        .set_time_precision(iso8601::TimePrecision::Second {
+            decimal_digits: std::num::NonZeroU8::new(3),
+        })
+        .encode();
+    dt.format(&Iso8601::<CFG>)
+        .unwrap_or_else(|_| "1970-01-01T00:00:00.000Z".to_string())
+}
+
+/// Read the first "user" message from a JSONL session file and return
+/// its first 200 characters as a first-prompt candidate. Returns None
+/// if the file can't be opened, has no user message, or the content
+/// can't be extracted. Matches the behaviour of the TS parser's
+/// `discoverSessionEntries` peek.
+fn peek_first_user_prompt(path: &Path) -> Option<String> {
+    use std::cell::RefCell;
+
+    let found: RefCell<Option<String>> = RefCell::new(None);
+    let _ = crate::jsonl_reader::read_jsonl_streaming(path, 0, |line, _, _| {
+        if found.borrow().is_some() {
+            return;
+        }
+        let Ok(val) = serde_json::from_str::<serde_json::Value>(line) else {
+            return;
+        };
+        if val.get("type").and_then(|v| v.as_str()) != Some("user") {
+            return;
+        }
+        let Some(message) = val.get("message") else {
+            return;
+        };
+        let content = message.get("content");
+        let text = match content {
+            Some(serde_json::Value::String(s)) => Some(s.clone()),
+            Some(serde_json::Value::Array(blocks)) => blocks.iter().find_map(|block| {
+                if block.get("type").and_then(|v| v.as_str()) == Some("text") {
+                    block
+                        .get("text")
+                        .and_then(|v| v.as_str())
+                        .map(|s| s.to_string())
+                } else {
+                    None
+                }
+            }),
+            _ => None,
+        };
+        if let Some(t) = text {
+            *found.borrow_mut() = Some(t.chars().take(200).collect());
+        }
+    });
+    found.into_inner()
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

@@ -6,8 +6,13 @@
  * rejects with a fatal error.
  *
  * Only `mode: "cold"` is implemented in Phase 1.
+ *
+ * The optional `on_progress` callback is invoked from the libuv
+ * worker thread (threadsafe) with snapshots during ingest — start,
+ * per-project-complete, and finalize. Throttled implicitly by the
+ * coarse "per project" granularity.
  */
-export declare function ingest(opts: IngestOptions): Promise<IngestStats>
+export declare function ingest(opts: IngestOptions, onProgress?: (progress: IngestProgress) => void): Promise<IngestStats>
 
 export interface IngestError {
   slug: string
@@ -31,6 +36,20 @@ export interface IngestOptions {
   mode: string
   progressIntervalMs?: number
   parallelism?: number
+}
+
+/**
+ * Progress snapshot for the optional on-progress callback. Fires once
+ * on start (`phase = "scanning"`, projects_total set), once per project
+ * completion (`phase = "parsing"`), and once at finalization
+ * (`phase = "finalizing"`). The JS side can subscribe to drive a
+ * progress bar / TUI status line without having to poll.
+ */
+export interface IngestProgress {
+  phase: string
+  projectsDone: number
+  projectsTotal: number
+  elapsedMs: number
 }
 
 /**

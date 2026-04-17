@@ -35,11 +35,14 @@
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
+use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 use crossbeam_channel::{bounded, unbounded};
+use napi::bindgen_prelude::Unknown;
 use napi::bindgen_prelude::{AsyncTask, Env, Error, Result, Status, Task};
+use napi::threadsafe_function::{ThreadsafeFunction, ThreadsafeFunctionCallMode};
 use napi_derive::napi;
 use rayon::prelude::*;
 use rusqlite::{Connection, OpenFlags};
@@ -95,6 +98,20 @@ pub struct IngestError {
     pub message: String,
 }
 
+/// Progress snapshot for the optional on-progress callback. Fires once
+/// on start (`phase = "scanning"`, projects_total set), once per project
+/// completion (`phase = "parsing"`), and once at finalization
+/// (`phase = "finalizing"`). The JS side can subscribe to drive a
+/// progress bar / TUI status line without having to poll.
+#[napi(object)]
+#[derive(Debug, Clone)]
+pub struct IngestProgress {
+    pub phase: String,
+    pub projects_done: u32,
+    pub projects_total: u32,
+    pub elapsed_ms: u32,
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 // NAPI entry point
 // ═══════════════════════════════════════════════════════════════════════════
@@ -104,14 +121,26 @@ pub struct IngestError {
 /// rejects with a fatal error.
 ///
 /// Only `mode: "cold"` is implemented in Phase 1.
+///
+/// The optional `on_progress` callback is invoked from the libuv
+/// worker thread (threadsafe) with snapshots during ingest — start,
+/// per-project-complete, and finalize. Throttled implicitly by the
+/// coarse "per project" granularity.
 #[napi(ts_return_type = "Promise<IngestStats>")]
-pub fn ingest(opts: IngestOptions) -> AsyncTask<IngestTask> {
-    AsyncTask::new(IngestTask { opts })
+pub fn ingest(
+    opts: IngestOptions,
+    #[napi(ts_arg_type = "(progress: IngestProgress) => void")] on_progress: Option<
+        ThreadsafeFunction<IngestProgress, Unknown<'static>, IngestProgress, Status, false>,
+    >,
+) -> AsyncTask<IngestTask> {
+    AsyncTask::new(IngestTask { opts, on_progress })
 }
 
 /// Libuv worker-thread task that runs [`run_ingest`] off the JS thread.
 pub struct IngestTask {
     opts: IngestOptions,
+    on_progress:
+        Option<ThreadsafeFunction<IngestProgress, Unknown<'static>, IngestProgress, Status, false>>,
 }
 
 impl Task for IngestTask {
@@ -119,7 +148,24 @@ impl Task for IngestTask {
     type JsValue = IngestStats;
 
     fn compute(&mut self) -> Result<Self::Output> {
-        run_ingest(&self.opts).map_err(|e| Error::new(Status::GenericFailure, e.to_string()))
+        // Wrap the threadsafe function in a plain closure so run_ingest
+        // doesn't need to depend on napi types (keeps `cargo test` from
+        // linking against Node runtime symbols).
+        //
+        // The closure captures `tsfn` by reference — it lives on the
+        // stack frame of this `compute` call, which is guaranteed to
+        // outlive the synchronous `run_ingest` below.
+        let tsfn = self.on_progress.as_ref();
+        let callback = tsfn.map(|t| {
+            move |p: IngestProgress| {
+                t.call(p, ThreadsafeFunctionCallMode::NonBlocking);
+            }
+        });
+        let callback_ref: Option<&(dyn Fn(IngestProgress) + Send + Sync)> = callback
+            .as_ref()
+            .map(|c| c as &(dyn Fn(IngestProgress) + Send + Sync));
+        run_ingest(&self.opts, callback_ref)
+            .map_err(|e| Error::new(Status::GenericFailure, e.to_string()))
     }
 
     fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
@@ -224,8 +270,13 @@ impl ResolvedOptions {
 /// ~/.claude). If anything changed, falls through to a full re-ingest
 /// (cold path). Future work (Phase 2 perf) may incrementalise the
 /// N-changes case to touch only affected projects.
+///
+/// If `on_progress` is provided, fires a threadsafe callback on start
+/// (`scanning`), after each project completes (`parsing`), and at
+/// finalize (`finalizing`). Safe to call from any thread.
 pub(crate) fn run_ingest(
     opts: &IngestOptions,
+    on_progress: Option<&(dyn Fn(IngestProgress) + Send + Sync)>,
 ) -> std::result::Result<IngestStats, IngestInternalError> {
     let start = Instant::now();
     let resolved = ResolvedOptions::from(opts)?;
@@ -240,6 +291,21 @@ pub(crate) fn run_ingest(
 
     let slugs = scan_project_slugs(&resolved.claude_dir)?;
     let parallelism = resolve_parallelism(opts.parallelism);
+
+    let elapsed_ms = || u32::try_from(start.elapsed().as_millis()).unwrap_or(u32::MAX);
+    let total = u32::try_from(slugs.len()).unwrap_or(u32::MAX);
+    let emit = |phase: &str, done: u32| {
+        if let Some(cb) = on_progress {
+            cb(IngestProgress {
+                phase: phase.to_string(),
+                projects_done: done,
+                projects_total: total,
+                elapsed_ms: elapsed_ms(),
+            });
+        }
+    };
+
+    emit("scanning", 0);
 
     // Channel scales with parallelism so parsers don't constantly block
     // on a saturated buffer. The writer is still single-threaded (SQLite
@@ -295,6 +361,7 @@ pub(crate) fn run_ingest(
     // The drain is fast — just a tight loop of enum moves — so the lock
     // is held only briefly.
     let drain_lock: Mutex<()> = Mutex::new(());
+    let projects_done = Arc::new(AtomicU32::new(0));
     let errors: Vec<IngestError> = pool.install(|| {
         slugs
             .par_iter()
@@ -316,6 +383,12 @@ pub(crate) fn run_ingest(
                     }
                 }
                 drop(_guard);
+
+                // Report progress per-project-complete. The granularity is
+                // coarse but matches what the callback contract promises,
+                // and it's sufficient for a progress bar / status line.
+                let done = projects_done.fetch_add(1, Ordering::Relaxed) + 1;
+                emit("parsing", done);
 
                 parse_result.err().map(|e| IngestError {
                     slug: slug.clone(),
@@ -349,6 +422,7 @@ pub(crate) fn run_ingest(
     }
 
     drop(sender);
+    emit("finalizing", projects_done.load(Ordering::Relaxed));
 
     let writer_stats: WriterStats = writer_handle
         .join()
@@ -480,7 +554,7 @@ mod tests {
             progress_interval_ms: None,
             parallelism: None,
         };
-        let err = run_ingest(&opts).expect_err("unknown mode must be rejected");
+        let err = run_ingest(&opts, None).expect_err("unknown mode must be rejected");
         assert!(matches!(err, IngestInternalError::UnsupportedMode(_)));
     }
 
@@ -500,7 +574,7 @@ mod tests {
 
         // DB doesn't exist yet — warm mode should fall through to a cold
         // ingest rather than error.
-        let stats = run_ingest(&opts).expect("warm ingest against fresh DB should succeed");
+        let stats = run_ingest(&opts, None).expect("warm ingest against fresh DB should succeed");
         assert_eq!(stats.projects_processed, 1);
         assert_eq!(stats.messages_written, 2);
     }
@@ -519,7 +593,7 @@ mod tests {
             progress_interval_ms: None,
             parallelism: None,
         };
-        let first = run_ingest(&first_opts).expect("cold ingest should succeed");
+        let first = run_ingest(&first_opts, None).expect("cold ingest should succeed");
         assert_eq!(first.messages_written, 2);
 
         // Second pass — warm, fixture unchanged. Fast path should fire:
@@ -531,7 +605,7 @@ mod tests {
             progress_interval_ms: None,
             parallelism: None,
         };
-        let second = run_ingest(&warm_opts).expect("warm ingest should succeed");
+        let second = run_ingest(&warm_opts, None).expect("warm ingest should succeed");
         assert_eq!(second.projects_processed, 0);
         assert_eq!(second.sessions_processed, 0);
         assert_eq!(second.messages_written, 0);
@@ -547,7 +621,7 @@ mod tests {
             progress_interval_ms: None,
             parallelism: None,
         };
-        let err = run_ingest(&opts).expect_err("missing dir must error");
+        let err = run_ingest(&opts, None).expect_err("missing dir must error");
         assert!(matches!(err, IngestInternalError::ClaudeDirMissing(_)));
     }
 
@@ -562,7 +636,7 @@ mod tests {
             progress_interval_ms: None,
             parallelism: None,
         };
-        let stats = run_ingest(&opts).unwrap();
+        let stats = run_ingest(&opts, None).unwrap();
         assert_eq!(stats.projects_processed, 0);
         assert_eq!(stats.sessions_processed, 0);
         assert_eq!(stats.messages_written, 0);
@@ -583,7 +657,7 @@ mod tests {
             parallelism: None,
         };
 
-        let stats = run_ingest(&opts).expect("ingest should succeed");
+        let stats = run_ingest(&opts, None).expect("ingest should succeed");
         assert_eq!(stats.projects_processed, 1);
         assert_eq!(stats.sessions_processed, 1);
         assert_eq!(stats.messages_written, 2);
