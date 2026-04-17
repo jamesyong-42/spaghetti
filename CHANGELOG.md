@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.8](https://github.com/jamesyong-42/spaghetti/compare/spaghetti-v0.5.7...spaghetti-v0.5.8) (2026-04-17)
+
+
+### Bug Fixes
+
+* **napi:** populate created/modified/first_prompt on discovered sessions ([#22](https://github.com/jamesyong-42/spaghetti/issues/22)) ([c51892a](https://github.com/jamesyong-42/spaghetti/commit/c51892af3a316c9dbf72844b8ccfbd8757d00076))
+
 ## [0.5.7](https://github.com/jamesyong-42/spaghetti/compare/spaghetti-v0.5.6...spaghetti-v0.5.7) (2026-04-17)
 
 
