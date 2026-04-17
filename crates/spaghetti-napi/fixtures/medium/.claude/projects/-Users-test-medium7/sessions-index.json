@@ -1,0 +1,32 @@
+{
+  "version": 1,
+  "originalPath": "/Users/test/medium7",
+  "entries": [
+    {
+      "sessionId": "8da6f4ae-334f-ff54-f023-1a781681717f",
+      "fullPath": "/Users/jamesyong/Projects/project100/p008/spaghetti/crates/spaghetti-napi/fixtures/medium/.claude/projects/-Users-test-medium7/8da6f4ae-334f-ff54-f023-1a781681717f.jsonl",
+      "fileMtime": 1775001600000,
+      "firstPrompt": "Refactor the parser for clarity.",
+      "summary": "",
+      "messageCount": 6,
+      "created": "2026-04-01T00:00:00.000Z",
+      "modified": "2026-04-01T00:00:00.000Z",
+      "gitBranch": "main",
+      "projectPath": "/Users/test/medium7",
+      "isSidechain": true
+    },
+    {
+      "sessionId": "c129c678-2014-b7c2-1032-471f77d596a4",
+      "fullPath": "/Users/jamesyong/Projects/project100/p008/spaghetti/crates/spaghetti-napi/fixtures/medium/.claude/projects/-Users-test-medium7/c129c678-2014-b7c2-1032-471f77d596a4.jsonl",
+      "fileMtime": 1775001600000,
+      "firstPrompt": "Explain this function.",
+      "summary": "",
+      "messageCount": 8,
+      "created": "2026-04-01T00:00:00.000Z",
+      "modified": "2026-04-01T00:00:00.000Z",
+      "gitBranch": "main",
+      "projectPath": "/Users/test/medium7",
+      "isSidechain": false
+    }
+  ]
+}

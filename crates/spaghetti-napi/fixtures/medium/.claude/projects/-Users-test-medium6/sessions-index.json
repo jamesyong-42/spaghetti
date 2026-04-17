@@ -1,0 +1,32 @@
+{
+  "version": 1,
+  "originalPath": "/Users/test/medium6",
+  "entries": [
+    {
+      "sessionId": "0af779dd-ece4-cd4c-b3eb-ae924b672078",
+      "fullPath": "/Users/jamesyong/Projects/project100/p008/spaghetti/crates/spaghetti-napi/fixtures/medium/.claude/projects/-Users-test-medium6/0af779dd-ece4-cd4c-b3eb-ae924b672078.jsonl",
+      "fileMtime": 1775001600000,
+      "firstPrompt": "Exercise non-base variants.",
+      "summary": "",
+      "messageCount": 9,
+      "created": "2026-04-01T00:00:00.000Z",
+      "modified": "2026-04-01T00:00:00.000Z",
+      "gitBranch": "main",
+      "projectPath": "/Users/test/medium6",
+      "isSidechain": false
+    },
+    {
+      "sessionId": "d41be710-a7c8-3ad2-dc93-991aa504fd55",
+      "fullPath": "/Users/jamesyong/Projects/project100/p008/spaghetti/crates/spaghetti-napi/fixtures/medium/.claude/projects/-Users-test-medium6/d41be710-a7c8-3ad2-dc93-991aa504fd55.jsonl",
+      "fileMtime": 1775001600000,
+      "firstPrompt": "What changed in the last commit?",
+      "summary": "",
+      "messageCount": 10,
+      "created": "2026-04-01T00:00:00.000Z",
+      "modified": "2026-04-01T00:00:00.000Z",
+      "gitBranch": "main",
+      "projectPath": "/Users/test/medium6",
+      "isSidechain": false
+    }
+  ]
+}

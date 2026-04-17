@@ -1,0 +1,45 @@
+{
+  "version": 1,
+  "originalPath": "/Users/test/medium1",
+  "entries": [
+    {
+      "sessionId": "61997170-1955-b482-3ef5-09898c55bcdb",
+      "fullPath": "/Users/jamesyong/Projects/project100/p008/spaghetti/crates/spaghetti-napi/fixtures/medium/.claude/projects/-Users-test-medium1/61997170-1955-b482-3ef5-09898c55bcdb.jsonl",
+      "fileMtime": 1775001600000,
+      "firstPrompt": "Explain this function.",
+      "summary": "",
+      "messageCount": 12,
+      "created": "2026-04-01T00:00:00.000Z",
+      "modified": "2026-04-01T00:00:00.000Z",
+      "gitBranch": "main",
+      "projectPath": "/Users/test/medium1",
+      "isSidechain": false
+    },
+    {
+      "sessionId": "0ef54e45-ad9d-5f49-c29c-7e5f34d276b8",
+      "fullPath": "/Users/jamesyong/Projects/project100/p008/spaghetti/crates/spaghetti-napi/fixtures/medium/.claude/projects/-Users-test-medium1/0ef54e45-ad9d-5f49-c29c-7e5f34d276b8.jsonl",
+      "fileMtime": 1775001600000,
+      "firstPrompt": "Read /src/config.ts please.",
+      "summary": "",
+      "messageCount": 4,
+      "created": "2026-04-01T00:00:00.000Z",
+      "modified": "2026-04-01T00:00:00.000Z",
+      "gitBranch": "main",
+      "projectPath": "/Users/test/medium1",
+      "isSidechain": false
+    },
+    {
+      "sessionId": "f71de349-2c39-6291-b2b2-cfb2632bb910",
+      "fullPath": "/Users/jamesyong/Projects/project100/p008/spaghetti/crates/spaghetti-napi/fixtures/medium/.claude/projects/-Users-test-medium1/f71de349-2c39-6291-b2b2-cfb2632bb910.jsonl",
+      "fileMtime": 1775001600000,
+      "firstPrompt": "What is in this screenshot?",
+      "summary": "",
+      "messageCount": 4,
+      "created": "2026-04-01T00:00:00.000Z",
+      "modified": "2026-04-01T00:00:00.000Z",
+      "gitBranch": "main",
+      "projectPath": "/Users/test/medium1",
+      "isSidechain": false
+    }
+  ]
+}
