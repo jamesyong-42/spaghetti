@@ -12,6 +12,11 @@
  *   pnpm bench:ingest --runs 10 --parallelism 4 # specific parallelism
  *   pnpm bench:ingest --only rust               # skip the TS path
  *   pnpm bench:ingest --warmup 0                # skip warmup (default is 1)
+ *   pnpm bench:ingest --mode warm --only rust   # warm-start (0 changes) fast path
+ *
+ * `--mode warm` benchmarks the warm-start fast path: seeds the DB with
+ * one cold run, then measures subsequent warm ingests without modifying
+ * the fixture between runs. Only supported for --only rust.
  *
  * Exit codes:
  *   0 — bench completed.
@@ -38,6 +43,7 @@ const { values } = parseArgs({
     warmup: { type: 'string' },
     parallelism: { type: 'string' },
     only: { type: 'string' }, // 'rust' | 'ts'
+    mode: { type: 'string' }, // 'cold' | 'warm'
   },
 });
 
@@ -49,9 +55,20 @@ const runs = parseIntOrDie(values.runs ?? '3', 'runs');
 const warmup = parseIntOrDie(values.warmup ?? '1', 'warmup');
 const parallelism = values.parallelism ? parseIntOrDie(values.parallelism, 'parallelism') : undefined;
 const only = values.only as 'rust' | 'ts' | undefined;
+const mode = (values.mode ?? 'cold') as 'cold' | 'warm';
 
 if (only && only !== 'rust' && only !== 'ts') {
   console.error(`--only must be 'rust' or 'ts', got: ${only}`);
+  process.exit(2);
+}
+
+if (mode !== 'cold' && mode !== 'warm') {
+  console.error(`--mode must be 'cold' or 'warm', got: ${mode}`);
+  process.exit(2);
+}
+
+if (mode === 'warm' && only !== 'rust') {
+  console.error(`--mode warm requires --only rust (TS warm-start path is not exposed to this bench)`);
   process.exit(2);
 }
 
@@ -126,16 +143,28 @@ interface NativeAddon {
 }
 
 async function runRustOnce(dbPath: string): Promise<number> {
-  cleanDb(dbPath);
+  // Cold mode: fresh DB on every run. Warm mode: reuse the seeded DB.
+  if (mode === 'cold') cleanDb(dbPath);
   const native = require('@vibecook/spaghetti-sdk-native') as NativeAddon;
   const t0 = performance.now();
+  await native.ingest({
+    claudeDir: fixtureClaudeDir,
+    dbPath,
+    mode,
+    parallelism,
+  });
+  return performance.now() - t0;
+}
+
+async function seedWarmDb(dbPath: string): Promise<void> {
+  cleanDb(dbPath);
+  const native = require('@vibecook/spaghetti-sdk-native') as NativeAddon;
   await native.ingest({
     claudeDir: fixtureClaudeDir,
     dbPath,
     mode: 'cold',
     parallelism,
   });
-  return performance.now() - t0;
 }
 
 async function runTsOnce(dbPath: string): Promise<number> {
@@ -152,6 +181,13 @@ async function runBench(
   fn: (dbPath: string) => Promise<number>,
 ): Promise<Summary> {
   const dbPath = path.join(tmpdir(), `bench-ingest-${label.toLowerCase()}.db`);
+
+  // For warm mode we seed the DB with one cold run before any warm
+  // measurement can be meaningful.
+  if (mode === 'warm' && label === 'rust') {
+    await seedWarmDb(dbPath);
+  }
+
   for (let i = 0; i < warmup; i++) {
     await fn(dbPath);
   }
@@ -169,6 +205,7 @@ async function main(): Promise<void> {
   const native = require('@vibecook/spaghetti-sdk-native') as NativeAddon;
 
   console.log(`fixture:       ${fixtureClaudeDir}`);
+  console.log(`mode:          ${mode}`);
   console.log(`runs:          ${runs} (+ ${warmup} warmup)`);
   if (parallelism !== undefined) console.log(`parallelism:   ${parallelism}`);
   console.log(`native:        ${native.nativeVersion()}`);

@@ -210,6 +210,20 @@ ON CONFLICT(slug) DO UPDATE SET
 
 const SQL_UPDATE_SESSION_HAS_TASK: &str = "UPDATE sessions SET has_task = 1 WHERE id = ?";
 
+const SQL_INSERT_SOURCE_FILE: &str = r#"
+INSERT INTO source_files (path, mtime_ms, size, byte_position, category, project_slug, session_id)
+VALUES (?, ?, ?, ?, ?, ?, ?)
+ON CONFLICT(path) DO UPDATE SET
+  mtime_ms = excluded.mtime_ms,
+  size = excluded.size,
+  byte_position = excluded.byte_position,
+  category = excluded.category,
+  project_slug = excluded.project_slug,
+  session_id = excluded.session_id
+"#;
+
+const SQL_CLEAR_SOURCE_FILES: &str = "DELETE FROM source_files";
+
 // ═══════════════════════════════════════════════════════════════════════════
 // Writer
 // ═══════════════════════════════════════════════════════════════════════════
@@ -563,6 +577,47 @@ impl Writer {
                     self.rollback_transaction();
                 }
                 self.current_slug = None;
+            }
+
+            IngestEvent::ClearSourceFiles => {
+                if self.in_transaction {
+                    self.commit_transaction()?;
+                    self.stats.projects_processed = self.stats.projects_processed.saturating_add(1);
+                    self.current_slug = None;
+                }
+                self.conn.execute(SQL_CLEAR_SOURCE_FILES, [])?;
+            }
+
+            IngestEvent::Fingerprint {
+                path,
+                mtime_ms,
+                size,
+                byte_position,
+                category,
+                project_slug,
+                session_id,
+            } => {
+                // Fingerprints are orchestrator-emitted at the tail of the
+                // stream, after all per-project events. Commit any open
+                // project transaction first so fingerprints land in their
+                // own batch.
+                if self.in_transaction {
+                    self.commit_transaction()?;
+                    self.stats.projects_processed = self.stats.projects_processed.saturating_add(1);
+                    self.current_slug = None;
+                }
+                self.conn.execute(
+                    SQL_INSERT_SOURCE_FILE,
+                    params![
+                        path,
+                        mtime_ms,
+                        size as i64,
+                        byte_position.map(|b| b as i64),
+                        category,
+                        project_slug,
+                        session_id,
+                    ],
+                )?;
             }
         }
 

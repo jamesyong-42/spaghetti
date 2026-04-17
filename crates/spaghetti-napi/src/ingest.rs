@@ -33,6 +33,7 @@
 //!
 //! Populated in RFC 003 commit 1.7.
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::time::Instant;
@@ -41,7 +42,9 @@ use crossbeam_channel::{bounded, unbounded};
 use napi::bindgen_prelude::{AsyncTask, Env, Error, Result, Status, Task};
 use napi_derive::napi;
 use rayon::prelude::*;
+use rusqlite::{Connection, OpenFlags};
 
+use crate::fingerprint::{self, FingerprintStore, SourceFingerprint};
 use crate::parse_sink::IngestEvent;
 use crate::project_parser::ProjectParser;
 use crate::writer::{Writer, WriterStats};
@@ -159,7 +162,7 @@ fn resolve_parallelism(requested: Option<u32>) -> usize {
 /// per-project errors are reported via `IngestStats.errors`.
 #[derive(Debug, thiserror::Error)]
 pub enum IngestInternalError {
-    #[error("unsupported ingest mode: {0}; only 'cold' is implemented")]
+    #[error("unsupported ingest mode: {0}; expected 'cold' or 'warm'")]
     UnsupportedMode(String),
 
     #[error("claude_dir not found or not a directory: {0}")]
@@ -171,21 +174,36 @@ pub enum IngestInternalError {
     #[error("writer error: {0}")]
     Writer(#[from] crate::writer::WriterError),
 
+    #[error("fingerprint error: {0}")]
+    Fingerprint(#[from] crate::fingerprint::FingerprintError),
+
+    #[error("sqlite error: {0}")]
+    Sqlite(#[from] rusqlite::Error),
+
     #[error("writer thread panicked")]
     WriterPanic,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Mode {
+    Cold,
+    Warm,
 }
 
 /// Resolve the owned / defaulted version of `IngestOptions` for internal use.
 struct ResolvedOptions {
     claude_dir: PathBuf,
     db_path: PathBuf,
+    mode: Mode,
 }
 
 impl ResolvedOptions {
     fn from(opts: &IngestOptions) -> std::result::Result<Self, IngestInternalError> {
-        if opts.mode != "cold" {
-            return Err(IngestInternalError::UnsupportedMode(opts.mode.clone()));
-        }
+        let mode = match opts.mode.as_str() {
+            "cold" => Mode::Cold,
+            "warm" => Mode::Warm,
+            other => return Err(IngestInternalError::UnsupportedMode(other.to_string())),
+        };
         let claude_dir = PathBuf::from(&opts.claude_dir);
         if !claude_dir.is_dir() {
             return Err(IngestInternalError::ClaudeDirMissing(claude_dir));
@@ -193,16 +211,32 @@ impl ResolvedOptions {
         Ok(Self {
             claude_dir,
             db_path: PathBuf::from(&opts.db_path),
+            mode,
         })
     }
 }
 
-/// Run a full cold ingest synchronously. Visible to integration tests.
+/// Run an ingest synchronously. Visible to integration tests.
+///
+/// On `Mode::Warm`: stat-checks the claude dir against the stored
+/// fingerprints first. If nothing changed, returns empty stats
+/// immediately (this is the common case — opening the app with a fresh
+/// ~/.claude). If anything changed, falls through to a full re-ingest
+/// (cold path). Future work (Phase 2 perf) may incrementalise the
+/// N-changes case to touch only affected projects.
 pub(crate) fn run_ingest(
     opts: &IngestOptions,
 ) -> std::result::Result<IngestStats, IngestInternalError> {
     let start = Instant::now();
     let resolved = ResolvedOptions::from(opts)?;
+
+    // Warm-start fast path: nothing changed since last ingest → return.
+    if resolved.mode == Mode::Warm && warm_has_no_changes(&resolved)? {
+        return Ok(IngestStats {
+            duration_ms: u32::try_from(start.elapsed().as_millis()).unwrap_or(u32::MAX),
+            ..IngestStats::default()
+        });
+    }
 
     let slugs = scan_project_slugs(&resolved.claude_dir)?;
     let parallelism = resolve_parallelism(opts.parallelism);
@@ -290,6 +324,30 @@ pub(crate) fn run_ingest(
             })
             .collect()
     });
+
+    // Emit fingerprints for every tracked file we saw. The writer clears
+    // source_files first so stale fingerprints from prior runs (for files
+    // that no longer exist) don't linger. `compute_diff` with an empty
+    // store returns every discovered file in `added`, which is exactly
+    // the set we need to fingerprint.
+    let empty_store: HashMap<String, SourceFingerprint> = HashMap::new();
+    let diff = fingerprint::compute_diff(&resolved.claude_dir, &empty_store)?;
+    let _ = sender.send(IngestEvent::ClearSourceFiles);
+    for discovered in diff.added {
+        let ev = IngestEvent::Fingerprint {
+            path: discovered.path,
+            mtime_ms: discovered.mtime_ms,
+            size: discovered.size,
+            byte_position: None,
+            category: discovered.category,
+            project_slug: discovered.project_slug,
+            session_id: discovered.session_id,
+        };
+        if sender.send(ev).is_err() {
+            break;
+        }
+    }
+
     drop(sender);
 
     let writer_stats: WriterStats = writer_handle
@@ -306,6 +364,37 @@ pub(crate) fn run_ingest(
         subagents_written: writer_stats.subagents_written,
         errors,
     })
+}
+
+/// Warm-start pre-check: read the stored `source_files` fingerprints
+/// and diff them against the current filesystem state. Returns `true`
+/// iff nothing changed (no added, no modified, no deleted files).
+///
+/// Opens a short-lived read-only connection so this runs on the calling
+/// thread without conflicting with the writer thread (which hasn't
+/// started yet). If the DB file doesn't exist or can't be opened, treat
+/// as "has changes" so the caller falls through to a full cold ingest.
+fn warm_has_no_changes(
+    resolved: &ResolvedOptions,
+) -> std::result::Result<bool, IngestInternalError> {
+    if !resolved.db_path.exists() {
+        return Ok(false);
+    }
+
+    let conn = Connection::open_with_flags(
+        &resolved.db_path,
+        OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
+    )?;
+
+    let store = FingerprintStore::new(&conn);
+    let stored = match store.load_all() {
+        Ok(s) if s.is_empty() => return Ok(false), // nothing persisted yet
+        Ok(s) => s,
+        Err(_) => return Ok(false), // treat any read failure as "has changes"
+    };
+
+    let diff = fingerprint::compute_diff(&resolved.claude_dir, &stored)?;
+    Ok(diff.added.is_empty() && diff.modified.is_empty() && diff.deleted.is_empty())
 }
 
 /// List immediate subdirectories of `<claude_dir>/projects/`. Each dir
@@ -383,16 +472,70 @@ mod tests {
     }
 
     #[test]
-    fn rejects_unsupported_warm_mode() {
+    fn rejects_unsupported_mode() {
         let opts = IngestOptions {
             claude_dir: "/tmp".into(),
             db_path: "/tmp/out.db".into(),
+            mode: "incremental".into(),
+            progress_interval_ms: None,
+            parallelism: None,
+        };
+        let err = run_ingest(&opts).expect_err("unknown mode must be rejected");
+        assert!(matches!(err, IngestInternalError::UnsupportedMode(_)));
+    }
+
+    #[test]
+    fn warm_mode_with_no_existing_db_falls_through_to_full_ingest() {
+        let claude = fake_claude_dir();
+        let db_dir = TempDir::new().unwrap();
+        let db = db_dir.path().join("spaghetti.db");
+
+        let opts = IngestOptions {
+            claude_dir: claude.path().to_string_lossy().into(),
+            db_path: db.to_string_lossy().into(),
             mode: "warm".into(),
             progress_interval_ms: None,
             parallelism: None,
         };
-        let err = run_ingest(&opts).expect_err("warm mode must be rejected");
-        assert!(matches!(err, IngestInternalError::UnsupportedMode(_)));
+
+        // DB doesn't exist yet — warm mode should fall through to a cold
+        // ingest rather than error.
+        let stats = run_ingest(&opts).expect("warm ingest against fresh DB should succeed");
+        assert_eq!(stats.projects_processed, 1);
+        assert_eq!(stats.messages_written, 2);
+    }
+
+    #[test]
+    fn warm_mode_repeat_with_no_changes_is_a_noop() {
+        let claude = fake_claude_dir();
+        let db_dir = TempDir::new().unwrap();
+        let db = db_dir.path().join("spaghetti.db");
+
+        // First pass — populate the DB and source_files fingerprints.
+        let first_opts = IngestOptions {
+            claude_dir: claude.path().to_string_lossy().into(),
+            db_path: db.to_string_lossy().into(),
+            mode: "cold".into(),
+            progress_interval_ms: None,
+            parallelism: None,
+        };
+        let first = run_ingest(&first_opts).expect("cold ingest should succeed");
+        assert_eq!(first.messages_written, 2);
+
+        // Second pass — warm, fixture unchanged. Fast path should fire:
+        // zero work reported in stats.
+        let warm_opts = IngestOptions {
+            claude_dir: claude.path().to_string_lossy().into(),
+            db_path: db.to_string_lossy().into(),
+            mode: "warm".into(),
+            progress_interval_ms: None,
+            parallelism: None,
+        };
+        let second = run_ingest(&warm_opts).expect("warm ingest should succeed");
+        assert_eq!(second.projects_processed, 0);
+        assert_eq!(second.sessions_processed, 0);
+        assert_eq!(second.messages_written, 0);
+        assert!(second.errors.is_empty());
     }
 
     #[test]
