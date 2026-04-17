@@ -44,6 +44,10 @@ class SpaghettiAppService extends EventEmitter implements SpaghettiAPI {
     this.dataService.shutdown();
   }
 
+  async rebuildIndex(): Promise<{ durationMs: number }> {
+    return await this.dataService.rebuildIndex();
+  }
+
   isReady(): boolean {
     return this.dataService.isReady();
   }

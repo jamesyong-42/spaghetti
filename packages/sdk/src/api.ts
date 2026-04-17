@@ -77,6 +77,14 @@ export interface SpaghettiAPI {
   /** Shut down watchers and close the database */
   shutdown(): void;
 
+  /**
+   * Force a full cold rebuild of the index. Closes the DB, deletes its
+   * files, and re-ingests from scratch via the native Rust path (with
+   * TS fallback). Useful when the index looks out of sync with
+   * `~/.claude` or after a schema bump.
+   */
+  rebuildIndex(): Promise<{ durationMs: number }>;
+
   /** Whether the service is ready to accept queries */
   isReady(): boolean;
 

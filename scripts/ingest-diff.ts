@@ -95,6 +95,12 @@ for (const p of [tsDbPath, rustDbPath]) {
 async function runTsIngest(): Promise<{ durationMs: number }> {
   const start = Date.now();
 
+  // Phase 4: the SDK defaults to the native ingest path. Force the TS
+  // fallback so this "TS" side of the diff actually exercises the TS
+  // code — otherwise we'd be diffing Rust-vs-Rust.
+  const prior = process.env.SPAG_NATIVE_INGEST;
+  process.env.SPAG_NATIVE_INGEST = '0';
+
   // Quieten the SDK's progress emitter — it's useful in the CLI but noisy
   // in CI logs. Consumers can opt in with VERBOSE=1.
   const verbose = process.env.VERBOSE === '1';
@@ -114,6 +120,10 @@ async function runTsIngest(): Promise<{ durationMs: number }> {
 
   await svc.initialize();
   svc.shutdown();
+
+  // Restore the caller's env var so other code paths behave normally.
+  if (prior === undefined) delete process.env.SPAG_NATIVE_INGEST;
+  else process.env.SPAG_NATIVE_INGEST = prior;
 
   return { durationMs: Date.now() - start };
 }

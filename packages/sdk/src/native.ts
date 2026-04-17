@@ -1,22 +1,39 @@
 /**
- * Native addon loader — optional @vibecook/spaghetti-sdk-native.
+ * Native addon loader — `@vibecook/spaghetti-sdk-native`.
  *
  * The Rust ingest core (RFC 003) ships as a separate native addon. This
- * module loads it opportunistically: if the addon is missing, fails to
- * load, or the SPAG_NATIVE_INGEST feature flag is off, the SDK falls
- * back to the pure-TypeScript ingest path.
+ * module loads it opportunistically: if the addon is missing or fails
+ * to load (unsupported platform, broken install), the SDK falls back
+ * to the pure-TypeScript ingest path.
  *
- * The native API surface grows in later phases. For now, the only export
- * is nativeVersion() — enough to smoke-test loading on each platform.
+ * As of Phase 4 (cutover, 0.7.0) the native path is the **default** —
+ * set `SPAG_NATIVE_INGEST=0` to force the TS path.
  */
 
 import { createRequire } from 'node:module';
 
+export interface NativeIngestOptions {
+  claudeDir: string;
+  dbPath: string;
+  mode: 'cold' | 'warm';
+  parallelism?: number;
+  progressIntervalMs?: number;
+}
+
+export interface NativeIngestStats {
+  durationMs: number;
+  projectsProcessed: number;
+  sessionsProcessed: number;
+  messagesWritten: number;
+  subagentsWritten: number;
+  errors: Array<{ slug: string; message: string }>;
+}
+
 export interface NativeAddon {
   /** Returns the semver of the loaded native addon. */
   nativeVersion(): string;
-  // Phase 1 will add:
-  //   ingest(opts: IngestOptions, onProgress?: ProgressCallback): Promise<IngestStats>;
+  /** Run a full ingest and resolve to the stats. */
+  ingest(opts: NativeIngestOptions): Promise<NativeIngestStats>;
 }
 
 let cached: NativeAddon | null | undefined;
@@ -40,11 +57,16 @@ export function loadNativeAddon(): NativeAddon | null {
 }
 
 /**
- * Whether the caller has opted into the native ingest path via env var.
+ * Whether the native ingest path is enabled.
  *
- * Default is false (TS path) until the native ingest is stabilized and
- * Phase 4 flips the default.
+ * - Default: **on**. Returns true unless `SPAG_NATIVE_INGEST=0` is set.
+ * - `SPAG_NATIVE_INGEST=1` → on (explicit)
+ * - `SPAG_NATIVE_INGEST=0` → off (forces the pure-TS fallback)
+ *
+ * If the addon itself is missing or fails to load, the SDK falls back
+ * to the TS path regardless of this setting. This helper only gates the
+ * *preference*; actual resolution is `isNativeIngestEnabled() && loadNativeAddon() !== null`.
  */
 export function isNativeIngestEnabled(): boolean {
-  return process.env.SPAG_NATIVE_INGEST === '1';
+  return process.env.SPAG_NATIVE_INGEST !== '0';
 }

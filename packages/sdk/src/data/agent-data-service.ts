@@ -73,6 +73,8 @@ export type { TokenUsageSummary, SessionSummaryData, ProjectSummaryData } from '
 export interface ClaudeCodeAgentDataService extends EventEmitter {
   initialize(): Promise<void>;
   shutdown(): void;
+  /** Force a full cold rebuild — wipes the DB file and re-ingests. */
+  rebuildIndex(): Promise<{ durationMs: number }>;
   isReady(): boolean;
 
   getSegment<T>(key: SegmentKey): Segment<T> | null;
@@ -176,19 +178,6 @@ export class AgentDataServiceImpl extends EventEmitter implements ClaudeCodeAgen
   async initialize(): Promise<void> {
     const startTime = Date.now();
 
-    // RFC 003 Phase 0: smoke-test the native addon when the feature flag is
-    // on. Real ingest integration lands in Phase 4 (cutover). For now we
-    // just log that we saw it, so you can verify prebuilds load on each
-    // platform. The TS path always runs regardless.
-    if (isNativeIngestEnabled()) {
-      const native = loadNativeAddon();
-      if (native) {
-        console.log(`[spaghetti-sdk] native addon loaded: ${native.nativeVersion()}`);
-      } else {
-        console.log('[spaghetti-sdk] SPAG_NATIVE_INGEST=1 but native addon unavailable; using TS path');
-      }
-    }
-
     try {
       // Ensure the DB directory exists
       const dbDir = path.dirname(this.dbPath);
@@ -196,22 +185,19 @@ export class AgentDataServiceImpl extends EventEmitter implements ClaudeCodeAgen
         mkdirSync(dbDir, { recursive: true });
       }
 
-      // Open both services (they share the same DB path)
-      this.emitProgress('parsing', 'Opening database...');
-      this.queryService.open(this.dbPath);
-      this.ingestService.open(this.dbPath);
+      // RFC 003 Phase 4 cutover: use the Rust ingest core when available.
+      // Falls back to the TS ingest path if the addon is missing or the
+      // feature flag is explicitly off (`SPAG_NATIVE_INGEST=0`).
+      const native = isNativeIngestEnabled() ? loadNativeAddon() : null;
 
-      // Check if this is a cold start or warm start
-      const fingerprints = this.ingestService.getAllFingerprints();
-      const isColdStart = fingerprints.length === 0;
-
-      if (isColdStart) {
-        await this.performColdStart();
+      if (native) {
+        await this.initializeWithNative(native);
       } else {
-        await this.performWarmStart(fingerprints);
+        await this.initializeWithTypeScript();
       }
 
-      // Parse config and analytics (small data, always sync)
+      // Parse config and analytics (small data, always sync — not covered
+      // by the native ingest yet).
       this.emitProgress('parsing', 'Parsing config and analytics...');
       const fullData = this.parser.parseSync({
         claudeDir: this.claudeDir,
@@ -228,6 +214,94 @@ export class AgentDataServiceImpl extends EventEmitter implements ClaudeCodeAgen
       this.emit('error', { error: error instanceof Error ? error.message : String(error) });
       throw error;
     }
+  }
+
+  /**
+   * Native-ingest path: delegate the heavy lifting to `@vibecook/spaghetti-sdk-native`.
+   *
+   * The native addon runs the full cold/warm ingest in Rust on its own
+   * write connection, then closes cleanly. We open read + write services
+   * against the same DB file afterwards for subsequent queries and any
+   * live update writes (hooks, channel messages, etc.).
+   *
+   * We always pass `mode: 'warm'` — the Rust orchestrator self-detects
+   * a missing/empty DB and falls through to a full cold ingest, so
+   * callers don't have to pre-check.
+   */
+  private async initializeWithNative(native: NonNullable<ReturnType<typeof loadNativeAddon>>): Promise<void> {
+    this.emitProgress('parsing', `Running native ingest (${native.nativeVersion()})...`);
+
+    await native.ingest({
+      claudeDir: this.claudeDir,
+      dbPath: this.dbPath,
+      mode: 'warm',
+    });
+
+    // Open both services against the (now-populated) DB. The ingest
+    // service stays open for post-init writes like hook-event appends;
+    // the query service serves reads.
+    this.queryService.open(this.dbPath);
+    this.ingestService.open(this.dbPath);
+  }
+
+  /**
+   * Fallback TS-ingest path. Used when the native addon isn't installed
+   * or when `SPAG_NATIVE_INGEST=0`.
+   */
+  private async initializeWithTypeScript(): Promise<void> {
+    this.emitProgress('parsing', 'Opening database...');
+    this.queryService.open(this.dbPath);
+    this.ingestService.open(this.dbPath);
+
+    const fingerprints = this.ingestService.getAllFingerprints();
+    const isColdStart = fingerprints.length === 0;
+
+    if (isColdStart) {
+      await this.performColdStart();
+    } else {
+      await this.performWarmStart(fingerprints);
+    }
+  }
+
+  /**
+   * Force a full cold rebuild of the index.
+   *
+   * Closes any open write connection, deletes the SQLite file, then
+   * re-ingests from scratch. Callable from the UI (e.g. a "rebuild
+   * index" command) when the user suspects their DB is out of sync
+   * with `~/.claude` — or when a schema bump requires a clean slate.
+   *
+   * Uses the native path when available; falls back to deleting + re-
+   * invoking the TS ingest otherwise.
+   */
+  async rebuildIndex(): Promise<{ durationMs: number }> {
+    const start = Date.now();
+
+    // Close any open connections so we can safely delete the file.
+    this.queryService.close();
+    this.ingestService.close();
+    this.ready = false;
+
+    // Delete the DB and its WAL side-files.
+    for (const suffix of ['', '-wal', '-shm', '-journal']) {
+      const p = this.dbPath + suffix;
+      if (existsSync(p)) {
+        try {
+          // Use rmSync via require('fs') to avoid adding a new top-level import.
+          // eslint-disable-next-line @typescript-eslint/no-require-imports
+          const fs = require('node:fs') as typeof import('node:fs');
+          fs.rmSync(p, { force: true });
+        } catch {
+          // Best-effort: if we can't remove a leftover side-file, ingest
+          // will still succeed against the main file.
+        }
+      }
+    }
+
+    // Re-initialize from scratch.
+    await this.initialize();
+
+    return { durationMs: Date.now() - start };
   }
 
   private async performColdStart(): Promise<void> {
