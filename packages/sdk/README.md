@@ -44,7 +44,13 @@ spaghetti.shutdown();
 |---|---|---|---|
 | `claudeDir` | `string` | `~/.claude` | Source directory to parse. |
 | `dbPath` | `string` | `~/.spaghetti/cache/spaghetti-{rs,ts}.db` | SQLite index path. Default varies by engine so switching engines doesn't force a re-ingest. |
+| `engine` | `'rs' \| 'ts'` | resolved via [Engine selection](#engine-selection) | Pin the ingest engine for this service. Takes precedence over the process-wide `SPAG_ENGINE` env var and the persisted `~/.spaghetti/config.json` setting — useful when an app wants its own engine preference independent of the user's shell/config. |
 | `dataService` | `ClaudeCodeAgentDataService` | — | Inject a custom/mock implementation (testing). |
+
+```ts
+// Pin the engine for this service without mutating global state.
+const svc = createSpaghettiService({ engine: 'rs', dbPath: '/tmp/my-index.db' });
+```
 
 Two instances in the same process can point at different `claudeDir`s as long as each has its own `dbPath` — same DB file from two services risks `SQLITE_BUSY`.
 
@@ -59,6 +65,7 @@ Two instances in the same process can point at different `claudeDir`s as long as
 - `getSessionSubagents(projectSlug, sessionId)`
 - `search(query)`
 - `getStats()`
+- `rebuildIndex()`
 - `onProgress()` / `onReady()` / `onChange()`
 
 ## React components

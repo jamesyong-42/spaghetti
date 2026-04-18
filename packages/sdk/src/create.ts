@@ -13,6 +13,7 @@ import { createIngestService } from './data/ingest-service.js';
 import { AgentDataServiceImpl } from './data/agent-data-service.js';
 import type { SpaghettiAPI } from './api.js';
 import type { ClaudeCodeAgentDataService, AgentDataServiceOptions } from './data/agent-data-service.js';
+import type { IngestEngine } from './settings.js';
 
 export interface SpaghettiServiceOptions {
   /** Override the data service implementation (for testing or custom setups) */
@@ -21,6 +22,14 @@ export interface SpaghettiServiceOptions {
   dbPath?: string;
   /** Override the Claude data directory (defaults to ~/.claude) */
   claudeDir?: string;
+  /**
+   * Pin the ingest engine for this service. When set, takes precedence
+   * over the process-wide `SPAG_ENGINE` env var and the persisted
+   * `~/.spaghetti/config.json` engine setting — useful when an app wants
+   * to carry its own engine preference independent of the shared
+   * user-level config.
+   */
+  engine?: IngestEngine;
 }
 
 /**
@@ -52,6 +61,7 @@ export function createSpaghettiService(options?: SpaghettiServiceOptions): Spagh
   const dataServiceOptions: AgentDataServiceOptions = {};
   if (options?.dbPath) dataServiceOptions.dbPath = options.dbPath;
   if (options?.claudeDir) dataServiceOptions.claudeDir = options.claudeDir;
+  if (options?.engine) dataServiceOptions.engine = options.engine;
 
   const dataService = new AgentDataServiceImpl(fileService, parser, queryService, ingestService, dataServiceOptions);
 
