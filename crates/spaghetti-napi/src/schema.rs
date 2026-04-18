@@ -208,12 +208,51 @@ const CURRENT_TABLES: &[&str] = &[
 /// already gone from a partial legacy state.
 const CURRENT_TRIGGERS: &[&str] = &["messages_ai", "messages_ad", "messages_au"];
 
+/// FTS auto-sync trigger DDL, extracted so bulk-ingest can drop and
+/// recreate them around a high-volume INSERT run. Must stay byte-identical
+/// to the trigger block embedded in [`SCHEMA_SQL`] above.
+const FTS_TRIGGERS_SQL: &str = r#"
+CREATE TRIGGER IF NOT EXISTS messages_ai AFTER INSERT ON messages BEGIN
+  INSERT INTO search_fts(rowid, text_content) VALUES (new.id, new.text_content);
+END;
+CREATE TRIGGER IF NOT EXISTS messages_ad AFTER DELETE ON messages BEGIN
+  INSERT INTO search_fts(search_fts, rowid, text_content) VALUES ('delete', old.id, old.text_content);
+END;
+CREATE TRIGGER IF NOT EXISTS messages_au AFTER UPDATE ON messages BEGIN
+  INSERT INTO search_fts(search_fts, rowid, text_content) VALUES ('delete', old.id, old.text_content);
+  INSERT INTO search_fts(rowid, text_content) VALUES (new.id, new.text_content);
+END;
+"#;
+
 /// Errors produced by the schema module.
 #[derive(Debug, Error)]
 pub enum SchemaError {
     /// An underlying SQLite error occurred.
     #[error("sqlite error: {0}")]
     Sqlite(#[from] rusqlite::Error),
+}
+
+/// Drop the three `messages_*` auto-sync triggers. The FTS index keeps
+/// its content until [`rebuild_fts_and_recreate_triggers`] repopulates it.
+/// Called at the start of a bulk ingest so per-row trigger firing does
+/// not dominate the INSERT hot loop.
+pub fn drop_fts_triggers(conn: &Connection) -> Result<(), SchemaError> {
+    for trigger in CURRENT_TRIGGERS {
+        conn.execute_batch(&format!("DROP TRIGGER IF EXISTS {trigger}"))?;
+    }
+    Ok(())
+}
+
+/// Rebuild `search_fts` from its content table (`messages`) via the FTS5
+/// `'rebuild'` command, then recreate the auto-sync triggers so warm-start
+/// incremental writes stay in sync. Pairs with [`drop_fts_triggers`] —
+/// every bulk ingest that drops triggers must call this before releasing
+/// the connection, otherwise the FTS index will silently diverge from
+/// `messages`.
+pub fn rebuild_fts_and_recreate_triggers(conn: &Connection) -> Result<(), SchemaError> {
+    conn.execute_batch("INSERT INTO search_fts(search_fts) VALUES('rebuild')")?;
+    conn.execute_batch(FTS_TRIGGERS_SQL)?;
+    Ok(())
 }
 
 /// Apply the connection-level PRAGMAs that the TS `SqliteService` sets on
