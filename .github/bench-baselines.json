@@ -1,0 +1,4 @@
+{
+  "cold_start_ms_p50": { "target": null, "regression_threshold_pct": 40 },
+  "warm_start_ms_p50": { "target": null, "regression_threshold_pct": 100 }
+}

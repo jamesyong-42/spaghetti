@@ -388,7 +388,26 @@ pnpm test:ingest-diff:medium                                          # medium f
 pnpm bench:ingest                                                     # committed small fixture, both paths
 pnpm bench:ingest --fixture ~/.claude --only rust --mode cold --runs 5
 pnpm bench:ingest --fixture ~/.claude --only rust --mode warm
+
+# Machine-readable report + regression check (used by CI):
+pnpm bench:ingest --fixture <...> --only rust --mode cold \
+  --report-json /tmp/bench.json \
+  --compare-to .github/bench-baselines.json
 ```
+
+A **CI perf gate** (`.github/workflows/bench-gate.yml`) runs on every PR and
+weekly on `main`. It generates a scale-50 bench fixture (~35k messages) via
+`scripts/generate-medium-fixture.mjs --scale 50`, runs cold + warm Rust
+ingest, and compares the cold median against the floor in
+`.github/bench-baselines.json`. The gate fails if the median regresses past
+that entry's `regression_threshold_pct`.
+
+To **update baselines** after a perf change (either a win you want to lock
+in, or after runner-class drift): edit `.github/bench-baselines.json` →
+commit → the next CI run becomes the new floor. A `target` of `null` means
+"no baseline yet, skip comparison" — used on the first merged PR before real
+numbers exist. The artifact `bench-reports` attached to each workflow run
+contains the raw `/tmp/bench-{cold,warm}.json` numbers for manual diff.
 
 Rust unit tests live in `crates/spaghetti-napi/src/**` and run via `cargo test --manifest-path crates/spaghetti-napi/Cargo.toml --lib`. CI enforces `cargo fmt --check` and `cargo clippy` in the `Rust check` job.
 

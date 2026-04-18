@@ -21,7 +21,14 @@
  * seed 43 and emits under fixtures/medium/.claude/.
  *
  * Usage:
- *   node scripts/generate-medium-fixture.mjs --out <path> [--seed 43]
+ *   node scripts/generate-medium-fixture.mjs --out <path> [--seed 43] [--scale 1]
+ *
+ * --scale N (default 1):
+ *   Multiplies the fixture size for CI perf-gate use. Scale=1 reproduces the
+ *   committed medium fixture byte-for-byte (same RNG consumption order).
+ *   Scale>1 appends additional sessions AFTER the existing project 9 loop
+ *   AND an extra "bulk" project after project 9, so the scale=1 stream is
+ *   untouched. Target: --scale 50 → ~35k messages / ~50MB.
  */
 import { createHash } from 'node:crypto';
 import { mkdirSync, writeFileSync, utimesSync } from 'node:fs';
@@ -34,11 +41,12 @@ const { values } = parseArgs({
   options: {
     out: { type: 'string' },
     seed: { type: 'string', default: '43' },
+    scale: { type: 'string', default: '1' },
   },
 });
 
 if (!values.out) {
-  console.error('Usage: generate-medium-fixture.mjs --out <path> [--seed 43]');
+  console.error('Usage: generate-medium-fixture.mjs --out <path> [--seed 43] [--scale 1]');
   process.exit(2);
 }
 
@@ -46,6 +54,11 @@ const OUT = path.resolve(values.out);
 const SEED = Number.parseInt(values.seed, 10);
 if (!Number.isFinite(SEED)) {
   console.error(`bad --seed value: ${values.seed}`);
+  process.exit(2);
+}
+const SCALE = Number.parseInt(values.scale, 10);
+if (!Number.isFinite(SCALE) || SCALE < 1) {
+  console.error(`bad --scale value: ${values.scale} (must be integer >= 1)`);
   process.exit(2);
 }
 
@@ -1021,6 +1034,22 @@ const project9 = writeProject(8, (projectDir, _slug, originalPath) => {
   // generator output stable: if you tune these numbers, regenerate both
   // the fixture tree and the README summary table together.
   for (let k = 0; k < 14; k++) {
+    const sessionId = nextUuid();
+    sessionIds.push(sessionId);
+    const { lines } = buildRealisticSessionLines(sessionId, pickInt(32, 52));
+    const jsonl = writeSession(projectDir, sessionId, lines);
+    entries.push(
+      buildSessionEntry(sessionId, jsonl, pickFirstPrompt(lines), lines.length, originalPath),
+    );
+  }
+
+  // ── --scale N extension (scale=1 is a no-op; byte-identical to committed) ──
+  // Appended AFTER the fixed 14-session loop so the RNG stream for scale=1
+  // stays exactly as it was. For scale>1, add (scale-1) * 28 extra realistic
+  // sessions to this project. The multiplier of 28 targets ~50MB at
+  // scale=50 (the CI bench value). Scale=1 still produces zero extra work.
+  const extraSessions = (SCALE - 1) * 28;
+  for (let k = 0; k < extraSessions; k++) {
     const sessionId = nextUuid();
     sessionIds.push(sessionId);
     const { lines } = buildRealisticSessionLines(sessionId, pickInt(32, 52));
