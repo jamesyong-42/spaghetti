@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.11](https://github.com/jamesyong-42/spaghetti/compare/spaghetti-v0.5.10...spaghetti-v0.5.11) (2026-04-18)
+
+
+### Features
+
+* **sdk:** add per-instance engine option to createSpaghettiService ([#31](https://github.com/jamesyong-42/spaghetti/issues/31)) ([9ffc941](https://github.com/jamesyong-42/spaghetti/commit/9ffc94138bb5f9dd6c4fbdd15d7ce00a47e52dbd))
+
 ## [0.5.10](https://github.com/jamesyong-42/spaghetti/compare/spaghetti-v0.5.9...spaghetti-v0.5.10) (2026-04-18)
 
 
