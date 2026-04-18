@@ -1,6 +1,6 @@
 [package]
 name = "spaghetti-napi"
-version = "0.5.11" # x-release-please-version
+version = "0.5.12" # x-release-please-version
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
