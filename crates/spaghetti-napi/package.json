@@ -1,6 +1,6 @@
 {
   "name": "@vibecook/spaghetti-sdk-native",
-  "version": "0.5.8",
+  "version": "0.5.9",
   "description": "Native (Rust) ingest core for @vibecook/spaghetti-sdk",
   "main": "index.js",
   "types": "index.d.ts",
