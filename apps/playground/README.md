@@ -42,22 +42,29 @@ from source if the prebuild isn't available.
 ## Architecture
 
 ```
-┌──────────────┐   ipcMain.handle   ┌─────────────────┐
-│   renderer   │ ─────────────────▶ │      main       │
-│  React 19    │  window.spaghetti  │ SpaghettiService│
-│  SDK /react  │ ◀───── events ──── │ (~/.claude DB)  │
-└──────────────┘                    └─────────────────┘
-        ▲           contextBridge           ▲
-        │                                   │
-        └───── preload (typed) ─────────────┘
+┌──────────────┐   ipcMain.handle   ┌─────────────────────────┐
+│   renderer   │ ─────────────────▶ │         main            │
+│  React 19    │  window.spaghetti  │   SpaghettiService      │
+│  SDK /react  │ ◀───── events ──── │   source: ~/.claude     │
+└──────────────┘                    │   db: <userData>/cache  │
+        ▲           contextBridge   └────────────┬────────────┘
+        │                                        │
+        └─ preload (typed) ──────────────────────┘
 ```
 
-- **main** owns a single `SpaghettiService` (SQLite over `~/.claude`) and
-  forwards progress/ready/change events to all windows.
+- **main** owns a single `SpaghettiService`. Source data is read from
+  `~/.claude`; the SQLite index lives inside Electron's platform-specific
+  `userData` folder (`app.getPath('userData')/cache/spaghetti-<engine>.db`)
+  rather than the SDK's home-relative default, so the desktop app keeps
+  its data in the OS-sanctioned app-data location. Progress/ready/change
+  events are forwarded to all renderer windows.
 - **preload** exposes `window.spaghetti`, a typed surface defined in
-  `src/shared/ipc.ts` (one method per SDK query).
+  `src/shared/ipc.ts` (one method per SDK query + lifecycle/event helpers).
 - **renderer** uses `SpaghettiProvider` from `@vibecook/spaghetti-sdk/react`
-  fed by an IPC adapter (`src/renderer/src/ipc-api.ts`).
+  fed by an IPC adapter (`src/renderer/src/ipc-api.ts`). The shell
+  subscribes to `onChange` to live-update when `~/.claude` changes, shows
+  the active ingest engine (`rs` native vs `ts`) in the header, and
+  surfaces the SDK's `rebuildIndex()` via a toolbar button.
 
 ## Notes
 

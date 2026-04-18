@@ -47,6 +47,8 @@ export function createIpcApi(): SpaghettiAPI {
 
     isReady: () => false as boolean,
 
+    rebuildIndex: () => bridge.rebuildIndex() as unknown,
+
     getProjectList: () => bridge.getProjectList() as unknown,
     getSessionList: (projectSlug: string) => bridge.getSessionList(projectSlug) as unknown,
     getSessionMessages: (projectSlug: string, sessionId: string, limit?: number, offset?: number) =>

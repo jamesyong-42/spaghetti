@@ -10,10 +10,25 @@
 import { app, BrowserWindow, shell } from 'electron';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
+import { resolveEngine } from '@vibecook/spaghetti-sdk';
 import { registerIpcHandlers, wireEventForwarding } from './ipc-handlers.js';
 import { shutdownSdk } from './sdk.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
+
+/**
+ * Resolve the SQLite index path inside Electron's per-app `userData` folder,
+ * following the platform's conventions (macOS: `~/Library/Application
+ * Support/<app>`, Windows: `%APPDATA%/<app>`, Linux: `~/.config/<app>`).
+ *
+ * The filename includes the active ingest engine (rs|ts) so switching
+ * engines does not force a re-ingest, matching the SDK's `defaultDbPathForEngine`
+ * convention but scoped to the desktop app's private data dir.
+ */
+function resolvePlaygroundDbPath(): string {
+  const engine = resolveEngine();
+  return join(app.getPath('userData'), 'cache', `spaghetti-${engine}.db`);
+}
 
 function createWindow(): BrowserWindow {
   const win = new BrowserWindow({
@@ -55,11 +70,12 @@ function createWindow(): BrowserWindow {
 }
 
 void app.whenReady().then(async () => {
+  const dbPath = resolvePlaygroundDbPath();
   registerIpcHandlers();
 
   // Fire-and-forget: the renderer subscribes to progress/ready events on
   // load, so there's no reason to block window creation on SDK init.
-  void wireEventForwarding().catch((err) => {
+  void wireEventForwarding({ dbPath }).catch((err) => {
     console.error('[main] SDK initialization failed', err);
   });
 

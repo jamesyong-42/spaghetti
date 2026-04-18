@@ -36,6 +36,10 @@ export interface ReadyInfo {
 export interface SpaghettiIPC {
   // Lifecycle ---------------------------------------------------------------
   isReady(): Promise<boolean>;
+  /** Force a full cold rebuild of the index. */
+  rebuildIndex(): Promise<{ durationMs: number }>;
+  /** Resolved ingest engine: `'rs'` (native Rust) or `'ts'` (TypeScript). */
+  getEngine(): Promise<'rs' | 'ts'>;
 
   // Projects ----------------------------------------------------------------
   getProjectList(): Promise<ProjectListItem[]>;
@@ -79,6 +83,8 @@ export type SpaghettiBridge = SpaghettiIPC & SpaghettiEvents;
 // Channel names — single source of truth, shared between preload and main.
 export const IPC_CHANNELS = {
   isReady: 'spaghetti:isReady',
+  rebuildIndex: 'spaghetti:rebuildIndex',
+  getEngine: 'spaghetti:getEngine',
   getProjectList: 'spaghetti:getProjectList',
   getProjectMemory: 'spaghetti:getProjectMemory',
   getSessionList: 'spaghetti:getSessionList',

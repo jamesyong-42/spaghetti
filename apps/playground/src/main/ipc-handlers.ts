@@ -8,7 +8,7 @@
 
 import { BrowserWindow, ipcMain } from 'electron';
 import { EVENT_CHANNELS, IPC_CHANNELS } from '../shared/ipc.js';
-import { getSdk, initSdk } from './sdk.js';
+import { getEngine, getSdk, initSdk, type InitSdkOptions } from './sdk.js';
 
 function broadcast(channel: string, payload: unknown): void {
   for (const win of BrowserWindow.getAllWindows()) {
@@ -27,6 +27,8 @@ export function registerIpcHandlers(): void {
       return false;
     }
   });
+  ipcMain.handle(IPC_CHANNELS.rebuildIndex, () => getSdk().rebuildIndex());
+  ipcMain.handle(IPC_CHANNELS.getEngine, () => getEngine());
 
   // Projects ----------------------------------------------------------------
   ipcMain.handle(IPC_CHANNELS.getProjectList, () => getSdk().getProjectList());
@@ -72,8 +74,8 @@ export function registerIpcHandlers(): void {
  * initSdk() has resolved — or before, since SDK events are subscribed on the
  * SDK object returned from initSdk().
  */
-export async function wireEventForwarding(): Promise<void> {
-  const sdk = await initSdk();
+export async function wireEventForwarding(options: InitSdkOptions): Promise<void> {
+  const sdk = await initSdk(options);
 
   sdk.onProgress((progress) => broadcast(EVENT_CHANNELS.progress, progress));
   sdk.onReady((info) => broadcast(EVENT_CHANNELS.ready, info));

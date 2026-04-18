@@ -12,6 +12,8 @@ import { EVENT_CHANNELS, IPC_CHANNELS, type SpaghettiBridge } from '../shared/ip
 const bridge: SpaghettiBridge = {
   // Lifecycle ---------------------------------------------------------------
   isReady: () => ipcRenderer.invoke(IPC_CHANNELS.isReady),
+  rebuildIndex: () => ipcRenderer.invoke(IPC_CHANNELS.rebuildIndex),
+  getEngine: () => ipcRenderer.invoke(IPC_CHANNELS.getEngine),
 
   // Projects ----------------------------------------------------------------
   getProjectList: () => ipcRenderer.invoke(IPC_CHANNELS.getProjectList),
