@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.12](https://github.com/jamesyong-42/spaghetti/compare/spaghetti-v0.5.11...spaghetti-v0.5.12) (2026-04-18)
+
+
+### Features
+
+* **playground:** read engine from app-scoped settings.json ([#32](https://github.com/jamesyong-42/spaghetti/issues/32)) ([4a81a14](https://github.com/jamesyong-42/spaghetti/commit/4a81a14208135c6de9cfd12d77ce41a8ebc9f0b3))
+
 ## [0.5.11](https://github.com/jamesyong-42/spaghetti/compare/spaghetti-v0.5.10...spaghetti-v0.5.11) (2026-04-18)
 
 
