@@ -42,8 +42,8 @@ import type { IngestService } from './ingest-service.js';
 import type { ClaudeCodeParser } from '../parser/claude-code-parser.js';
 import type { FileService } from '../io/index.js';
 import { createWorkerPool, isWorkerThreadsAvailable, type WorkerToMainMessage } from '../workers/index.js';
-import { isNativeIngestEnabled, loadNativeAddon } from '../native.js';
-import { defaultDbPathForEngine, resolveEngine } from '../settings.js';
+import { loadNativeAddon } from '../native.js';
+import { defaultDbPathForEngine, resolveEngine, type IngestEngine } from '../settings.js';
 
 // Re-export types used by app-service
 export {
@@ -126,16 +126,24 @@ export interface ClaudeCodeAgentDataService extends EventEmitter {
 export interface AgentDataServiceOptions {
   dbPath?: string;
   claudeDir?: string;
+  /**
+   * Ingest engine to use for this service. When set, takes precedence over
+   * the process-wide `SPAG_ENGINE` env var and the persisted
+   * `~/.spaghetti/config.json` engine setting — useful for apps that want
+   * to carry their own engine preference without touching the shared
+   * user-level config.
+   */
+  engine?: IngestEngine;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
 // DEFAULT DB PATH
 // ═══════════════════════════════════════════════════════════════════════════
 
-function getDefaultDbPath(): string {
+function getDefaultDbPath(engine: IngestEngine): string {
   // Each ingest engine keeps its own DB file so switching engines
   // doesn't force a re-ingest, and results are comparable side-by-side.
-  return defaultDbPathForEngine(resolveEngine());
+  return defaultDbPathForEngine(engine);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -152,6 +160,14 @@ export class AgentDataServiceImpl extends EventEmitter implements ClaudeCodeAgen
   private ready = false;
   private dbPath: string;
   private claudeDir: string;
+  /**
+   * Engine selected for this service instance — explicit option if the
+   * caller provided one, otherwise the resolution chain in
+   * [`resolveEngine`](../settings.ts) (env vars → persisted config →
+   * default `rs`). Fixed at construction time so every `initialize()` and
+   * `rebuildIndex()` on this instance picks the same path.
+   */
+  private engine: IngestEngine;
 
   // Cached config/analytics (parsed once, small data)
   private cachedConfig: AgentConfig | null = null;
@@ -170,7 +186,8 @@ export class AgentDataServiceImpl extends EventEmitter implements ClaudeCodeAgen
     this.queryService = queryService;
     this.ingestService = ingestService;
     this.options = options ?? {};
-    this.dbPath = this.options.dbPath ?? getDefaultDbPath();
+    this.engine = this.options.engine ?? resolveEngine();
+    this.dbPath = this.options.dbPath ?? getDefaultDbPath(this.engine);
     this.claudeDir = this.options.claudeDir ?? path.join(os.homedir(), '.claude');
   }
 
@@ -188,10 +205,12 @@ export class AgentDataServiceImpl extends EventEmitter implements ClaudeCodeAgen
         mkdirSync(dbDir, { recursive: true });
       }
 
-      // RFC 003 Phase 4 cutover: use the Rust ingest core when available.
-      // Falls back to the TS ingest path if the addon is missing or the
-      // feature flag is explicitly off (`SPAG_NATIVE_INGEST=0`).
-      const native = isNativeIngestEnabled() ? loadNativeAddon() : null;
+      // Use the Rust ingest core when this instance is configured for the
+      // `rs` engine and the native addon loads; fall back to the TS path
+      // otherwise. The engine is fixed in the constructor (explicit option
+      // wins over env vars and the persisted config file), so `initialize()`
+      // and `rebuildIndex()` on the same instance always take the same path.
+      const native = this.engine === 'rs' ? loadNativeAddon() : null;
 
       if (native) {
         await this.initializeWithNative(native);
