@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.10](https://github.com/jamesyong-42/spaghetti/compare/spaghetti-v0.5.9...spaghetti-v0.5.10) (2026-04-18)
+
+
+### Features
+
+* **playground:** sync with current SDK surface + use userData for DB ([#29](https://github.com/jamesyong-42/spaghetti/issues/29)) ([97228e7](https://github.com/jamesyong-42/spaghetti/commit/97228e721e89617f6612c3f3d1cee79c2ac079ec))
+
 ## [0.5.9](https://github.com/jamesyong-42/spaghetti/compare/spaghetti-v0.5.8...spaghetti-v0.5.9) (2026-04-18)
 
 
