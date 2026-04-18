@@ -29,6 +29,7 @@ Spaghetti is a TypeScript monorepo centered on a local-first data pipeline for C
 |---|---|---|
 | Terminal app | Primary interface | Ink TUI plus one-shot CLI commands |
 | SDK | Reusable | Published library over parsed/indexed Claude Code data |
+| Native ingest core | Default since 0.5.7 | Rust (napi-rs) — ~2× faster cold start than TS path, auto-falls-back to TS if the addon is unavailable |
 | Hook monitoring | Working | Reads `~/.spaghetti/hooks/events.jsonl` |
 | Live chat channel | Experimental | Bun MCP/WebSocket bridge |
 | React components | Experimental | `@vibecook/spaghetti-sdk/react`, not main product |
@@ -55,6 +56,7 @@ This repo is a `pnpm` workspace.
 
 - `packages/cli` — [`@vibecook/spaghetti`](https://www.npmjs.com/package/@vibecook/spaghetti), the terminal app.
 - `packages/sdk` — [`@vibecook/spaghetti-sdk`](https://www.npmjs.com/package/@vibecook/spaghetti-sdk), the parsing/indexing/query library plus React components (subpath export `/react`).
+- `crates/spaghetti-napi` — [`@vibecook/spaghetti-sdk-native`](https://www.npmjs.com/package/@vibecook/spaghetti-sdk-native), the Rust ingest core compiled via napi-rs. Shipped as a required dependency of the SDK with per-platform prebuilt binaries.
 
 **Private packages**
 
@@ -84,9 +86,11 @@ The codebase has a fairly clean layered split:
          ┌──────────────────────────────┐
          │ @vibecook/spaghetti-sdk      │
          │ parser + ingest + query      │
+         │  ingest engine: rs (default) │
+         │                or ts         │
          └──────────────┬───────────────┘
                         │
-            ~/.spaghetti/cache/spaghetti.db
+       ~/.spaghetti/cache/spaghetti-{rs,ts}.db
                         │
         ┌───────────────┼──────────────────┐
         ▼               ▼                  ▼
@@ -95,22 +99,37 @@ The codebase has a fairly clean layered split:
         └─────── shared summaries/search/messages ───────┘
 ```
 
+### Ingest Engines
+
+The SDK ships two ingest implementations and runs the native Rust path (`rs`) by default since 0.5.7:
+
+- **`rs` (native, default)** — the `@vibecook/spaghetti-sdk-native` addon (Rust via napi-rs). Roughly 2× faster cold start than the TS path on a 1 GB+ `~/.claude` after RFC 004 writer tuning landed.
+- **`ts` (pure TypeScript)** — the legacy path, retained as ground-truth for the diff harness and as an automatic fallback on platforms without a prebuilt native binary.
+
+Engine selection is process-wide today (see [`packages/sdk/README.md`](packages/sdk/README.md#engine-selection) for the full resolution order):
+
+1. `SPAG_ENGINE=ts|rs` env var
+2. Legacy `SPAG_NATIVE_INGEST=0|1` env var
+3. Persisted `engine` setting in `~/.spaghetti/config.json`
+4. Default: `rs`
+
+Each engine writes to its own DB file (`spaghetti-rs.db` / `spaghetti-ts.db`) so switching does not force a re-ingest, and results can be compared side-by-side. Correctness parity is enforced by `pnpm test:ingest-diff` in CI against a committed small fixture and (as of RFC 004 Item 1) a medium fixture exercising every rare message variant.
+
 ### Core Data Flow
 
 At initialization, the core service:
 
 - discovers project/session files under `~/.claude`
-- parses project data in streaming mode
-- writes normalized rows into a SQLite database at `~/.spaghetti/cache/spaghetti.db` by default
-- builds and maintains FTS5 search indexes over message text
+- parses project data in streaming mode (Rust with rayon parallelism by default; TS worker threads with sequential fallback on the `ts` engine)
+- writes normalized rows into a SQLite database at `~/.spaghetti/cache/spaghetti-{rs,ts}.db` (per-engine)
+- builds and maintains FTS5 search indexes over message text — the native path drops the auto-sync triggers during bulk ingest and rebuilds the index in one pass at finalize
 - stores config and analytics snapshots separately from session data
 
 Key implementation details from the code:
 
-- Cold starts can parse projects in worker threads, with a sequential fallback when workers are unavailable.
 - Query and ingest share one SQLite connection to avoid `SQLITE_BUSY` conflicts.
-- Source file fingerprints are tracked so warm starts can skip unnecessary reprocessing.
-- The schema is purpose-built: projects, sessions, messages, subagents, tool results, todos, tasks, plans, config, analytics, and file history all have dedicated tables.
+- Source file fingerprints are tracked so warm starts can skip unnecessary reprocessing; a no-change warm start returns in ~120 ms.
+- The schema is purpose-built: projects, sessions, messages, subagents, tool results, todos, tasks, plans, config, analytics, and file history all have dedicated tables. The Rust and TS paths share a single schema version (`SCHEMA_VERSION = 3`) and are kept in lock-step.
 
 ### Data Shapes Indexed Today
 
@@ -255,7 +274,13 @@ The SDK can be used directly:
 ```ts
 import { createSpaghettiService } from '@vibecook/spaghetti-sdk';
 
-const spaghetti = createSpaghettiService();
+// Defaults: ~/.claude as the data dir, ~/.spaghetti/cache/spaghetti-rs.db
+// as the index, native Rust ingest engine.
+const spaghetti = createSpaghettiService({
+  // optional overrides:
+  // claudeDir: '/path/to/.claude',
+  // dbPath: '/path/to/my-index.db',
+});
 await spaghetti.initialize();
 
 const projects = spaghetti.getProjectList();
@@ -265,6 +290,8 @@ const results = spaghetti.search({ text: 'worker thread' });
 
 spaghetti.shutdown();
 ```
+
+To force the pure-TypeScript engine (e.g. on an unsupported platform, or for diff-harness purposes), set `SPAG_ENGINE=ts` in the process environment before importing the SDK. See [`packages/sdk/README.md`](packages/sdk/README.md) for the full options reference.
 
 Useful API entry points include:
 
@@ -300,8 +327,12 @@ spaghetti/
     sdk/                           SDK: parsing, storage, query API + React components (@vibecook/spaghetti-sdk)
     claude-code-hooks-plugin/      Claude Code plugin assets for hook capture
     claude-code-channels-plugin/   Bun-based live chat bridge
-  docs/        Design notes, implementation plans, RFCs
-  scripts/     Validation utilities against real ~/.claude data
+  crates/
+    spaghetti-napi/                Rust ingest core (napi-rs) published as @vibecook/spaghetti-sdk-native
+  docs/
+    rfcs/                          Design RFCs (003 = Rust ingest, 004 = follow-ups)
+    *.md                           Implementation plans and design notes
+  scripts/                         Validation, diff-harness, and fixture utilities
 ```
 
 ## Requirements
@@ -309,6 +340,7 @@ spaghetti/
 - Node.js 24 for development (see `.nvmrc`); published packages target `>=18`
 - `pnpm` for workspace development
 - a local Claude Code data directory at `~/.claude` for real usage
+- a stable Rust toolchain (via `rustup`) if you plan to rebuild `crates/spaghetti-napi` locally; ordinary SDK/CLI work only needs the prebuilt binary that `pnpm install` resolves
 
 Additional package-specific notes:
 
@@ -334,7 +366,7 @@ npx @vibecook/spaghetti
 
 ```bash
 pnpm install
-pnpm build
+pnpm build               # builds all workspace packages incl. native addon
 pnpm typecheck
 pnpm test
 ```
@@ -344,6 +376,21 @@ pnpm test
 - workspace typechecking
 - schema/type validation scripts against real Claude Code data
 - package test suites for `sdk` and `cli`
+
+### Native ingest — bench and diff harness
+
+```bash
+# Correctness: Rust vs TS ingest must produce semantically identical DBs
+pnpm test:ingest-diff                                                 # small fixture
+pnpm test:ingest-diff:medium                                          # medium fixture (RFC 004 Item 1)
+
+# Performance: wall-clock bench, cold or warm
+pnpm bench:ingest                                                     # committed small fixture, both paths
+pnpm bench:ingest --fixture ~/.claude --only rust --mode cold --runs 5
+pnpm bench:ingest --fixture ~/.claude --only rust --mode warm
+```
+
+Rust unit tests live in `crates/spaghetti-napi/src/**` and run via `cargo test --manifest-path crates/spaghetti-napi/Cargo.toml --lib`. CI enforces `cargo fmt --check` and `cargo clippy` in the `Rust check` job.
 
 ## Releases
 
