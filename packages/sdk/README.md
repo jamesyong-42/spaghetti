@@ -15,6 +15,8 @@ npm install @vibecook/spaghetti-sdk
 pnpm add @vibecook/spaghetti-sdk
 ```
 
+The SDK depends on `@vibecook/spaghetti-sdk-native` (Rust ingest core). A single platform-specific prebuilt binary (~4 MB) is pulled in via napi-rs `optionalDependencies`, so `npm install` just works on macOS (x64/arm64) and Linux (x64/arm64-gnu). On any platform without a prebuild the SDK falls back to the pure-TypeScript ingest path transparently — no configuration required.
+
 React components are shipped under the `/react` subpath and require React 19 (peer).
 
 ## Core API
@@ -22,6 +24,7 @@ React components are shipped under the `/react` subpath and require React 19 (pe
 ```ts
 import { createSpaghettiService } from '@vibecook/spaghetti-sdk';
 
+// Defaults: native Rust engine, ~/.claude as source, ~/.spaghetti/cache/spaghetti-rs.db as index.
 const spaghetti = createSpaghettiService();
 await spaghetti.initialize();
 
@@ -32,6 +35,18 @@ const results = spaghetti.search({ text: 'worker thread' });
 
 spaghetti.shutdown();
 ```
+
+### Options
+
+`createSpaghettiService(options?)` accepts:
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `claudeDir` | `string` | `~/.claude` | Source directory to parse. |
+| `dbPath` | `string` | `~/.spaghetti/cache/spaghetti-{rs,ts}.db` | SQLite index path. Default varies by engine so switching engines doesn't force a re-ingest. |
+| `dataService` | `ClaudeCodeAgentDataService` | — | Inject a custom/mock implementation (testing). |
+
+Two instances in the same process can point at different `claudeDir`s as long as each has its own `dbPath` — same DB file from two services risks `SQLITE_BUSY`.
 
 ### Key methods
 
@@ -67,16 +82,41 @@ Exports include `SpaghettiProvider`, `useSpaghettiAPI`, `AgentDataPlayground`, `
 At init, the service:
 
 - discovers project/session files under `~/.claude`
-- parses projects in streaming mode (worker threads when available, sequential fallback)
-- writes normalized rows into a SQLite database at `~/.spaghetti/cache/spaghetti.db`
-- builds and maintains FTS5 search indexes
-- tracks file fingerprints so warm starts skip unchanged work
+- parses projects in streaming mode (Rust with rayon parallelism on the default `rs` engine; TS worker threads with sequential fallback on the `ts` engine)
+- writes normalized rows into a SQLite database at `~/.spaghetti/cache/spaghetti-{rs,ts}.db` (per-engine by default; overridable via `dbPath`)
+- builds and maintains FTS5 search indexes — the native path drops the auto-sync triggers during bulk ingest and rebuilds the index in one pass at finalize
+- tracks file fingerprints so warm starts skip unchanged work (a no-change warm start returns in ~120 ms even against 1 GB+ of source data)
 
 Query and ingest share one SQLite connection to avoid `SQLITE_BUSY` conflicts.
 
+## Engine selection
+
+The SDK ships two ingest engines:
+
+- **`rs` (default)** — native Rust addon (`@vibecook/spaghetti-sdk-native`), runs via napi-rs. Roughly 2× faster cold start than the TS path on a 1 GB+ `~/.claude` after the RFC 004 writer tuning.
+- **`ts`** — pure-TypeScript path. Kept as ground truth for the diff harness and used automatically when the native binary is unavailable for the host platform.
+
+Resolution order (first match wins):
+
+1. `SPAG_ENGINE=ts|rs` env var
+2. Legacy `SPAG_NATIVE_INGEST=0|1` env var (`0` → ts, `1` → rs)
+3. Persisted `engine` field in `~/.spaghetti/config.json`
+4. Default: `rs`
+
+Selection is **process-wide** — there is no per-instance `engine` option today. To use the TS path, set the env var before the SDK is imported:
+
+```bash
+SPAG_ENGINE=ts node my-app.js
+```
+
+Correctness parity between the two engines is enforced by `pnpm test:ingest-diff` (small fixture) and `pnpm test:ingest-diff:medium` (exercises every rare `SessionMessage` / content-block variant) in CI.
+
 ## Native dependency
 
-Uses `better-sqlite3` (N-API). Binary prebuilds are available for Node 18+ on common platforms; source build falls back via `node-gyp` if no prebuild matches.
+Two native modules are in play:
+
+- **`better-sqlite3`** — the underlying SQLite driver used by both engines. Prebuilds available for Node 18+ on common platforms; falls back to `node-gyp` source build if no prebuild matches.
+- **`@vibecook/spaghetti-sdk-native`** — the Rust ingest addon. napi-rs publishes per-platform binaries as `optionalDependencies` (darwin-{x64,arm64}, linux-{x64,arm64}-gnu). Any platform without a prebuild loads the TS fallback silently.
 
 ## Migration from `@vibecook/spaghetti-core`
 
