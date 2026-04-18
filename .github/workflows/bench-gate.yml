@@ -1,0 +1,99 @@
+name: Bench gate
+
+# Perf-regression gate (RFC 004 Item 3).
+#
+# Fixture strategy: we generate the bench fixture in-workflow via the existing
+# deterministic `scripts/generate-medium-fixture.mjs --scale 50` and discard
+# it after the run. This diverges from RFC 004's "upload tarball to a GitHub
+# Release" plan: no one-time upload ceremony, no drift between the generator
+# and a stale tarball, and determinism is guaranteed by the generator itself.
+# Tradeoff: fixture-generation time is added to every run (~ seconds, fine).
+#
+# Runner: ubuntu-latest (free tier). RFC 004 mentions ubuntu-latest-8-core
+# for predictability; we start cheap and widen the thresholds to absorb
+# shared-runner noise. Tighten `regression_threshold_pct` in
+# .github/bench-baselines.json once 5–10 runs worth of data land.
+
+on:
+  pull_request:
+    branches: [main]
+  schedule:
+    # Weekly cron so drift shows up even on quiet weeks — Monday 06:00 UTC.
+    - cron: '0 6 * * 1'
+  workflow_dispatch: {}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  bench:
+    name: Rust ingest bench gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-bench-cargo-${{ hashFiles('Cargo.lock') }}
+
+      - name: Install pnpm dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build native ingest (release)
+        run: pnpm --filter @vibecook/spaghetti-sdk-native build
+
+      - name: Build SDK
+        run: pnpm --filter @vibecook/spaghetti-sdk build
+
+      - name: Generate bench fixture (scale=50, ~35k msgs / ~50MB)
+        run: node scripts/generate-medium-fixture.mjs --out /tmp/bench-fixture --scale 50
+
+      - name: Bench — cold ingest (Rust, compared to baseline)
+        run: |
+          pnpm bench:ingest \
+            --fixture /tmp/bench-fixture/.claude \
+            --only rust \
+            --mode cold \
+            --runs 5 \
+            --warmup 1 \
+            --report-json /tmp/bench-cold.json \
+            --compare-to .github/bench-baselines.json
+
+      - name: Bench — warm ingest (Rust, report only)
+        run: |
+          pnpm bench:ingest \
+            --fixture /tmp/bench-fixture/.claude \
+            --only rust \
+            --mode warm \
+            --runs 5 \
+            --warmup 2 \
+            --report-json /tmp/bench-warm.json
+
+      - name: Upload bench reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bench-reports
+          path: |
+            /tmp/bench-cold.json
+            /tmp/bench-warm.json
+          if-no-files-found: warn
