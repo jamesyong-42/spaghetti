@@ -56,8 +56,12 @@ from source if the prebuild isn't available.
   `~/.claude`; the SQLite index lives inside Electron's platform-specific
   `userData` folder (`app.getPath('userData')/cache/spaghetti-<engine>.db`)
   rather than the SDK's home-relative default, so the desktop app keeps
-  its data in the OS-sanctioned app-data location. Progress/ready/change
-  events are forwarded to all renderer windows.
+  its data in the OS-sanctioned app-data location. The ingest engine is
+  read from the app's own `<userData>/settings.json` (default: `rs`) and
+  passed as an explicit `engine` option to `createSpaghettiService`, so
+  the user's CLI-level `~/.spaghetti/config.json` does not affect the
+  desktop app and vice versa. Progress/ready/change events are forwarded
+  to all renderer windows.
 - **preload** exposes `window.spaghetti`, a typed surface defined in
   `src/shared/ipc.ts` (one method per SDK query + lifecycle/event helpers).
 - **renderer** uses `SpaghettiProvider` from `@vibecook/spaghetti-sdk/react`

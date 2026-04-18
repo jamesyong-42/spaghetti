@@ -10,8 +10,9 @@
 import { app, BrowserWindow, shell } from 'electron';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import { resolveEngine } from '@vibecook/spaghetti-sdk';
+import type { IngestEngine } from '@vibecook/spaghetti-sdk';
 import { registerIpcHandlers, wireEventForwarding } from './ipc-handlers.js';
+import { resolveAppEngine } from './settings.js';
 import { shutdownSdk } from './sdk.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -22,11 +23,13 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
  * Support/<app>`, Windows: `%APPDATA%/<app>`, Linux: `~/.config/<app>`).
  *
  * The filename includes the active ingest engine (rs|ts) so switching
- * engines does not force a re-ingest, matching the SDK's `defaultDbPathForEngine`
- * convention but scoped to the desktop app's private data dir.
+ * engines does not force a re-ingest. The engine itself is read once from
+ * the app's own settings file and threaded through both the DB path and
+ * the SpaghettiService options; we deliberately do not call the SDK's
+ * `resolveEngine()` here so the user's shell / CLI config cannot leak
+ * into the desktop app.
  */
-function resolvePlaygroundDbPath(): string {
-  const engine = resolveEngine();
+function resolvePlaygroundDbPath(engine: IngestEngine): string {
   return join(app.getPath('userData'), 'cache', `spaghetti-${engine}.db`);
 }
 
@@ -70,12 +73,16 @@ function createWindow(): BrowserWindow {
 }
 
 void app.whenReady().then(async () => {
-  const dbPath = resolvePlaygroundDbPath();
+  // Resolve engine once from app-scoped settings; use it for both the DB
+  // filename and the explicit `engine` option on the SDK so nothing in
+  // the pipeline falls back to the SDK's global resolution chain.
+  const engine = resolveAppEngine();
+  const dbPath = resolvePlaygroundDbPath(engine);
   registerIpcHandlers();
 
   // Fire-and-forget: the renderer subscribes to progress/ready events on
   // load, so there's no reason to block window creation on SDK init.
-  void wireEventForwarding({ dbPath }).catch((err) => {
+  void wireEventForwarding({ dbPath, engine }).catch((err) => {
     console.error('[main] SDK initialization failed', err);
   });
 

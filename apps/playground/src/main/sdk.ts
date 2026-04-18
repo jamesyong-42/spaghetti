@@ -5,16 +5,18 @@
  * quit. All IPC handlers import `getSdk()` rather than a live reference, so
  * we don't accidentally hold a reference before initialize() resolves.
  *
- * The DB path is provided by the caller (typically `<userData>/cache/…`)
- * so the desktop app keeps its index inside the Electron-managed app data
- * folder rather than the SDK's home-relative default.
+ * The DB path and ingest engine are provided by the caller (typically
+ * `<userData>/cache/…` and whatever is in `<userData>/settings.json`) so
+ * the desktop app owns both pieces of state inside its Electron-managed
+ * app data folder rather than inheriting from the SDK's home-relative
+ * default or the CLI's shared `~/.spaghetti/config.json`.
  */
 
-import { createSpaghettiService, resolveEngine, type IngestEngine, type SpaghettiAPI } from '@vibecook/spaghetti-sdk';
+import { createSpaghettiService, type IngestEngine, type SpaghettiAPI } from '@vibecook/spaghetti-sdk';
 
 let sdkInstance: SpaghettiAPI | null = null;
 let initPromise: Promise<SpaghettiAPI> | null = null;
-let resolvedEngine: IngestEngine | null = null;
+let activeEngine: IngestEngine | null = null;
 
 export function getSdk(): SpaghettiAPI {
   if (!sdkInstance) {
@@ -24,12 +26,17 @@ export function getSdk(): SpaghettiAPI {
 }
 
 export function getEngine(): IngestEngine {
-  return resolvedEngine ?? resolveEngine();
+  if (!activeEngine) {
+    throw new Error('SDK not initialized — engine unresolved');
+  }
+  return activeEngine;
 }
 
 export interface InitSdkOptions {
   /** Absolute path to the SQLite index file. */
   dbPath: string;
+  /** Ingest engine to run for this process. */
+  engine: IngestEngine;
   /** Optional Claude source dir; defaults to the SDK's `~/.claude`. */
   claudeDir?: string;
 }
@@ -37,9 +44,10 @@ export interface InitSdkOptions {
 export function initSdk(options: InitSdkOptions): Promise<SpaghettiAPI> {
   if (initPromise) return initPromise;
 
-  resolvedEngine = resolveEngine();
+  activeEngine = options.engine;
   const service = createSpaghettiService({
     dbPath: options.dbPath,
+    engine: options.engine,
     ...(options.claudeDir ? { claudeDir: options.claudeDir } : {}),
   });
   sdkInstance = service;
@@ -57,6 +65,6 @@ export function shutdownSdk(): void {
     }
     sdkInstance = null;
     initPromise = null;
-    resolvedEngine = null;
+    activeEngine = null;
   }
 }
