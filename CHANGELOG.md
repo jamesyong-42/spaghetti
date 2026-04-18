@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.9](https://github.com/jamesyong-42/spaghetti/compare/spaghetti-v0.5.8...spaghetti-v0.5.9) (2026-04-18)
+
+
+### Performance Improvements
+
+* **napi:** drop FTS triggers during bulk ingest + tune writer PRAGMAs ([#26](https://github.com/jamesyong-42/spaghetti/issues/26)) ([6ba17b2](https://github.com/jamesyong-42/spaghetti/commit/6ba17b2b41d1b376d4d109a9b0212c5c06cd081a))
+
 ## [0.5.8](https://github.com/jamesyong-42/spaghetti/compare/spaghetti-v0.5.7...spaghetti-v0.5.8) (2026-04-17)
 
 
