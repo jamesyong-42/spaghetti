@@ -24,12 +24,18 @@ export function App() {
 function PlaygroundShell() {
   const [phase, setPhase] = useState<string>('Waiting for SDK...');
   const [ready, setReady] = useState(false);
+  const [engine, setEngine] = useState<'rs' | 'ts' | null>(null);
+  const [rebuilding, setRebuilding] = useState(false);
   const [projects, setProjects] = useState<ProjectListItem[]>([]);
   const [selectedSlug, setSelectedSlug] = useState<string | null>(null);
   const [sessions, setSessions] = useState<SessionListItem[]>([]);
   const [error, setError] = useState<string | null>(null);
+  // Bumped by `onChange` events to re-trigger the project/session fetches
+  // without inventing a bespoke store layer. A simple nonce is enough: the
+  // fetches are idempotent and cheap.
+  const [changeNonce, setChangeNonce] = useState(0);
 
-  // Subscribe to lifecycle events from the main process.
+  // Subscribe to lifecycle + change events from the main process.
   useEffect(() => {
     const bridge = window.spaghetti;
 
@@ -40,27 +46,34 @@ function PlaygroundShell() {
       setReady(true);
       setPhase(`Ready in ${info.durationMs}ms`);
     });
+    const unsubChange = bridge.onChange(() => {
+      // Trigger a refetch of the projects list (and sessions for the
+      // currently-selected project) the next render cycle.
+      setChangeNonce((n) => n + 1);
+    });
 
     void bridge.isReady().then((r) => {
       if (r) setReady(true);
     });
+    void bridge.getEngine().then(setEngine);
 
     return () => {
       unsubProgress();
       unsubReady();
+      unsubChange();
     };
   }, []);
 
-  // Load projects once ready.
+  // Load projects once ready — and whenever the main process emits a change.
   useEffect(() => {
     if (!ready) return;
     window.spaghetti
       .getProjectList()
       .then(setProjects)
       .catch((e: unknown) => setError(String(e)));
-  }, [ready]);
+  }, [ready, changeNonce]);
 
-  // Load sessions for selected project.
+  // Load sessions for selected project (also refetch on change).
   useEffect(() => {
     if (!selectedSlug) {
       setSessions([]);
@@ -70,7 +83,23 @@ function PlaygroundShell() {
       .getSessionList(selectedSlug)
       .then(setSessions)
       .catch((e: unknown) => setError(String(e)));
-  }, [selectedSlug]);
+  }, [selectedSlug, changeNonce]);
+
+  const onRebuild = async () => {
+    if (rebuilding) return;
+    setRebuilding(true);
+    setError(null);
+    setPhase('Rebuilding index...');
+    try {
+      const { durationMs } = await window.spaghetti.rebuildIndex();
+      setPhase(`Rebuilt in ${durationMs}ms`);
+      setChangeNonce((n) => n + 1);
+    } catch (e: unknown) {
+      setError(String(e));
+    } finally {
+      setRebuilding(false);
+    }
+  };
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
@@ -85,6 +114,23 @@ function PlaygroundShell() {
         }}
       >
         <strong style={{ fontSize: 13 }}>Spaghetti Playground</strong>
+        {engine && (
+          <span
+            style={{
+              fontSize: 10,
+              padding: '2px 6px',
+              borderRadius: 4,
+              background: engine === 'rs' ? 'rgba(200,100,255,0.15)' : 'rgba(150,200,255,0.15)',
+              color: engine === 'rs' ? '#d4a5ff' : '#a5cbff',
+              fontFamily: 'monospace',
+              letterSpacing: 0.5,
+              textTransform: 'uppercase',
+            }}
+            title={engine === 'rs' ? 'Native Rust ingest engine' : 'TypeScript ingest engine'}
+          >
+            engine: {engine}
+          </span>
+        )}
         <span
           style={{
             fontSize: 11,
@@ -96,6 +142,24 @@ function PlaygroundShell() {
         >
           {phase}
         </span>
+        <button
+          type="button"
+          onClick={() => void onRebuild()}
+          disabled={!ready || rebuilding}
+          style={{
+            fontSize: 11,
+            padding: '3px 10px',
+            borderRadius: 4,
+            border: '1px solid rgba(255,255,255,0.15)',
+            background: 'rgba(255,255,255,0.04)',
+            color: 'inherit',
+            cursor: ready && !rebuilding ? 'pointer' : 'default',
+            opacity: ready && !rebuilding ? 1 : 0.5,
+          }}
+          title="Force a full cold rebuild of the SQLite index from ~/.claude"
+        >
+          {rebuilding ? 'Rebuilding…' : 'Rebuild index'}
+        </button>
         {error && (
           <span style={{ fontSize: 11, color: '#ff6b6b' }} title={error}>
             error: {error.slice(0, 80)}
