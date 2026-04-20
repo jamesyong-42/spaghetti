@@ -637,32 +637,23 @@ class IngestServiceImpl implements IngestService {
   /**
    * Write a batch of `ParsedRow`s as a single live-update transaction.
    *
-   * SCAFFOLDING ONLY — the `ParsedRow` shape currently produced by
-   * `IncrementalParser` (see `packages/sdk/src/live/incremental-parser.ts`)
-   * drops the metadata needed by the existing per-category `onX`
-   * methods:
+   * Atomicity: wraps the whole batch in `BEGIN IMMEDIATE` (via the
+   * existing `beginTransaction`/`commitTransaction`/`rollbackTransaction`
+   * helpers) so either all rows land or none do. A throw mid-batch
+   * rolls back and rethrows — the checkpoint is not advanced by the
+   * caller so the orchestrator will retry.
    *
-   *   - `onMessage(slug, sessionId, message, index, byteOffset)` needs
-   *     `msgIndex` + `byteOffset`, which the parser's JSONL callback
-   *     receives but does not forward into `ParsedRow`.
-   *   - `onSubagent`, `onToolResult`, `onFileHistory`, `onTodo`,
-   *     `onTask`, `onPlan` expect structured domain objects
-   *     (`SubagentTranscript`, `PersistedToolResult`, `TaskEntry`, …),
-   *     while the parser hands over raw JSONL lines or raw file
-   *     contents.
+   * Dispatch: each row's `category` discriminates the union and
+   * routes to the matching `on*` method. TS narrows the variant so
+   * payload fields are read directly without any `as` casts.
    *
-   * Per the C2.6 hand-off contract we refuse to invent adapters here;
-   * the `ParsedRow` shape has to gain the missing per-category fields
-   * first. Until then this method handles only the empty-batch
-   * short-circuit (used by the LiveUpdates orchestrator when the
-   * coalescing queue drains with no rows) and throws for every other
-   * input so the design-doc gap surfaces loudly at the writer
-   * boundary.
-   *
-   * The full dispatch + `Change[]` construction lands together with
-   * the parser-shape fix in a follow-up commit; the interface,
-   * `WriteResult` type, and `seq`-counter field are already wired so
-   * callers compile against the final surface.
+   * Change events: after commit we walk the rows again and translate
+   * each into the matching `Change` variant (see `live/change-events.ts`).
+   * `project_memory` + `session_index` rows mutate SQLite but emit no
+   * `Change` — the union has no matching variants (see RFC 005 §2.9).
+   * Each emitted `Change` is stamped `seq = ++this.liveSeqCounter`
+   * and `ts = Date.now()`; the counter is process-lifetime-monotonic
+   * and not persisted (RFC 005 §Event sequence numbering).
    */
   async writeBatch(rows: ParsedRow[]): Promise<WriteResult> {
     const startedAt = Date.now();
@@ -673,16 +664,174 @@ class IngestServiceImpl implements IngestService {
       return { changes: [], durationMs: Date.now() - startedAt };
     }
 
-    // Non-empty batch: the `ParsedRow` shape produced by the current
-    // `IncrementalParser` cannot feed the existing per-category `onX`
-    // methods without adapter logic the C2.6 contract forbids us from
-    // inventing. Surface the gap — see method jsdoc above and the
-    // report attached to the C2.6 commit.
-    throw new Error(
-      'IngestService.writeBatch: per-category dispatch not yet wired. ' +
-        'ParsedRow lacks the metadata required by onMessage/onSubagent/... — ' +
-        'flagged as a design-doc gap in RFC 005 §2.7/§2.10. See commit C2.6 report.',
-    );
+    // `BEGIN IMMEDIATE` equivalent: the shared `beginTransaction` uses
+    // `BEGIN TRANSACTION` (deferred by default in SQLite). For live-
+    // update semantics we want the write lock acquired up front so
+    // concurrent readers can't block the commit indefinitely. Use
+    // `BEGIN IMMEDIATE` directly when we're the first to open the tx.
+    const weOpenedTx = !this.inTransaction;
+    if (weOpenedTx) {
+      this.db.exec('BEGIN IMMEDIATE');
+      this.inTransaction = true;
+    }
+
+    try {
+      for (const row of rows) {
+        switch (row.category) {
+          case 'message':
+            this.onMessage(row.slug, row.sessionId, row.message, row.msgIndex, row.byteOffset);
+            break;
+          case 'subagent':
+            this.onSubagent(row.slug, row.sessionId, row.transcript);
+            break;
+          case 'tool_result':
+            this.onToolResult(row.slug, row.sessionId, row.result);
+            break;
+          case 'file_history':
+            this.onFileHistory(row.sessionId, row.history);
+            break;
+          case 'todo':
+            this.onTodo(row.sessionId, row.todo);
+            break;
+          case 'task':
+            this.onTask(row.sessionId, row.task);
+            break;
+          case 'plan':
+            this.onPlan(row.slug, row.plan);
+            break;
+          case 'project_memory':
+            // SQLite write, no Change emission (no matching union
+            // variant — see RFC 005 §2.9).
+            this.onProjectMemory(row.slug, row.content);
+            break;
+          case 'session_index':
+            // SQLite write, no Change emission (ditto).
+            this.applySessionIndex(row.slug, row.originalPath, row.sessionsIndex);
+            break;
+        }
+      }
+
+      if (weOpenedTx) {
+        this.db.exec('COMMIT');
+        this.inTransaction = false;
+      }
+    } catch (err) {
+      if (weOpenedTx && this.inTransaction) {
+        try {
+          this.db.exec('ROLLBACK');
+        } catch {
+          // Ignore — the tx may already be rolled back.
+        }
+        this.inTransaction = false;
+      }
+      throw err;
+    }
+
+    // Build Change[] post-commit so seq/ts stamp the realized state.
+    const changes: Change[] = [];
+    for (const row of rows) {
+      const seq = ++this.liveSeqCounter;
+      const ts = Date.now();
+      switch (row.category) {
+        case 'message':
+          changes.push({
+            type: 'session.message.added',
+            seq,
+            ts,
+            slug: row.slug,
+            sessionId: row.sessionId,
+            message: row.message,
+            byteOffset: row.byteOffset,
+          });
+          break;
+        case 'subagent':
+          changes.push({
+            type: 'subagent.updated',
+            seq,
+            ts,
+            slug: row.slug,
+            sessionId: row.sessionId,
+            agentId: row.transcript.agentId,
+            transcript: row.transcript,
+          });
+          break;
+        case 'tool_result':
+          changes.push({
+            type: 'tool-result.added',
+            seq,
+            ts,
+            slug: row.slug,
+            sessionId: row.sessionId,
+            toolUseId: row.result.toolUseId,
+          });
+          break;
+        case 'file_history': {
+          const snap = row.history.snapshots[0];
+          if (snap) {
+            changes.push({
+              type: 'file-history.added',
+              seq,
+              ts,
+              sessionId: row.sessionId,
+              hash: snap.hash,
+              version: snap.version,
+            });
+          } else {
+            // No snapshots → no Change. Roll back the seq we claimed
+            // so counters match the number of emitted events.
+            this.liveSeqCounter--;
+          }
+          break;
+        }
+        case 'todo':
+          changes.push({
+            type: 'todo.updated',
+            seq,
+            ts,
+            sessionId: row.sessionId,
+            agentId: row.todo.agentId,
+            items: row.todo.items,
+          });
+          break;
+        case 'task':
+          changes.push({
+            type: 'task.updated',
+            seq,
+            ts,
+            sessionId: row.sessionId,
+            task: row.task,
+          });
+          break;
+        case 'plan':
+          changes.push({
+            type: 'plan.upserted',
+            seq,
+            ts,
+            slug: row.slug,
+            plan: row.plan,
+          });
+          break;
+        case 'project_memory':
+        case 'session_index':
+          // No Change variant — drop the seq we would have claimed.
+          this.liveSeqCounter--;
+          break;
+      }
+    }
+
+    return { changes, durationMs: Date.now() - startedAt };
+  }
+
+  /**
+   * SQLite-only upsert for `session_index` rows. There is no public
+   * `onSessionIndex(slug, originalPath, sessionsIndex)` on `ProjectParseSink`
+   * — cold-start uses `onProject(slug, originalPath, sessionsIndex)`
+   * with the same signature, which is exactly what we need. Using a
+   * distinct private helper keeps the public sink surface untouched
+   * while the live path gets a clear call site.
+   */
+  private applySessionIndex(slug: string, originalPath: string, sessionsIndex: SessionsIndex): void {
+    this.onProject(slug, originalPath, sessionsIndex);
   }
 
   // ─────────────────────────────────────────────────────────────────────────
