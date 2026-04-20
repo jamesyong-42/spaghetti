@@ -127,7 +127,12 @@ describe('IngestService.writeBatch (RFC 005 C2.6 scaffold)', () => {
   });
 
   test('writeBatch([<message>]) throws the design-doc-gap error (scaffold contract)', async () => {
-    const row: ParsedRow = {
+    // NOTE (commit 1 of resolution pass): the rich ParsedRow union has
+    // landed but writeBatch still throws the scaffold error. This
+    // legacy-shape row is cast to `ParsedRow` so TS accepts the call
+    // — the throw is asserted at runtime. Commit 2 replaces this test
+    // entirely with happy-path dispatch assertions.
+    const row = {
       category: 'message',
       slug: SLUG,
       sessionId: SESSION_ID,
@@ -137,7 +142,7 @@ describe('IngestService.writeBatch (RFC 005 C2.6 scaffold)', () => {
         timestamp: '2026-04-20T00:00:01Z',
         message: { role: 'user', content: 'hello' },
       },
-    };
+    } as unknown as ParsedRow;
     await assert.rejects(() => ingest.writeBatch([row]), /writeBatch: per-category dispatch not yet wired/);
   });
 
@@ -150,7 +155,7 @@ describe('IngestService.writeBatch (RFC 005 C2.6 scaffold)', () => {
           slug: SLUG,
           sessionId: SESSION_ID,
           payload: { type: 'user' },
-        },
+        } as unknown as ParsedRow,
       ]),
     );
     const after = sqlite.get<{ n: number }>(`SELECT COUNT(*) AS n FROM messages`);
