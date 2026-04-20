@@ -4,6 +4,8 @@
  * Wires up all internal services and returns a SpaghettiAPI instance.
  */
 
+import * as os from 'node:os';
+import * as path from 'node:path';
 import { createFileService } from './io/file-service.js';
 import { createSqliteService } from './io/sqlite-service.js';
 import { createSpaghettiAppService } from './app-service.js';
@@ -12,6 +14,7 @@ import { createQueryService } from './data/query-service.js';
 import { createIngestService } from './data/ingest-service.js';
 import { createAgentDataStore } from './data/agent-data-store.js';
 import { AgentDataServiceImpl } from './data/agent-data-service.js';
+import { createLiveUpdates } from './live/live-updates.js';
 import type { SpaghettiAPI } from './api.js';
 import type { ClaudeCodeAgentDataService, AgentDataServiceOptions } from './data/agent-data-service.js';
 import type { IngestEngine } from './settings.js';
@@ -31,6 +34,18 @@ export interface SpaghettiServiceOptions {
    * user-level config.
    */
   engine?: IngestEngine;
+  /**
+   * Opt in to the RFC 005 live-updates pipeline. When `true`,
+   * `initialize()` starts a filesystem watcher on
+   * `<claudeDir>/projects/` and `<claudeDir>/todos/` that keeps SQLite
+   * warm as Claude Code writes files.
+   *
+   * Defaults to `false`: CLI one-shots and cold-start-only consumers
+   * pay zero watcher/queue/parser overhead. Phase 2 updates SQLite but
+   * does not yet emit typed `Change` events to subscribers — that
+   * lands in Phase 3 via `api.live`.
+   */
+  live?: boolean;
 }
 
 /**
@@ -74,6 +89,28 @@ export function createSpaghettiService(options?: SpaghettiServiceOptions): Spagh
   if (options?.claudeDir) dataServiceOptions.claudeDir = options.claudeDir;
   if (options?.engine) dataServiceOptions.engine = options.engine;
 
+  // RFC 005 C2.7: construct the live-updates orchestrator only when the
+  // caller opted in. When `options.live` is falsy we pass `undefined` so
+  // `LifecycleOwner.initialize()` / `shutdown()` skip the start/stop
+  // calls entirely — no watcher, no checkpoint persistence, no writer
+  // loop. The `claudeDir` fallback mirrors `LifecycleOwner`'s own
+  // resolution so both sides agree on the watched root.
+  const resolvedClaudeDir = options?.claudeDir ?? path.join(os.homedir(), '.claude');
+  const liveUpdates = options?.live
+    ? createLiveUpdates(
+        { fileService, ingestService, store },
+        {
+          claudeDir: resolvedClaudeDir,
+          onError: (err) => {
+            // Surface via stderr so misconfiguration isn't silent. The
+            // public surface for wiring this into an app-level error
+            // channel lands in Phase 3 alongside `api.live`.
+            console.warn(`[spaghetti-sdk] LiveUpdates error: ${err.message}`);
+          },
+        },
+      )
+    : undefined;
+
   const dataService = new AgentDataServiceImpl(
     fileService,
     parser,
@@ -81,6 +118,7 @@ export function createSpaghettiService(options?: SpaghettiServiceOptions): Spagh
     ingestService,
     store,
     dataServiceOptions,
+    liveUpdates,
   );
 
   return createSpaghettiAppService(dataService);

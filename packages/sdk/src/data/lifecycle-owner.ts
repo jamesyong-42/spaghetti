@@ -47,6 +47,7 @@ import type { IngestService } from './ingest-service.js';
 import type { AgentDataStore } from './agent-data-store.js';
 import type { ClaudeCodeParser } from '../parser/claude-code-parser.js';
 import type { FileService } from '../io/index.js';
+import type { LiveUpdates } from '../live/live-updates.js';
 import { createWorkerPool, isWorkerThreadsAvailable, type WorkerToMainMessage } from '../workers/index.js';
 import { loadNativeAddon } from '../native.js';
 import { defaultDbPathForEngine, resolveEngine, type IngestEngine } from '../settings.js';
@@ -163,6 +164,14 @@ export class LifecycleOwner extends EventEmitter implements ClaudeCodeAgentDataS
   private ingestService: IngestService;
   private store: AgentDataStore;
   private options: AgentDataServiceOptions;
+  /**
+   * RFC 005 C2.7: the live-updates orchestrator, composed in `create.ts`
+   * only when the caller opted in via `SpaghettiServiceOptions.live`.
+   * `undefined` means "no live pipeline" — `initialize()` / `shutdown()`
+   * skip the start/stop calls and the service behaves identically to
+   * the pre-RFC-005 build.
+   */
+  private liveUpdates: LiveUpdates | undefined;
 
   private ready = false;
   private dbPath: string;
@@ -183,6 +192,7 @@ export class LifecycleOwner extends EventEmitter implements ClaudeCodeAgentDataS
     ingestService: IngestService,
     store: AgentDataStore,
     options?: AgentDataServiceOptions,
+    liveUpdates?: LiveUpdates,
   ) {
     super();
     this.fileService = fileService;
@@ -191,6 +201,7 @@ export class LifecycleOwner extends EventEmitter implements ClaudeCodeAgentDataS
     this.ingestService = ingestService;
     this.store = store;
     this.options = options ?? {};
+    this.liveUpdates = liveUpdates;
     this.engine = this.options.engine ?? resolveEngine();
     this.dbPath = this.options.dbPath ?? getDefaultDbPath(this.engine);
     this.claudeDir = this.options.claudeDir ?? path.join(os.homedir(), '.claude');
@@ -233,6 +244,19 @@ export class LifecycleOwner extends EventEmitter implements ClaudeCodeAgentDataS
       });
       this.store.setConfig(fullData.config);
       this.store.setAnalytics(fullData.analytics);
+
+      // RFC 005 C2.7: with the SQLite baseline caught up, spin up the
+      // live-updates pipeline so subsequent filesystem activity keeps
+      // the DB warm. A failure here is non-fatal for reads — the store
+      // is already populated; we surface the error via the service's
+      // event emitter and continue.
+      if (this.liveUpdates) {
+        try {
+          await this.liveUpdates.start();
+        } catch (err) {
+          this.emit('error', { error: err instanceof Error ? err.message : String(err) });
+        }
+      }
 
       this.ready = true;
       const durationMs = Date.now() - startTime;
@@ -951,6 +975,28 @@ export class LifecycleOwner extends EventEmitter implements ClaudeCodeAgentDataS
     // outlives `shutdown()` in the current wiring (both are owned by
     // the same lifecycle), so we let its cached snapshots remain — the
     // next `initialize()` will overwrite them via `setConfig/Analytics`.
+
+    // RFC 005 C2.7: stop the live-updates pipeline BEFORE closing the
+    // SQLite connections so no in-flight `writeBatch` hits a closed
+    // handle. The service's `shutdown()` contract is sync, but the
+    // orchestrator's `stop()` is async (watcher unsubscribe + writer-
+    // loop drain + final checkpoint flush). We fire-and-forget here —
+    // Phase 2 has no subscribers, no pending events observers beyond
+    // our own internal writer loop, and the orchestrator detaches
+    // watchers synchronously as the first step so no further work
+    // enqueues after this call returns.
+    //
+    // TODO(RFC 005 phase 3): promote this to an awaitable shutdown so
+    // external subscribers can flush cleanly. That requires broadening
+    // the `ClaudeCodeAgentDataService` interface — out of scope here.
+    if (this.liveUpdates) {
+      try {
+        void this.liveUpdates.stop();
+      } catch {
+        /* best-effort teardown */
+      }
+    }
+
     try {
       this.ingestService.close();
     } catch {
