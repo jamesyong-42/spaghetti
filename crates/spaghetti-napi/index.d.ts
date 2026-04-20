@@ -72,5 +72,69 @@ export interface IngestStats {
   errors: Array<IngestError>
 }
 
+/** Result of one `live_ingest_batch` call. */
+export interface LiveBatchResult {
+  /** One `LiveRowId` per input row, in input order. Empty on empty input. */
+  writtenRows: Array<LiveRowId>
+  /** Wall-clock duration of the whole call (ms). */
+  durationMs: number
+}
+
+/**
+ * Write a batch of live-update rows to the SQLite DB at `db_path`.
+ *
+ * Thin NAPI wrapper that delegates to [`live_ingest_batch_inner`] and
+ * marshals the error back across the boundary. Keeping the logic in
+ * an internal function means `cargo test` can exercise it without
+ * linking against Node runtime symbols (`napi_delete_reference` et al.).
+ */
+export declare function liveIngestBatch(dbPath: string, rows: Array<LiveRow>): LiveBatchResult
+
+/**
+ * One row the TS live-update writer wants persisted.
+ *
+ * `payload_json` is a JSON-encoded payload whose shape depends on
+ * `category`; see the module-level table for the mapping.
+ */
+export interface LiveRow {
+  /**
+   * One of: `message` | `subagent` | `tool_result` | `file_history` |
+   * `todo` | `task` | `plan` | `project_memory` | `session_index`.
+   */
+  category: string
+  /**
+   * Project slug, when the row is project-scoped. Absent for
+   * session-only rows (file_history / todo / task).
+   */
+  slug?: string
+  /**
+   * Session UUID, when the row is session-scoped. Absent for
+   * project-only rows (plan / project_memory / session_index).
+   */
+  sessionId?: string
+  /** JSON-encoded payload. The Rust side deserialises per `category`. */
+  payloadJson: string
+}
+
+/**
+ * Identifier of a row the batch successfully wrote. The TS side
+ * uses this to reconstruct the matching `Change` event on the
+ * live-updates subscriber path.
+ */
+export interface LiveRowId {
+  category: string
+  slug?: string
+  sessionId?: string
+  /**
+   * Unique key for the row within its category. For `message` this
+   * is the message uuid; for `tool_result` the tool_use_id; for
+   * `subagent` the agent_id; for `file_history` the session id;
+   * for `todo` the agent_id; for `task` the session id; for `plan`
+   * the plan slug; for `project_memory` / `session_index` the
+   * project slug.
+   */
+  rowKey: string
+}
+
 /** Returns the semver of the native addon. */
 export declare function nativeVersion(): string
