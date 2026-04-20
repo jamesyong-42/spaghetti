@@ -18,6 +18,8 @@ import type {
   TaskEntry,
   PlanFile,
 } from '../types/index.js';
+import type { Change } from '../live/change-events.js';
+import type { ParsedRow } from '../live/incremental-parser.js';
 import type { SourceFingerprint } from './segment-types.js';
 import { initializeSchema } from './schema.js';
 
@@ -46,10 +48,35 @@ export interface IngestService extends ProjectParseSink {
   /** Re-enable FTS triggers, rebuild the FTS index, and restore PRAGMAs. */
   endBulkIngest(): void;
 
+  /**
+   * Write a batch of rows as a single live-update transaction.
+   * Used by LiveUpdates (C2.7) on the hot path after parsing a
+   * filesystem delta.
+   *
+   * Opens a BEGIN IMMEDIATE, dispatches each ParsedRow to the
+   * existing per-category `onX()` methods, commits, and returns
+   * the set of Change events the caller should emit.
+   *
+   * Each emitted Change is stamped with a process-lifetime-monotonic
+   * `seq` counter (owned by the ingest service) and `ts = Date.now()`.
+   * The counter is purely in-memory — see RFC 005 §Event sequence
+   * numbering for why there is no persistence.
+   */
+  writeBatch(rows: ParsedRow[]): Promise<WriteResult>;
+
   // Maintenance
   vacuum(): void;
   rebuildFts(): void;
   deleteAllData(): void;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// PUBLIC RESULT TYPE
+// ═══════════════════════════════════════════════════════════════════════════
+
+export interface WriteResult {
+  changes: Change[];
+  durationMs: number;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -209,6 +236,13 @@ class IngestServiceImpl implements IngestService {
   private stmtUpsertFingerprint!: PreparedStatement;
 
   private inTransaction = false;
+
+  /**
+   * Process-lifetime-monotonic counter used by `writeBatch` to stamp
+   * every emitted `Change`. Not persisted — see RFC 005 §Event
+   * sequence numbering.
+   */
+  private liveSeqCounter = 0;
 
   constructor(sqliteServiceFactory: () => SqliteService) {
     this.db = sqliteServiceFactory();
@@ -594,6 +628,61 @@ class IngestServiceImpl implements IngestService {
     } catch {
       /* ignore */
     }
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Live-updates write path (RFC 005 C2.6)
+  // ─────────────────────────────────────────────────────────────────────────
+
+  /**
+   * Write a batch of `ParsedRow`s as a single live-update transaction.
+   *
+   * SCAFFOLDING ONLY — the `ParsedRow` shape currently produced by
+   * `IncrementalParser` (see `packages/sdk/src/live/incremental-parser.ts`)
+   * drops the metadata needed by the existing per-category `onX`
+   * methods:
+   *
+   *   - `onMessage(slug, sessionId, message, index, byteOffset)` needs
+   *     `msgIndex` + `byteOffset`, which the parser's JSONL callback
+   *     receives but does not forward into `ParsedRow`.
+   *   - `onSubagent`, `onToolResult`, `onFileHistory`, `onTodo`,
+   *     `onTask`, `onPlan` expect structured domain objects
+   *     (`SubagentTranscript`, `PersistedToolResult`, `TaskEntry`, …),
+   *     while the parser hands over raw JSONL lines or raw file
+   *     contents.
+   *
+   * Per the C2.6 hand-off contract we refuse to invent adapters here;
+   * the `ParsedRow` shape has to gain the missing per-category fields
+   * first. Until then this method handles only the empty-batch
+   * short-circuit (used by the LiveUpdates orchestrator when the
+   * coalescing queue drains with no rows) and throws for every other
+   * input so the design-doc gap surfaces loudly at the writer
+   * boundary.
+   *
+   * The full dispatch + `Change[]` construction lands together with
+   * the parser-shape fix in a follow-up commit; the interface,
+   * `WriteResult` type, and `seq`-counter field are already wired so
+   * callers compile against the final surface.
+   */
+  async writeBatch(rows: ParsedRow[]): Promise<WriteResult> {
+    const startedAt = Date.now();
+
+    // Empty batch: no-op. Do NOT open a transaction; callers hit this
+    // when the coalescing queue drains with nothing to write.
+    if (rows.length === 0) {
+      return { changes: [], durationMs: Date.now() - startedAt };
+    }
+
+    // Non-empty batch: the `ParsedRow` shape produced by the current
+    // `IncrementalParser` cannot feed the existing per-category `onX`
+    // methods without adapter logic the C2.6 contract forbids us from
+    // inventing. Surface the gap — see method jsdoc above and the
+    // report attached to the C2.6 commit.
+    throw new Error(
+      'IngestService.writeBatch: per-category dispatch not yet wired. ' +
+        'ParsedRow lacks the metadata required by onMessage/onSubagent/... — ' +
+        'flagged as a design-doc gap in RFC 005 §2.7/§2.10. See commit C2.6 report.',
+    );
   }
 
   // ─────────────────────────────────────────────────────────────────────────
