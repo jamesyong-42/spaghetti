@@ -1050,14 +1050,10 @@ export class LifecycleOwner extends EventEmitter implements ClaudeCodeAgentDataS
     // handle. The service's `shutdown()` contract is sync, but the
     // orchestrator's `stop()` is async (watcher unsubscribe + writer-
     // loop drain + final checkpoint flush). We fire-and-forget here —
-    // Phase 2 has no subscribers, no pending events observers beyond
-    // our own internal writer loop, and the orchestrator detaches
-    // watchers synchronously as the first step so no further work
-    // enqueues after this call returns.
-    //
-    // TODO(RFC 005 phase 3): promote this to an awaitable shutdown so
-    // external subscribers can flush cleanly. That requires broadening
-    // the `ClaudeCodeAgentDataService` interface — out of scope here.
+    // callers that need a fully awaited teardown (subscriber-flush,
+    // checkpoint persistence, SQLite close ordering) call
+    // `shutdownAsync()` instead, which lands the same sequence as a
+    // single awaitable.
     if (this.liveUpdates) {
       try {
         void this.liveUpdates.stop();

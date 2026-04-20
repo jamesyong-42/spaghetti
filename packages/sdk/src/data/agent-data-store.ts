@@ -101,11 +101,12 @@ export interface AgentDataStore {
   hasConfig(): boolean;
   hasAnalytics(): boolean;
 
-  // TODO(RFC 005 phase 2): add `open(dbPath)` / `close()` so the store
-  // owns connection lifecycle; today `LifecycleOwner` drives
-  // `QueryService.open/close` and the store is a pass-through consumer.
-  // `getSnapshot()` / `subscribeSnapshot()` for `useSyncExternalStore`
-  // land in phase 3 alongside the real subscriber registry.
+  // TODO(future): add `open(dbPath)` / `close()` so the store owns
+  // connection lifecycle; today `LifecycleOwner` drives
+  // `QueryService.open/close` and the store is a pass-through
+  // consumer. Folding that in lets the store become the sole owner of
+  // the SQLite handle and removes the open-via-LifecycleOwner +
+  // subscribe-via-store split. Out of scope for RFC 005.
 
   // ── Subscriber registry (RFC 005 Phase 3) ──────────────────────────────
   /**
