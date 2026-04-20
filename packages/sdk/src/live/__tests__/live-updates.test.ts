@@ -782,3 +782,88 @@ describe('LiveUpdates file-history/ scope (RFC 005 C5.3)', () => {
     dispose();
   });
 });
+
+// ═══════════════════════════════════════════════════════════════════════════
+// SUITE: plans/ live updates (RFC 005 C5.4)
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('LiveUpdates plans/ scope (RFC 005 C5.4)', () => {
+  let tempRoot: string;
+  let claudeDir: string;
+  let dbPath: string;
+  let sqlite: SqliteService;
+  let queryService: QueryService;
+  let ingest: IngestService;
+  let store: AgentDataStore;
+  let live: LiveUpdates;
+
+  before(async () => {
+    tempRoot = mkdtempSync(path.join(os.tmpdir(), 'spaghetti-live-plans-'));
+    tempRoot = realpathSync(tempRoot);
+    claudeDir = path.join(tempRoot, '.claude');
+    mkdirSync(path.join(claudeDir, 'plans'), { recursive: true });
+
+    dbPath = path.join(tempRoot, 'live.db');
+    sqlite = createSqliteService();
+    sqlite.open({ path: dbPath });
+    initializeSchema(sqlite);
+
+    const fileService = createFileService();
+    queryService = createQueryService(() => sqlite);
+    queryService.open(dbPath);
+    ingest = createIngestService(() => sqlite);
+    ingest.open(dbPath);
+    store = createAgentDataStore(queryService);
+
+    live = createLiveUpdates({ fileService, ingestService: ingest, store }, { claudeDir });
+    await live.start();
+  });
+
+  after(async () => {
+    try {
+      await live.stop();
+    } catch {
+      /* ignore */
+    }
+    try {
+      ingest.close();
+    } catch {
+      /* ignore */
+    }
+    try {
+      if (sqlite.isOpen()) sqlite.close();
+    } catch {
+      /* ignore */
+    }
+    rmSync(tempRoot, { recursive: true, force: true });
+  });
+
+  test('plan markdown file lands + emits plan.upserted', { timeout: 10000 }, async () => {
+    const captured: Change[] = [];
+    const sub = store.subscribe({ kind: 'plan' }, (c) => {
+      captured.push(c);
+    });
+    const dispose = live.prewarm({ kind: 'plan' });
+    // Parcel attach is async — give it a tick.
+    await new Promise((r) => setTimeout(r, 150));
+
+    writeFileSync(path.join(claudeDir, 'plans', 'abc.md'), '# Example Plan\n\nbody');
+
+    const event = await pollUntil(() => {
+      const hit = captured.find((c) => c.type === 'plan.upserted');
+      return hit ? hit : undefined;
+    });
+    assert.equal(event.type, 'plan.upserted');
+    if (event.type === 'plan.upserted') {
+      assert.equal(event.slug, 'abc');
+      assert.equal(event.plan.title, 'Example Plan');
+    }
+
+    const row = sqlite.get<{ slug: string; title: string }>(`SELECT slug, title FROM plans WHERE slug = ?`, 'abc');
+    assert.ok(row, 'plans row should exist');
+    assert.equal(row.title, 'Example Plan');
+
+    sub();
+    dispose();
+  });
+});
