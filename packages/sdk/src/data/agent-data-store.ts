@@ -192,7 +192,7 @@ export class AgentDataStoreImpl implements AgentDataStore {
    * poll `lastEmittedSeq()` rely on it advancing in lock-step with
    * the number of `emit()` invocations.
    */
-  private liveSeqCounter = 0;
+  private emittedSeq = 0;
 
   constructor(queryService: QueryService, registry?: SubscriberRegistry) {
     this.queryService = queryService;
@@ -321,7 +321,7 @@ export class AgentDataStoreImpl implements AgentDataStore {
     // store stamps the real value here — see RFC 005 §Event sequence
     // numbering for why the store (not the ingest service) owns this.
     const stamped = change as Change & { seq: number };
-    stamped.seq = ++this.liveSeqCounter;
+    stamped.seq = ++this.emittedSeq;
     this.registry.emit(stamped);
   }
 
@@ -344,7 +344,7 @@ export class AgentDataStoreImpl implements AgentDataStore {
   }
 
   lastEmittedSeq(): number {
-    return this.liveSeqCounter;
+    return this.emittedSeq;
   }
 
   /**

@@ -14,6 +14,9 @@ import type {
   SubagentMessagePage,
 } from './api.js';
 import type { ClaudeCodeAgentDataService } from './data/agent-data-service.js';
+import type { LifecycleInternal } from './data/lifecycle-owner.js';
+import type { AgentDataStore } from './data/agent-data-store.js';
+import type { LiveUpdates } from './live/live-updates.js';
 import type {
   SearchQuery,
   SearchResultSet,
@@ -46,11 +49,14 @@ class SpaghettiAppService extends EventEmitter implements SpaghettiAPI {
     this.dataService.on('change', (data) => this.emit('change', data));
     this.dataService.on('error', (data) => this.emit('error', data));
 
-    // C3.4: build api.live if the underlying service carries a
-    // LiveUpdates + store pair. Both getters were added on
-    // LifecycleOwner specifically to serve this wiring.
-    const getStore = dataService.getStore?.bind(dataService);
-    const getLiveUpdates = dataService.getLiveUpdates?.bind(dataService);
+    // C3.4: build api.live if the underlying service implements the
+    // internal `LifecycleInternal` shape (only `LifecycleOwner` does
+    // today). Reaches the methods via structural typing so the public
+    // `ClaudeCodeAgentDataService` interface stays free of internal
+    // type leaks.
+    const internal = dataService as Partial<LifecycleInternal>;
+    const getStore = internal.getStore?.bind(internal) as (() => AgentDataStore) | undefined;
+    const getLiveUpdates = internal.getLiveUpdates?.bind(internal) as (() => LiveUpdates | undefined) | undefined;
     if (getStore && getLiveUpdates) {
       const liveUpdates = getLiveUpdates();
       if (liveUpdates) {

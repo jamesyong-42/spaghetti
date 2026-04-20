@@ -132,16 +132,6 @@ export interface LiveUpdates {
    * subscriptions today.
    */
   prewarm(topic: ChangeTopic): Dispose;
-
-  /**
-   * Hook the store into the writer loop's emit path. Called once from
-   * `create.ts` after construction. The writer loop already calls
-   * `store.emit(change)` — `attachStore` simply retains the reference
-   * so future instrumentation (e.g. "skip emit when listenerCount is
-   * zero") has a hook. Currently a no-op beyond the reference store;
-   * present as a seam the later phases can grow into.
-   */
-  attachStore(store: AgentDataStore): void;
 }
 
 /**
@@ -238,8 +228,7 @@ function routerCategoryToParserCategory(category: Category): ParsedRowCategory |
 // ═══════════════════════════════════════════════════════════════════════════
 
 export function createLiveUpdates(deps: LiveUpdatesDeps, options: LiveUpdatesOptions): LiveUpdates {
-  const { fileService, ingestService } = deps;
-  let store: AgentDataStore = deps.store;
+  const { fileService, ingestService, store } = deps;
 
   // ── resolve options with defaults ──────────────────────────────────────
   const claudeDir = options.claudeDir;
@@ -734,15 +723,6 @@ export function createLiveUpdates(deps: LiveUpdatesDeps, options: LiveUpdatesOpt
         disposed = true;
         for (const scope of acquired) scopeAttacher.release(scope);
       };
-    },
-
-    attachStore(next: AgentDataStore): void {
-      // Retain a reference. The writer loop closes over `store` via
-      // the enclosing `let`, so reassignment here is all that's
-      // needed for future emits to go through the attached store.
-      // The settings handler reads the same `store` via the
-      // `getStore` dep so it picks up the swap automatically.
-      store = next;
     },
   };
 }

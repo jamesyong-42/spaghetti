@@ -132,21 +132,23 @@ export interface ClaudeCodeAgentDataService extends EventEmitter {
   search(query: SearchQuery): SearchResultSet;
   rebuild(): Promise<void>;
   getStoreStats(): StoreStats;
+}
 
-  /**
-   * Access the underlying AgentDataStore. Used by the public
-   * `api.live` surface (C3.4) to wire subscriber registration and
-   * by any advanced consumer that needs direct store access for
-   * instrumentation. Returns `undefined` if the lifecycle owner was
-   * constructed without a store (test shims do this occasionally).
-   */
-  getStore?(): AgentDataStore;
-  /**
-   * Access the optional live-updates orchestrator. Returns
-   * `undefined` when the service was constructed with `{ live: false }`
-   * or equivalent. Consumed by `api.live` for `prewarm` + `isSaturated`.
-   */
-  getLiveUpdates?(): LiveUpdates | undefined;
+/**
+ * Internal accessors the app-service consumes via structural typing.
+ *
+ * NOT exported from the SDK barrel — `getStore()` returns the
+ * `AgentDataStore` (an internal type with the subscriber registry on
+ * it) and `getLiveUpdates()` returns the orchestrator (also internal).
+ * Exposing either on the public `ClaudeCodeAgentDataService`
+ * interface would leak implementation types into consumer code
+ * (audit finding); keeping them on a separate interface that only
+ * `LifecycleOwner` implements means `app-service.ts` reaches them
+ * via duck-typing without the public surface advertising them.
+ */
+export interface LifecycleInternal {
+  getStore(): AgentDataStore;
+  getLiveUpdates(): LiveUpdates | undefined;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -180,7 +182,7 @@ function getDefaultDbPath(engine: IngestEngine): string {
 // IMPLEMENTATION
 // ═══════════════════════════════════════════════════════════════════════════
 
-export class LifecycleOwner extends EventEmitter implements ClaudeCodeAgentDataService {
+export class LifecycleOwner extends EventEmitter implements ClaudeCodeAgentDataService, LifecycleInternal {
   private fileService: FileService;
   private parser: ClaudeCodeParser;
   private queryService: QueryService;
