@@ -81,6 +81,14 @@ export type { TokenUsageSummary, SessionSummaryData, ProjectSummaryData } from '
 export interface ClaudeCodeAgentDataService extends EventEmitter {
   initialize(): Promise<void>;
   shutdown(): void;
+  /**
+   * Awaitable teardown (RFC 005 C3.4). Stops the live pipeline,
+   * drains in-flight writes, disposes the subscriber registry, and
+   * closes SQLite. Optional on the interface so external impls that
+   * predate C3.4 still type-check; the default `LifecycleOwner`
+   * always provides it.
+   */
+  shutdownAsync?(): Promise<void>;
   /** Force a full cold rebuild — wipes the DB file and re-ingests. */
   rebuildIndex(): Promise<{ durationMs: number }>;
   isReady(): boolean;
@@ -124,6 +132,21 @@ export interface ClaudeCodeAgentDataService extends EventEmitter {
   search(query: SearchQuery): SearchResultSet;
   rebuild(): Promise<void>;
   getStoreStats(): StoreStats;
+
+  /**
+   * Access the underlying AgentDataStore. Used by the public
+   * `api.live` surface (C3.4) to wire subscriber registration and
+   * by any advanced consumer that needs direct store access for
+   * instrumentation. Returns `undefined` if the lifecycle owner was
+   * constructed without a store (test shims do this occasionally).
+   */
+  getStore?(): AgentDataStore;
+  /**
+   * Access the optional live-updates orchestrator. Returns
+   * `undefined` when the service was constructed with `{ live: false }`
+   * or equivalent. Consumed by `api.live` for `prewarm` + `isSaturated`.
+   */
+  getLiveUpdates?(): LiveUpdates | undefined;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -969,6 +992,50 @@ export class LifecycleOwner extends EventEmitter implements ClaudeCodeAgentDataS
     }
   }
 
+  /**
+   * Awaitable teardown. Used by `api[Symbol.asyncDispose]` (C3.4) so
+   * callers on `await using` semantics can flush in-flight live
+   * writes and close the subscriber registry before returning.
+   *
+   * Sequence (RFC 005 §4): stop watchers first (no new events),
+   * await the writer loop (in-flight writeBatch completes), flush
+   * checkpoints, dispose the registry, close SQLite.
+   */
+  async shutdownAsync(): Promise<void> {
+    this.ready = false;
+
+    if (this.liveUpdates) {
+      try {
+        await this.liveUpdates.stop();
+      } catch {
+        /* best-effort teardown */
+      }
+    }
+
+    // Tear down any straggling subscribers now that no more events
+    // can be emitted. The concrete store exposes `disposeRegistry`
+    // via the class, not the interface — cast locally.
+    const store = this.store as AgentDataStore & { disposeRegistry?: () => void };
+    if (typeof store.disposeRegistry === 'function') {
+      try {
+        store.disposeRegistry();
+      } catch {
+        /* ignore */
+      }
+    }
+
+    try {
+      this.ingestService.close();
+    } catch {
+      /* ignore */
+    }
+    try {
+      this.queryService.close();
+    } catch {
+      /* ignore */
+    }
+  }
+
   shutdown(): void {
     this.ready = false;
     // Config/analytics caches now live on `AgentDataStore`. The store
@@ -1217,6 +1284,24 @@ export class LifecycleOwner extends EventEmitter implements ClaudeCodeAgentDataS
 
   getStoreStats(): StoreStats {
     return this.store.getStats();
+  }
+
+  /**
+   * Expose the underlying store. Used by `SpaghettiAppService` to wire
+   * `api.live.onChange` (C3.4) — the public surface composes
+   * `liveUpdates.prewarm(topic)` with `store.subscribe(topic, ...)`,
+   * so the app-service needs both references.
+   */
+  getStore(): AgentDataStore {
+    return this.store;
+  }
+
+  /**
+   * Expose the optional live-updates orchestrator. `undefined` when
+   * the service was constructed with `{ live: false }`.
+   */
+  getLiveUpdates(): LiveUpdates | undefined {
+    return this.liveUpdates;
   }
 
   // ─────────────────────────────────────────────────────────────────────────

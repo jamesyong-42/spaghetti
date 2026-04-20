@@ -22,9 +22,19 @@ import type {
   SegmentChangeBatch,
 } from './data/segment-types.js';
 import type { SessionSummaryData, ProjectSummaryData } from './data/summary-types.js';
+import type { SpaghettiLive } from './live/spaghetti-live.js';
+import { createSpaghettiLive } from './live/spaghetti-live.js';
 
 class SpaghettiAppService extends EventEmitter implements SpaghettiAPI {
   private dataService: ClaudeCodeAgentDataService;
+
+  /**
+   * Public `api.live` handle — present only when the lifecycle owner
+   * was constructed with a live-updates orchestrator (i.e. the caller
+   * opted into `createSpaghettiService({ live: true })`). Wired up
+   * in the constructor so access is a simple field read.
+   */
+  readonly live?: SpaghettiLive;
 
   constructor(dataService: ClaudeCodeAgentDataService) {
     super();
@@ -34,6 +44,18 @@ class SpaghettiAppService extends EventEmitter implements SpaghettiAPI {
     this.dataService.on('ready', (data) => this.emit('ready', data));
     this.dataService.on('change', (data) => this.emit('change', data));
     this.dataService.on('error', (data) => this.emit('error', data));
+
+    // C3.4: build api.live if the underlying service carries a
+    // LiveUpdates + store pair. Both getters were added on
+    // LifecycleOwner specifically to serve this wiring.
+    const getStore = dataService.getStore?.bind(dataService);
+    const getLiveUpdates = dataService.getLiveUpdates?.bind(dataService);
+    if (getStore && getLiveUpdates) {
+      const liveUpdates = getLiveUpdates();
+      if (liveUpdates) {
+        this.live = createSpaghettiLive(getStore(), liveUpdates);
+      }
+    }
   }
 
   async initialize(): Promise<void> {
@@ -42,6 +64,21 @@ class SpaghettiAppService extends EventEmitter implements SpaghettiAPI {
 
   shutdown(): void {
     this.dataService.shutdown();
+  }
+
+  /**
+   * C3.4: awaitable teardown. Delegates to `shutdownAsync` when the
+   * underlying data-service exposes it (always true for the default
+   * `LifecycleOwner` impl). Falls back to the sync `shutdown()` for
+   * custom services that predate RFC 005 Phase 3.
+   */
+  async dispose(): Promise<void> {
+    const async_ = this.dataService.shutdownAsync?.bind(this.dataService);
+    if (async_) {
+      await async_();
+    } else {
+      this.dataService.shutdown();
+    }
   }
 
   async rebuildIndex(): Promise<{ durationMs: number }> {

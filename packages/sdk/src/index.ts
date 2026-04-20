@@ -59,3 +59,19 @@ export {
   defaultDbPathForEngine,
   settingsPath,
 } from './settings.js';
+
+// Live updates (RFC 005 Phase 3) — public surface + event types.
+export type { SpaghettiLive } from './live/spaghetti-live.js';
+export type { Change, ChangeType, ChangeTopic, SubscribeOptions, Dispose } from './live/change-events.js';
+export {
+  isSessionMessageAdded,
+  isSessionCreated,
+  isSessionRewritten,
+  isSubagentUpdated,
+  isToolResultAdded,
+  isFileHistoryAdded,
+  isTodoUpdated,
+  isTaskUpdated,
+  isPlanUpserted,
+  isSettingsChanged,
+} from './live/change-events.js';
