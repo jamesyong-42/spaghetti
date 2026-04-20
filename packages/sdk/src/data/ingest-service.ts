@@ -19,7 +19,7 @@ import type {
   PlanFile,
 } from '../types/index.js';
 import type { Change } from '../live/change-events.js';
-import type { ParsedRow } from '../live/incremental-parser.js';
+import type { ParsedRow, ParsedRowCategory } from '../live/incremental-parser.js';
 import type { NativeAddon } from '../native.js';
 import type { IngestEngine } from '../settings.js';
 import type { SourceFingerprint } from './segment-types.js';
@@ -724,40 +724,10 @@ class IngestServiceImpl implements IngestService {
       this.inTransaction = true;
     }
 
+    const ctx: RowWriteContext = this;
     try {
       for (const row of rows) {
-        switch (row.category) {
-          case 'message':
-            this.onMessage(row.slug, row.sessionId, row.message, row.msgIndex, row.byteOffset);
-            break;
-          case 'subagent':
-            this.onSubagent(row.slug, row.sessionId, row.transcript);
-            break;
-          case 'tool_result':
-            this.onToolResult(row.slug, row.sessionId, row.result);
-            break;
-          case 'file_history':
-            this.onFileHistory(row.sessionId, row.history);
-            break;
-          case 'todo':
-            this.onTodo(row.sessionId, row.todo);
-            break;
-          case 'task':
-            this.onTask(row.sessionId, row.task);
-            break;
-          case 'plan':
-            this.onPlan(row.slug, row.plan);
-            break;
-          case 'project_memory':
-            // SQLite write, no Change emission (no matching union
-            // variant — see RFC 005 §2.9).
-            this.onProjectMemory(row.slug, row.content);
-            break;
-          case 'session_index':
-            // SQLite write, no Change emission (ditto).
-            this.applySessionIndex(row.slug, row.originalPath, row.sessionsIndex);
-            break;
-        }
+        applyRowHandler(row, ctx);
       }
 
       if (weOpenedTx) {
@@ -777,18 +747,6 @@ class IngestServiceImpl implements IngestService {
     }
 
     return { changes: buildChangesFromRows(rows), durationMs: Date.now() - startedAt };
-  }
-
-  /**
-   * SQLite-only upsert for `session_index` rows. There is no public
-   * `onSessionIndex(slug, originalPath, sessionsIndex)` on `ProjectParseSink`
-   * — cold-start uses `onProject(slug, originalPath, sessionsIndex)`
-   * with the same signature, which is exactly what we need. Using a
-   * distinct private helper keeps the public sink surface untouched
-   * while the live path gets a clear call site.
-   */
-  private applySessionIndex(slug: string, originalPath: string, sessionsIndex: SessionsIndex): void {
-    this.onProject(slug, originalPath, sessionsIndex);
   }
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -984,102 +942,192 @@ function parsedRowToNativeLiveRow(row: ParsedRow): {
   }
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+// ROW HANDLER TABLE
+// ═══════════════════════════════════════════════════════════════════════════
+
+/**
+ * Subset of `IngestService` the row handlers need to write a row.
+ * Keeping this structural rather than passing the full implementation
+ * lets the table stay outside the class (no `this` capture) while the
+ * impl class still satisfies the shape via duck-typing.
+ *
+ * `session_index` reuses `onProject(slug, originalPath, sessionsIndex)`
+ * — that signature is identical to the `applySessionIndex` helper
+ * the live path used to call.
+ */
+interface RowWriteContext {
+  onMessage(slug: string, sessionId: string, message: SessionMessage, index: number, byteOffset: number): void;
+  onSubagent(slug: string, sessionId: string, transcript: SubagentTranscript): void;
+  onToolResult(slug: string, sessionId: string, toolResult: PersistedToolResult): void;
+  onFileHistory(sessionId: string, history: FileHistorySession): void;
+  onTodo(sessionId: string, todo: TodoFile): void;
+  onTask(sessionId: string, task: TaskEntry): void;
+  onPlan(slug: string, plan: PlanFile): void;
+  onProjectMemory(slug: string, content: string): void;
+  onProject(slug: string, originalPath: string, sessionsIndex: SessionsIndex): void;
+}
+
+/** Narrow a `ParsedRow` to the variant matching its `category`. */
+type RowOf<C extends ParsedRowCategory> = Extract<ParsedRow, { category: C }>;
+
+/**
+ * One entry per `ParsedRow.category`. `apply` drives the SQLite write
+ * via `RowWriteContext`; `toChange` builds the matching `Change`
+ * variant or returns `null` for SQLite-only rows that have no
+ * corresponding event (`project_memory`, `session_index`, plus
+ * `file_history` when the snapshot list is empty).
+ *
+ * Adding a new category means adding ONE entry here — the dispatch
+ * loop in `writeBatch` and the change-fan-out loop in
+ * `buildChangesFromRows` consult this table directly so neither needs
+ * a parallel switch.
+ */
+interface RowHandler<C extends ParsedRowCategory> {
+  apply(row: RowOf<C>, ctx: RowWriteContext): void;
+  toChange(row: RowOf<C>, ts: number): Change | null;
+}
+
+type RowHandlers = { [C in ParsedRowCategory]: RowHandler<C> };
+
+/**
+ * Identity helper that pins the per-category entry to its narrowed
+ * `RowHandler<C>` type. Without the helper, TypeScript widens each
+ * record value to the union over every category and the per-row
+ * field reads (`r.slug`, `r.sessionId`, …) lose their narrowing.
+ */
+function handler<C extends ParsedRowCategory>(h: RowHandler<C>): RowHandler<C> {
+  return h;
+}
+
+const ROW_HANDLERS: RowHandlers = {
+  message: handler<'message'>({
+    apply: (r, c) => c.onMessage(r.slug, r.sessionId, r.message, r.msgIndex, r.byteOffset),
+    toChange: (r, ts) => ({
+      type: 'session.message.added',
+      seq: 0,
+      ts,
+      slug: r.slug,
+      sessionId: r.sessionId,
+      message: r.message,
+      byteOffset: r.byteOffset,
+    }),
+  }),
+  subagent: handler<'subagent'>({
+    apply: (r, c) => c.onSubagent(r.slug, r.sessionId, r.transcript),
+    toChange: (r, ts) => ({
+      type: 'subagent.updated',
+      seq: 0,
+      ts,
+      slug: r.slug,
+      sessionId: r.sessionId,
+      agentId: r.transcript.agentId,
+      transcript: r.transcript,
+    }),
+  }),
+  tool_result: handler<'tool_result'>({
+    apply: (r, c) => c.onToolResult(r.slug, r.sessionId, r.result),
+    toChange: (r, ts) => ({
+      type: 'tool-result.added',
+      seq: 0,
+      ts,
+      slug: r.slug,
+      sessionId: r.sessionId,
+      toolUseId: r.result.toolUseId,
+    }),
+  }),
+  file_history: handler<'file_history'>({
+    apply: (r, c) => c.onFileHistory(r.sessionId, r.history),
+    toChange: (r, ts) => {
+      // Only fan out when there is at least one snapshot — empty
+      // arrays would surface a malformed `file-history.added` event.
+      const snap = r.history.snapshots[0];
+      if (!snap) return null;
+      return {
+        type: 'file-history.added',
+        seq: 0,
+        ts,
+        sessionId: r.sessionId,
+        hash: snap.hash,
+        version: snap.version,
+      };
+    },
+  }),
+  todo: handler<'todo'>({
+    apply: (r, c) => c.onTodo(r.sessionId, r.todo),
+    toChange: (r, ts) => ({
+      type: 'todo.updated',
+      seq: 0,
+      ts,
+      sessionId: r.sessionId,
+      agentId: r.todo.agentId,
+      items: r.todo.items,
+    }),
+  }),
+  task: handler<'task'>({
+    apply: (r, c) => c.onTask(r.sessionId, r.task),
+    toChange: (r, ts) => ({
+      type: 'task.updated',
+      seq: 0,
+      ts,
+      sessionId: r.sessionId,
+      task: r.task,
+    }),
+  }),
+  plan: handler<'plan'>({
+    apply: (r, c) => c.onPlan(r.slug, r.plan),
+    toChange: (r, ts) => ({
+      type: 'plan.upserted',
+      seq: 0,
+      ts,
+      slug: r.slug,
+      plan: r.plan,
+    }),
+  }),
+  project_memory: handler<'project_memory'>({
+    apply: (r, c) => c.onProjectMemory(r.slug, r.content),
+    // SQLite-only write, no Change emission (no matching union
+    // variant — see RFC 005 §2.9).
+    toChange: () => null,
+  }),
+  session_index: handler<'session_index'>({
+    // No public `onSessionIndex(slug, originalPath, sessionsIndex)` on
+    // `ProjectParseSink` — cold-start uses `onProject(slug,
+    // originalPath, sessionsIndex)` with the same signature, which
+    // is exactly what the live path needs too.
+    apply: (r, c) => c.onProject(r.slug, r.originalPath, r.sessionsIndex),
+    // SQLite-only write (ditto).
+    toChange: () => null,
+  }),
+};
+
+/**
+ * Dispatch one row to its handler. Index access into `ROW_HANDLERS`
+ * loses the discriminated-union → variant correspondence, so the
+ * `as never` widens the row to satisfy each variant's `apply`
+ * signature. Soundness comes from the `RowHandlers` type ensuring
+ * every category has a matching apply.
+ */
+function applyRowHandler(row: ParsedRow, ctx: RowWriteContext): void {
+  (ROW_HANDLERS[row.category] as RowHandler<typeof row.category>).apply(row as never, ctx);
+}
+
 /**
  * Build the `Change[]` the subscriber registry should fan out after a
  * successful batch. Shared between the TS and native paths so that
  * subscribers see the exact same events regardless of engine.
  *
  * Each returned Change carries `seq: 0` — the store's `emit()` stamps
- * the real monotonic counter on the way through fan-out. Doing it here
- * would divorce the counter from fan-out order; see C3.1 for the
+ * the real monotonic counter on the way through fan-out. Doing it
+ * here would divorce the counter from fan-out order; see C3.1 for the
  * history.
  */
 function buildChangesFromRows(rows: ParsedRow[]): Change[] {
   const changes: Change[] = [];
   for (const row of rows) {
     const ts = Date.now();
-    switch (row.category) {
-      case 'message':
-        changes.push({
-          type: 'session.message.added',
-          seq: 0,
-          ts,
-          slug: row.slug,
-          sessionId: row.sessionId,
-          message: row.message,
-          byteOffset: row.byteOffset,
-        });
-        break;
-      case 'subagent':
-        changes.push({
-          type: 'subagent.updated',
-          seq: 0,
-          ts,
-          slug: row.slug,
-          sessionId: row.sessionId,
-          agentId: row.transcript.agentId,
-          transcript: row.transcript,
-        });
-        break;
-      case 'tool_result':
-        changes.push({
-          type: 'tool-result.added',
-          seq: 0,
-          ts,
-          slug: row.slug,
-          sessionId: row.sessionId,
-          toolUseId: row.result.toolUseId,
-        });
-        break;
-      case 'file_history': {
-        const snap = row.history.snapshots[0];
-        if (snap) {
-          changes.push({
-            type: 'file-history.added',
-            seq: 0,
-            ts,
-            sessionId: row.sessionId,
-            hash: snap.hash,
-            version: snap.version,
-          });
-        }
-        // No snapshots → no Change emitted (store owns the counter).
-        break;
-      }
-      case 'todo':
-        changes.push({
-          type: 'todo.updated',
-          seq: 0,
-          ts,
-          sessionId: row.sessionId,
-          agentId: row.todo.agentId,
-          items: row.todo.items,
-        });
-        break;
-      case 'task':
-        changes.push({
-          type: 'task.updated',
-          seq: 0,
-          ts,
-          sessionId: row.sessionId,
-          task: row.task,
-        });
-        break;
-      case 'plan':
-        changes.push({
-          type: 'plan.upserted',
-          seq: 0,
-          ts,
-          slug: row.slug,
-          plan: row.plan,
-        });
-        break;
-      case 'project_memory':
-      case 'session_index':
-        // SQLite-only write, no Change emission (no matching union
-        // variant — see RFC 005 §2.9).
-        break;
-    }
+    const change = (ROW_HANDLERS[row.category] as RowHandler<typeof row.category>).toChange(row as never, ts);
+    if (change !== null) changes.push(change);
   }
   return changes;
 }
