@@ -6,8 +6,8 @@
  * `ParsedRow`, calls `writeBatch`, then asserts:
  *
  *   1. The correct `Change` variant(s) come back in `WriteResult.changes`.
- *   2. Every emitted Change carries a monotonically-increasing `seq`
- *      and a numeric `ts`.
+ *   2. Every returned Change carries a numeric `ts` and `seq: 0` (the
+ *      store stamps the real monotonic seq on `emit()` — see C3.1).
  *   3. The target SQLite row exists with the expected content (and
  *      the FTS index agrees for messages).
  *
@@ -189,8 +189,9 @@ describe('IngestService.writeBatch (RFC 005 C2.6)', () => {
     assert.equal(change.slug, SLUG);
     assert.equal(change.sessionId, SESSION_ID);
     assert.equal(change.byteOffset, 0);
-    assert.equal(typeof change.seq, 'number');
-    assert.ok(change.seq >= 1);
+    // As of C3.1, `writeBatch` returns Changes with `seq: 0` —
+    // `AgentDataStore.emit()` stamps the real monotonic value.
+    assert.equal(change.seq, 0);
     assert.equal(typeof change.ts, 'number');
 
     // SQLite row exists
@@ -395,10 +396,10 @@ describe('IngestService.writeBatch (RFC 005 C2.6)', () => {
   });
 
   // ─────────────────────────────────────────────────────────────────────────
-  // MULTI-ROW BATCH + SEQ MONOTONICITY
+  // MULTI-ROW BATCH
   // ─────────────────────────────────────────────────────────────────────────
 
-  test('multi-row batch stamps monotonically-increasing seq on each Change', async () => {
+  test('multi-row batch returns one Change per row with placeholder seq=0', async () => {
     const m1: SessionMessage = {
       type: 'user',
       message: { role: 'user', content: 'first' },
@@ -414,7 +415,11 @@ describe('IngestService.writeBatch (RFC 005 C2.6)', () => {
     ]);
 
     assert.equal(result.changes.length, 2);
-    assert.ok(result.changes[1].seq > result.changes[0].seq, 'seq must be strictly increasing');
+    // Each Change carries seq: 0 — the store's emit() assigns the real
+    // monotonic value when the writer loop fans them out. (Monotonicity
+    // is proven in `agent-data-store.test.ts` under the C3.1 tests.)
+    assert.equal(result.changes[0].seq, 0);
+    assert.equal(result.changes[1].seq, 0);
   });
 
   // ─────────────────────────────────────────────────────────────────────────

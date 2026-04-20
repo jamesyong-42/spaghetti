@@ -57,10 +57,10 @@ export interface IngestService extends ProjectParseSink {
    * existing per-category `onX()` methods, commits, and returns
    * the set of Change events the caller should emit.
    *
-   * Each emitted Change is stamped with a process-lifetime-monotonic
-   * `seq` counter (owned by the ingest service) and `ts = Date.now()`.
-   * The counter is purely in-memory — see RFC 005 §Event sequence
-   * numbering for why there is no persistence.
+   * Each returned Change is stamped with `ts = Date.now()` and
+   * `seq = 0` as a placeholder — the store (`AgentDataStore.emit`)
+   * owns the monotonic `seq` counter and overwrites it on emit. See
+   * RFC 005 §Event sequence numbering and C3.1 for the rationale.
    */
   writeBatch(rows: ParsedRow[]): Promise<WriteResult>;
 
@@ -237,12 +237,11 @@ class IngestServiceImpl implements IngestService {
 
   private inTransaction = false;
 
-  /**
-   * Process-lifetime-monotonic counter used by `writeBatch` to stamp
-   * every emitted `Change`. Not persisted — see RFC 005 §Event
-   * sequence numbering.
-   */
-  private liveSeqCounter = 0;
+  // NOTE(RFC 005 C3.1): the seq counter used to live here. It now
+  // belongs to `AgentDataStore` — the store owns fan-out and stamps
+  // every emitted Change on its way through `emit()`. `writeBatch`
+  // returns Changes with `seq: 0` as a placeholder; the live-updates
+  // writer loop passes them to `store.emit()`, which overwrites.
 
   constructor(sqliteServiceFactory: () => SqliteService) {
     this.db = sqliteServiceFactory();
@@ -651,9 +650,10 @@ class IngestServiceImpl implements IngestService {
    * each into the matching `Change` variant (see `live/change-events.ts`).
    * `project_memory` + `session_index` rows mutate SQLite but emit no
    * `Change` — the union has no matching variants (see RFC 005 §2.9).
-   * Each emitted `Change` is stamped `seq = ++this.liveSeqCounter`
-   * and `ts = Date.now()`; the counter is process-lifetime-monotonic
-   * and not persisted (RFC 005 §Event sequence numbering).
+   * Each returned `Change` is stamped `ts = Date.now()` and `seq = 0`;
+   * the real monotonic `seq` is assigned inside `AgentDataStore.emit()`
+   * when the writer loop fans the change out. See RFC 005 §Event
+   * sequence numbering (counter is not persisted).
    */
   async writeBatch(rows: ParsedRow[]): Promise<WriteResult> {
     const startedAt = Date.now();
@@ -727,16 +727,19 @@ class IngestServiceImpl implements IngestService {
       throw err;
     }
 
-    // Build Change[] post-commit so seq/ts stamp the realized state.
+    // Build Change[] post-commit. `seq: 0` is a placeholder — the
+    // store's `emit()` stamps the real monotonic seq when the writer
+    // loop fans these out. Doing it here would divorce the counter
+    // from fan-out order (a batch with zero subscribers would still
+    // burn numbers), so we defer.
     const changes: Change[] = [];
     for (const row of rows) {
-      const seq = ++this.liveSeqCounter;
       const ts = Date.now();
       switch (row.category) {
         case 'message':
           changes.push({
             type: 'session.message.added',
-            seq,
+            seq: 0,
             ts,
             slug: row.slug,
             sessionId: row.sessionId,
@@ -747,7 +750,7 @@ class IngestServiceImpl implements IngestService {
         case 'subagent':
           changes.push({
             type: 'subagent.updated',
-            seq,
+            seq: 0,
             ts,
             slug: row.slug,
             sessionId: row.sessionId,
@@ -758,7 +761,7 @@ class IngestServiceImpl implements IngestService {
         case 'tool_result':
           changes.push({
             type: 'tool-result.added',
-            seq,
+            seq: 0,
             ts,
             slug: row.slug,
             sessionId: row.sessionId,
@@ -770,23 +773,21 @@ class IngestServiceImpl implements IngestService {
           if (snap) {
             changes.push({
               type: 'file-history.added',
-              seq,
+              seq: 0,
               ts,
               sessionId: row.sessionId,
               hash: snap.hash,
               version: snap.version,
             });
-          } else {
-            // No snapshots → no Change. Roll back the seq we claimed
-            // so counters match the number of emitted events.
-            this.liveSeqCounter--;
           }
+          // No snapshots → no Change emitted (nothing to rollback:
+          // the store owns the counter now).
           break;
         }
         case 'todo':
           changes.push({
             type: 'todo.updated',
-            seq,
+            seq: 0,
             ts,
             sessionId: row.sessionId,
             agentId: row.todo.agentId,
@@ -796,7 +797,7 @@ class IngestServiceImpl implements IngestService {
         case 'task':
           changes.push({
             type: 'task.updated',
-            seq,
+            seq: 0,
             ts,
             sessionId: row.sessionId,
             task: row.task,
@@ -805,7 +806,7 @@ class IngestServiceImpl implements IngestService {
         case 'plan':
           changes.push({
             type: 'plan.upserted',
-            seq,
+            seq: 0,
             ts,
             slug: row.slug,
             plan: row.plan,
@@ -813,8 +814,8 @@ class IngestServiceImpl implements IngestService {
           break;
         case 'project_memory':
         case 'session_index':
-          // No Change variant — drop the seq we would have claimed.
-          this.liveSeqCounter--;
+          // SQLite-only write, no Change emission (no matching union
+          // variant — see RFC 005 §2.9).
           break;
       }
     }

@@ -21,6 +21,7 @@ import type { ProjectSummaryData, SessionSummaryData } from './summary-types.js'
 import type { AgentAnalytic, AgentConfig, SessionMessage } from '../types/index.js';
 import type { QueryService } from './query-service.js';
 import type { Change, ChangeTopic, Dispose, SubscribeOptions } from '../live/change-events.js';
+import { createSubscriberRegistry, type SubscriberRegistry } from '../live/subscriber-registry.js';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // INTERFACE
@@ -98,33 +99,40 @@ export interface AgentDataStore {
   // `getSnapshot()` / `subscribeSnapshot()` for `useSyncExternalStore`
   // land in phase 3 alongside the real subscriber registry.
 
-  // ── Subscriber registry (RFC 005 phase 3 stub) ──────────────────────────
+  // ── Subscriber registry (RFC 005 Phase 3) ──────────────────────────────
   /**
    * Publish a `Change` event to matching subscribers.
    *
-   * TODO(RFC 005 phase 3): this is a no-op stub in C1.4. Phase 3 will
-   * implement topic matching, per-subscription throttling, and a
-   * monotonic in-memory `seq` counter driving `lastEmittedSeq()`. The
-   * signature is wired in now so `LiveUpdates` (phase 2) can type-check
-   * against the final contract while the registry is still inert.
+   * Stamps the change with a process-lifetime-monotonic `seq` (the
+   * store owns the counter — see RFC 005 §Event sequence numbering)
+   * and dispatches through the subscriber registry. `change.seq` as
+   * passed in is overwritten: producers (today just
+   * `IngestService.writeBatch` via the `LiveUpdates` writer loop)
+   * should set `seq: 0` as a placeholder; the store assigns the real
+   * value here.
    */
   emit(change: Change): void;
   /**
    * Register a listener for changes matching `topic` (undefined for the
-   * firehose).
+   * firehose). Returns a `Dispose` that deregisters the listener.
    *
-   * TODO(RFC 005 phase 3): returns a no-op `Dispose` today. Phase 3
-   * replaces this with `subscriber-registry.ts` (topic-matrix fan-out
-   * + throttle support).
+   * Partial topics widen the scope: `{ kind: 'session' }` matches
+   * every session event across every project; adding `slug` narrows
+   * to one project, adding `sessionId` narrows to one session. See
+   * `live/change-events.ts` for the full topic vocabulary.
+   *
+   * `options.throttleMs` (optional) gates delivery: at most one
+   * listener invocation per `throttleMs`. `options.latest: true`
+   * (default when `throttleMs` is set) delivers the most recent event
+   * at each boundary; `latest: false` coalesces pending changes into
+   * an array.
    */
   subscribe(topic: ChangeTopic | undefined, listener: (e: Change) => void, options?: SubscribeOptions): Dispose;
   /**
    * Last `seq` the store has assigned to an emitted `Change` this
-   * process.
-   *
-   * TODO(RFC 005 phase 3): returns `0` today (counter lives in the
-   * real registry). Kept on the interface so phase-3 wiring can bump
-   * it without a signature change.
+   * process. Monotonically increases with every `emit()` call
+   * regardless of whether any listener was registered at the time.
+   * Useful for tests + instrumentation; never persisted.
    */
   lastEmittedSeq(): number;
 }
@@ -158,8 +166,24 @@ export class AgentDataStoreImpl implements AgentDataStore {
   private cachedConfig: AgentConfig | null = null;
   private cachedAnalytics: AgentAnalytic | null = null;
 
-  constructor(queryService: QueryService) {
+  /**
+   * Subscriber registry (RFC 005 C3.1). Delegated to for `emit` +
+   * `subscribe`; the store owns the monotonic `seq` counter that
+   * stamps every emitted Change (see §Event sequence numbering).
+   */
+  private readonly registry: SubscriberRegistry;
+
+  /**
+   * Process-lifetime-monotonic seq counter. Bumped inside `emit()`
+   * regardless of whether the registry has listeners — callers that
+   * poll `lastEmittedSeq()` rely on it advancing in lock-step with
+   * the number of `emit()` invocations.
+   */
+  private liveSeqCounter = 0;
+
+  constructor(queryService: QueryService, registry?: SubscriberRegistry) {
     this.queryService = queryService;
+    this.registry = registry ?? createSubscriberRegistry();
   }
 
   // ── Projects ───────────────────────────────────────────────────────────
@@ -274,32 +298,37 @@ export class AgentDataStoreImpl implements AgentDataStore {
     return this.cachedAnalytics !== null;
   }
 
-  // ── Subscriber registry (RFC 005 phase 3 stub) ───────────────────────────
+  // ── Subscriber registry (RFC 005 C3.1) ───────────────────────────────────
 
-  emit(_change: Change): void {
-    // TODO(RFC 005 phase 3): route through subscriber-registry.ts
-    // (topic matching, throttle + `latest` coalescing, `seq` bump).
-    // Intentionally a pure no-op today — an earlier draft accumulated
-    // changes into a private Set; that Set was never drained, so a
-    // long-lived process would leak one Change per live-commit. The
-    // signature is wired so `LiveUpdates` (phase 2) can compile against
-    // the final contract while the registry is still inert.
+  emit(change: Change): void {
+    // Bump the seq counter BEFORE fanout so `lastEmittedSeq()` reflects
+    // a valid monotonic value even if there are zero listeners (the
+    // early-return case inside the registry). The change object is
+    // mutated in place: producers set `seq: 0` as a placeholder and the
+    // store stamps the real value here — see RFC 005 §Event sequence
+    // numbering for why the store (not the ingest service) owns this.
+    const stamped = change as Change & { seq: number };
+    stamped.seq = ++this.liveSeqCounter;
+    this.registry.emit(stamped);
   }
 
-  subscribe(_topic: ChangeTopic | undefined, _listener: (e: Change) => void, _options?: SubscribeOptions): Dispose {
-    // TODO(RFC 005 phase 3): register the listener under its topic key,
-    // apply throttle options, and return a dispose that removes it.
-    // For C1.4 we return a no-op dispose so callers can wire up the
-    // public `onChange` surface without any listeners actually firing.
-    return () => {
-      /* no-op until phase 3 */
-    };
+  subscribe(topic: ChangeTopic | undefined, listener: (e: Change) => void, options?: SubscribeOptions): Dispose {
+    return this.registry.subscribe(topic, listener, options);
   }
 
   lastEmittedSeq(): number {
-    // TODO(RFC 005 phase 3): return the in-memory monotonic counter
-    // incremented inside `emit()` once the real registry lands.
-    return 0;
+    return this.liveSeqCounter;
+  }
+
+  /**
+   * Tear down the subscriber registry. Not part of `AgentDataStore` —
+   * only the lifecycle owner needs to call this on shutdown so
+   * straggling listeners stop receiving events. Kept on the concrete
+   * class so callers must reach through a typed handle (no public
+   * escape hatch on the interface).
+   */
+  disposeRegistry(): void {
+    this.registry.dispose();
   }
 }
 
@@ -311,7 +340,14 @@ export class AgentDataStoreImpl implements AgentDataStore {
  * Construct a store backed by the given `QueryService`. The
  * `QueryService` must already be opened against the target SQLite
  * database — the store does not manage the connection lifecycle.
+ *
+ * Pass a custom `SubscriberRegistry` via `options.registry` for tests
+ * that want to spy on listener errors; defaults to a fresh registry
+ * with no `onListenerError` sink.
  */
-export function createAgentDataStore(queryService: QueryService): AgentDataStore {
-  return new AgentDataStoreImpl(queryService);
+export function createAgentDataStore(
+  queryService: QueryService,
+  options?: { registry?: SubscriberRegistry },
+): AgentDataStore {
+  return new AgentDataStoreImpl(queryService, options?.registry);
 }
