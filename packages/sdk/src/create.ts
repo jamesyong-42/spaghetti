@@ -15,6 +15,8 @@ import { createIngestService } from './data/ingest-service.js';
 import { createAgentDataStore } from './data/agent-data-store.js';
 import { AgentDataServiceImpl } from './data/agent-data-service.js';
 import { createLiveUpdates } from './live/live-updates.js';
+import { loadNativeAddon } from './native.js';
+import { resolveEngine } from './settings.js';
 import type { SpaghettiAPI } from './api.js';
 import type { ClaudeCodeAgentDataService, AgentDataServiceOptions } from './data/agent-data-service.js';
 import type { IngestEngine } from './settings.js';
@@ -71,7 +73,17 @@ export function createSpaghettiService(options?: SpaghettiServiceOptions): Spagh
   const sharedSqlite = createSqliteService();
   const sqliteFactory = () => sharedSqlite;
   const queryService = createQueryService(sqliteFactory);
-  const ingestService = createIngestService(sqliteFactory);
+  // RFC 005 C4.3: thread the resolved engine + native addon into the
+  // ingest service so its live-updates `writeBatch` can route through
+  // `liveIngestBatch` when the service is pinned to `engine='rs'`.
+  // Explicit `options.engine` wins over env + persisted config, mirroring
+  // `LifecycleOwner`'s own resolution order.
+  const resolvedEngine = options?.engine ?? resolveEngine();
+  const nativeAddon = resolvedEngine === 'rs' ? loadNativeAddon() : null;
+  const ingestService = createIngestService(sqliteFactory, {
+    engine: resolvedEngine,
+    native: nativeAddon,
+  });
   const parser = createClaudeCodeParser(fileService);
   // RFC 005 Phase 1: the store owns read delegations + config/analytics
   // caches. The service still owns lifecycle (cold/warm start, engine

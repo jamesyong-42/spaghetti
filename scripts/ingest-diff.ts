@@ -34,6 +34,19 @@
  *   0 — zero diffs.
  *   1 — at least one semantic diff, first ~10 printed.
  *   2 — harness error (fixture missing, DB open failed, etc.).
+ *
+ * TODO(RFC 005 C4.3): extend this harness with a "live-batch" fixture
+ *   mode — generate a session JSONL with N lines, exercise both
+ *   `IngestService.writeBatch` (TS path) and `live_ingest_batch` (Rust
+ *   path) against the same seed, and diff the two resulting DB states.
+ *   Deferred because the current harness assumes a one-shot cold-ingest
+ *   flow and the SDK's dist bundle today can't be imported outside the
+ *   SDK build due to a pre-existing `@parcel/watcher` dynamic-require
+ *   bundling issue that crashes the harness at entry. Until that's
+ *   resolved (separate bundler config fix), C4.3 parity is covered by
+ *   the cargo-side tests in `crates/spaghetti-napi/src/live_ingest.rs`
+ *   and the TS-side mocked-native tests in
+ *   `packages/sdk/src/data/__tests__/ingest-service-write-batch.test.ts`.
  */
 
 import { createRequire } from 'node:module';

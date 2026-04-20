@@ -41,6 +41,37 @@ export interface NativeIngestProgress {
 
 export type NativeProgressCallback = (progress: NativeIngestProgress) => void;
 
+/**
+ * One row destined for the live-ingest path. Mirrors
+ * `crates/spaghetti-napi/src/live_ingest.rs::LiveRow` — see that
+ * module's category → payload table for the wire format.
+ */
+export interface NativeLiveRow {
+  category: string;
+  slug?: string;
+  sessionId?: string;
+  /** JSON-encoded payload whose shape is determined by `category`. */
+  payloadJson: string;
+}
+
+export interface NativeLiveRowId {
+  category: string;
+  slug?: string;
+  sessionId?: string;
+  /**
+   * Stable per-category identifier of the row that landed. Matches the
+   * `row_key` computed on the Rust side (see
+   * `crates/spaghetti-napi/src/live_ingest.rs::row_to_event`).
+   */
+  rowKey: string;
+}
+
+export interface NativeLiveBatchResult {
+  writtenRows: NativeLiveRowId[];
+  /** Wall-clock duration of the whole call (ms). */
+  durationMs: number;
+}
+
 export interface NativeAddon {
   /** Returns the semver of the loaded native addon. */
   nativeVersion(): string;
@@ -50,6 +81,22 @@ export interface NativeAddon {
    * any thread — caller need not synchronise).
    */
   ingest(opts: NativeIngestOptions, onProgress?: NativeProgressCallback): Promise<NativeIngestStats>;
+  /**
+   * Write a batch of live-update rows to the SQLite DB at `dbPath`.
+   * Wraps `writer::write_batch_with_tx` (RFC 005 Phase 4 C4.1) so the
+   * live-ingest path shares the cold-start writer's transaction +
+   * UPSERT semantics.
+   *
+   * Synchronous on the Rust side (the whole batch is one BEGIN
+   * IMMEDIATE / COMMIT) — the TS caller wraps it in a Promise at the
+   * call site if it wants to interop with the rest of the async
+   * live-updates pipeline.
+   *
+   * Throws on any single-row failure (bad JSON, unknown category,
+   * SQLite error); the whole batch is rolled back and the TS side
+   * falls back to its own writer.
+   */
+  liveIngestBatch(dbPath: string, rows: NativeLiveRow[]): NativeLiveBatchResult;
 }
 
 let cached: NativeAddon | null | undefined;

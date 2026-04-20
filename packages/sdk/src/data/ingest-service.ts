@@ -20,6 +20,8 @@ import type {
 } from '../types/index.js';
 import type { Change } from '../live/change-events.js';
 import type { ParsedRow } from '../live/incremental-parser.js';
+import type { NativeAddon } from '../native.js';
+import type { IngestEngine } from '../settings.js';
 import type { SourceFingerprint } from './segment-types.js';
 import { initializeSchema } from './schema.js';
 
@@ -237,14 +239,34 @@ class IngestServiceImpl implements IngestService {
 
   private inTransaction = false;
 
+  // RFC 005 C4.3: engine pin + native addon handle for the live-ingest
+  // native route. When `engine === 'rs'` and `native` is loaded,
+  // `writeBatch` dispatches through `native.liveIngestBatch(dbPath,
+  // rows)`; otherwise it stays on the TS path. `dbPath` is captured
+  // on `open()` so the native call can re-open its own short-lived
+  // connection against the same file.
+  private readonly engine: IngestEngine;
+  private readonly native: NativeAddon | null;
+  private dbPath: string | null = null;
+
+  /**
+   * Process-lifetime flag: after the first native live-ingest failure we
+   * log a one-shot warning and silently fall back to the TS path for
+   * subsequent batches. Keeps live-updates resilient to transient
+   * rusqlite hiccups without spamming the console.
+   */
+  private nativeFallbackLogged = false;
+
   // NOTE(RFC 005 C3.1): the seq counter used to live here. It now
   // belongs to `AgentDataStore` — the store owns fan-out and stamps
   // every emitted Change on its way through `emit()`. `writeBatch`
   // returns Changes with `seq: 0` as a placeholder; the live-updates
   // writer loop passes them to `store.emit()`, which overwrites.
 
-  constructor(sqliteServiceFactory: () => SqliteService) {
+  constructor(sqliteServiceFactory: () => SqliteService, options?: CreateIngestServiceOptions) {
     this.db = sqliteServiceFactory();
+    this.engine = options?.engine ?? 'ts';
+    this.native = options?.native ?? null;
   }
 
   open(dbPath: string): void {
@@ -256,6 +278,7 @@ class IngestServiceImpl implements IngestService {
     initializeSchema(this.db);
     this.prepareStatements();
     this.opened = true;
+    this.dbPath = dbPath;
   }
 
   close(): void {
@@ -664,6 +687,32 @@ class IngestServiceImpl implements IngestService {
       return { changes: [], durationMs: Date.now() - startedAt };
     }
 
+    // RFC 005 C4.3: when this instance is pinned to the `rs` engine and
+    // the native addon loaded, dispatch through
+    // `native.liveIngestBatch` so the live path writes via the same
+    // Rust writer the cold-start engine uses. On any failure — native
+    // addon throws, DB locked, etc. — fall back to the TS path for
+    // *this* batch (same process, subsequent batches try native again
+    // if they were transient). We log once per process to keep the
+    // fallback visible without spamming.
+    if (this.engine === 'rs' && this.native && this.dbPath) {
+      try {
+        this.native.liveIngestBatch(this.dbPath, rows.map(parsedRowToNativeLiveRow));
+        return { changes: buildChangesFromRows(rows), durationMs: Date.now() - startedAt };
+      } catch (err) {
+        if (!this.nativeFallbackLogged) {
+          console.warn(
+            '[spaghetti-sdk] native live-ingest failed; falling back to TS writer. ' +
+              `Further native failures this session will be silent. Error: ${
+                err instanceof Error ? err.message : String(err)
+              }`,
+          );
+          this.nativeFallbackLogged = true;
+        }
+        // Fall through to the TS path.
+      }
+    }
+
     // `BEGIN IMMEDIATE` equivalent: the shared `beginTransaction` uses
     // `BEGIN TRANSACTION` (deferred by default in SQLite). For live-
     // update semantics we want the write lock acquired up front so
@@ -727,100 +776,7 @@ class IngestServiceImpl implements IngestService {
       throw err;
     }
 
-    // Build Change[] post-commit. `seq: 0` is a placeholder — the
-    // store's `emit()` stamps the real monotonic seq when the writer
-    // loop fans these out. Doing it here would divorce the counter
-    // from fan-out order (a batch with zero subscribers would still
-    // burn numbers), so we defer.
-    const changes: Change[] = [];
-    for (const row of rows) {
-      const ts = Date.now();
-      switch (row.category) {
-        case 'message':
-          changes.push({
-            type: 'session.message.added',
-            seq: 0,
-            ts,
-            slug: row.slug,
-            sessionId: row.sessionId,
-            message: row.message,
-            byteOffset: row.byteOffset,
-          });
-          break;
-        case 'subagent':
-          changes.push({
-            type: 'subagent.updated',
-            seq: 0,
-            ts,
-            slug: row.slug,
-            sessionId: row.sessionId,
-            agentId: row.transcript.agentId,
-            transcript: row.transcript,
-          });
-          break;
-        case 'tool_result':
-          changes.push({
-            type: 'tool-result.added',
-            seq: 0,
-            ts,
-            slug: row.slug,
-            sessionId: row.sessionId,
-            toolUseId: row.result.toolUseId,
-          });
-          break;
-        case 'file_history': {
-          const snap = row.history.snapshots[0];
-          if (snap) {
-            changes.push({
-              type: 'file-history.added',
-              seq: 0,
-              ts,
-              sessionId: row.sessionId,
-              hash: snap.hash,
-              version: snap.version,
-            });
-          }
-          // No snapshots → no Change emitted (nothing to rollback:
-          // the store owns the counter now).
-          break;
-        }
-        case 'todo':
-          changes.push({
-            type: 'todo.updated',
-            seq: 0,
-            ts,
-            sessionId: row.sessionId,
-            agentId: row.todo.agentId,
-            items: row.todo.items,
-          });
-          break;
-        case 'task':
-          changes.push({
-            type: 'task.updated',
-            seq: 0,
-            ts,
-            sessionId: row.sessionId,
-            task: row.task,
-          });
-          break;
-        case 'plan':
-          changes.push({
-            type: 'plan.upserted',
-            seq: 0,
-            ts,
-            slug: row.slug,
-            plan: row.plan,
-          });
-          break;
-        case 'project_memory':
-        case 'session_index':
-          // SQLite-only write, no Change emission (no matching union
-          // variant — see RFC 005 §2.9).
-          break;
-      }
-    }
-
-    return { changes, durationMs: Date.now() - startedAt };
+    return { changes: buildChangesFromRows(rows), durationMs: Date.now() - startedAt };
   }
 
   /**
@@ -885,6 +841,245 @@ class IngestServiceImpl implements IngestService {
 // FACTORY
 // ═══════════════════════════════════════════════════════════════════════════
 
-export function createIngestService(sqliteServiceFactory: () => SqliteService): IngestService {
-  return new IngestServiceImpl(sqliteServiceFactory);
+export function createIngestService(
+  sqliteServiceFactory: () => SqliteService,
+  options?: CreateIngestServiceOptions,
+): IngestService {
+  return new IngestServiceImpl(sqliteServiceFactory, options);
+}
+
+/**
+ * Options accepted by {@link createIngestService}.
+ *
+ * Introduced in RFC 005 Phase 4 C4.3 to thread the engine pin + native
+ * addon handle into `IngestServiceImpl`. Both default to "no native
+ * routing" (`engine: 'ts'`, `native: null`) so call sites that don't
+ * opt in — tests, non-live paths — keep the existing TS-only behaviour.
+ */
+export interface CreateIngestServiceOptions {
+  /**
+   * Which engine this service was built for. Only `'rs'` enables the
+   * native live-ingest route in {@link IngestService.writeBatch}; any
+   * other value keeps the TS path.
+   */
+  engine?: IngestEngine;
+  /**
+   * The loaded native addon, or `null` when unavailable. When `engine
+   * === 'rs'` but `native === null` (addon missing on this platform),
+   * `writeBatch` stays on the TS path.
+   */
+  native?: NativeAddon | null;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// LIVE-PATH HELPERS (shared by TS + native write paths)
+// ═══════════════════════════════════════════════════════════════════════════
+
+/**
+ * Serialize a {@link ParsedRow} for the Rust live-ingest entry
+ * (`liveIngestBatch`).
+ *
+ * The wire contract is defined in `crates/spaghetti-napi/src/live_ingest.rs`
+ * — each `category` carries a `payload_json` whose shape matches the
+ * corresponding `IngestEvent` variant fields. For `message` we flatten a
+ * handful of projections (msgType / uuid / timestamp / token counters /
+ * ftsText) that the Rust side would otherwise have to re-derive from the
+ * raw JSONL — pre-extracting on the TS side keeps the Rust path a pure
+ * parameter bind.
+ */
+function parsedRowToNativeLiveRow(row: ParsedRow): {
+  category: string;
+  slug?: string;
+  sessionId?: string;
+  payloadJson: string;
+} {
+  switch (row.category) {
+    case 'message': {
+      // Mirrors the per-field extraction `onMessage` performs for the
+      // TS path — we compute once here so the Rust writer can bind
+      // directly without re-parsing the raw JSONL.
+      const msgType = extractMsgType(row.message);
+      const uuid = extractUuid(row.message);
+      const timestamp = extractTimestamp(row.message);
+      const tokens = extractTokens(row.message);
+      const ftsText = extractTextContent(row.message);
+      const payload = {
+        msgIndex: row.msgIndex,
+        byteOffset: row.byteOffset,
+        // Raw JSONL line isn't available on ParsedRow; the Rust writer
+        // stores `JSON.stringify(message)` into `messages.data`, matching
+        // what the TS writer does via `data = JSON.stringify(message)` in
+        // `onMessage`. Keeping the same stringifier means round-tripping
+        // produces identical bytes.
+        rawJson: JSON.stringify(row.message),
+        msgType,
+        uuid,
+        timestamp,
+        inputTokens: tokens.inputTokens,
+        outputTokens: tokens.outputTokens,
+        cacheCreationTokens: tokens.cacheCreationTokens,
+        cacheReadTokens: tokens.cacheReadTokens,
+        ftsText,
+      };
+      return {
+        category: 'message',
+        slug: row.slug,
+        sessionId: row.sessionId,
+        payloadJson: JSON.stringify(payload),
+      };
+    }
+    case 'subagent':
+      return {
+        category: 'subagent',
+        slug: row.slug,
+        sessionId: row.sessionId,
+        payloadJson: JSON.stringify(row.transcript),
+      };
+    case 'tool_result':
+      return {
+        category: 'tool_result',
+        slug: row.slug,
+        sessionId: row.sessionId,
+        payloadJson: JSON.stringify(row.result),
+      };
+    case 'file_history':
+      return {
+        category: 'file_history',
+        sessionId: row.sessionId,
+        payloadJson: JSON.stringify(row.history),
+      };
+    case 'todo':
+      return {
+        category: 'todo',
+        sessionId: row.sessionId,
+        payloadJson: JSON.stringify(row.todo),
+      };
+    case 'task':
+      return {
+        category: 'task',
+        sessionId: row.sessionId,
+        payloadJson: JSON.stringify(row.task),
+      };
+    case 'plan':
+      return {
+        category: 'plan',
+        slug: row.slug,
+        payloadJson: JSON.stringify(row.plan),
+      };
+    case 'project_memory':
+      return {
+        category: 'project_memory',
+        slug: row.slug,
+        payloadJson: JSON.stringify({ content: row.content }),
+      };
+    case 'session_index':
+      return {
+        category: 'session_index',
+        slug: row.slug,
+        payloadJson: JSON.stringify({
+          originalPath: row.originalPath,
+          sessionsIndex: row.sessionsIndex,
+        }),
+      };
+  }
+}
+
+/**
+ * Build the `Change[]` the subscriber registry should fan out after a
+ * successful batch. Shared between the TS and native paths so that
+ * subscribers see the exact same events regardless of engine.
+ *
+ * Each returned Change carries `seq: 0` — the store's `emit()` stamps
+ * the real monotonic counter on the way through fan-out. Doing it here
+ * would divorce the counter from fan-out order; see C3.1 for the
+ * history.
+ */
+function buildChangesFromRows(rows: ParsedRow[]): Change[] {
+  const changes: Change[] = [];
+  for (const row of rows) {
+    const ts = Date.now();
+    switch (row.category) {
+      case 'message':
+        changes.push({
+          type: 'session.message.added',
+          seq: 0,
+          ts,
+          slug: row.slug,
+          sessionId: row.sessionId,
+          message: row.message,
+          byteOffset: row.byteOffset,
+        });
+        break;
+      case 'subagent':
+        changes.push({
+          type: 'subagent.updated',
+          seq: 0,
+          ts,
+          slug: row.slug,
+          sessionId: row.sessionId,
+          agentId: row.transcript.agentId,
+          transcript: row.transcript,
+        });
+        break;
+      case 'tool_result':
+        changes.push({
+          type: 'tool-result.added',
+          seq: 0,
+          ts,
+          slug: row.slug,
+          sessionId: row.sessionId,
+          toolUseId: row.result.toolUseId,
+        });
+        break;
+      case 'file_history': {
+        const snap = row.history.snapshots[0];
+        if (snap) {
+          changes.push({
+            type: 'file-history.added',
+            seq: 0,
+            ts,
+            sessionId: row.sessionId,
+            hash: snap.hash,
+            version: snap.version,
+          });
+        }
+        // No snapshots → no Change emitted (store owns the counter).
+        break;
+      }
+      case 'todo':
+        changes.push({
+          type: 'todo.updated',
+          seq: 0,
+          ts,
+          sessionId: row.sessionId,
+          agentId: row.todo.agentId,
+          items: row.todo.items,
+        });
+        break;
+      case 'task':
+        changes.push({
+          type: 'task.updated',
+          seq: 0,
+          ts,
+          sessionId: row.sessionId,
+          task: row.task,
+        });
+        break;
+      case 'plan':
+        changes.push({
+          type: 'plan.upserted',
+          seq: 0,
+          ts,
+          slug: row.slug,
+          plan: row.plan,
+        });
+        break;
+      case 'project_memory':
+      case 'session_index':
+        // SQLite-only write, no Change emission (no matching union
+        // variant — see RFC 005 §2.9).
+        break;
+    }
+  }
+  return changes;
 }

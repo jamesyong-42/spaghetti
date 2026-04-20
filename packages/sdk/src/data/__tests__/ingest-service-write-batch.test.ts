@@ -30,6 +30,7 @@ import { initializeSchema } from '../schema.js';
 import type { SqliteService } from '../../io/index.js';
 import type { IngestService } from '../ingest-service.js';
 import type { ParsedRow } from '../../live/incremental-parser.js';
+import type { NativeAddon } from '../../native.js';
 import type {
   SessionMessage,
   SubagentTranscript,
@@ -485,5 +486,209 @@ describe('IngestService.writeBatch (RFC 005 C2.6)', () => {
       0,
     );
     assert.doesNotThrow(() => ingest.endBulkIngest());
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// RFC 005 C4.3: native routing when engine='rs'
+// ═══════════════════════════════════════════════════════════════════════════
+//
+// A fresh `IngestService` pinned to `engine: 'rs'` with a mock
+// `NativeAddon` should route `writeBatch` through `liveIngestBatch`
+// rather than through the TS path. On native failure, the service must
+// fall back to the TS path so live-updates stay resilient to transient
+// rusqlite hiccups.
+//
+// These tests use a mocked `NativeAddon` so they run without the real
+// native binary being present. The Rust side's behaviour is covered
+// by the cargo tests in `crates/spaghetti-napi/src/live_ingest.rs`.
+
+describe('IngestService.writeBatch engine=rs routing (RFC 005 C4.3)', () => {
+  let tempDir: string;
+  let dbPath: string;
+  let sqlite: SqliteService;
+
+  before(() => {
+    tempDir = mkdtempSync(path.join(os.tmpdir(), 'spaghetti-writebatch-rs-'));
+    dbPath = path.join(tempDir, 'writebatch-rs.db');
+    sqlite = createSqliteService();
+    sqlite.open({ path: dbPath });
+    initializeSchema(sqlite);
+
+    sqlite.run(
+      `INSERT INTO projects (slug, original_path, sessions_index, updated_at) VALUES (?, ?, ?, ?)`,
+      SLUG,
+      '/tmp/fake/original/path',
+      JSON.stringify({ sessions: [] }),
+      Date.now(),
+    );
+    sqlite.run(
+      `INSERT INTO sessions (id, project_slug, full_path, first_prompt, summary, git_branch, project_path, is_sidechain, created_at, modified_at, file_mtime, plan_slug, has_task, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      SESSION_ID,
+      SLUG,
+      `/tmp/fake/original/path/${SESSION_ID}.jsonl`,
+      'hi',
+      'hi',
+      'main',
+      '/tmp/fake/original/path',
+      0,
+      '2026-04-20T00:00:00Z',
+      '2026-04-20T00:05:00Z',
+      Date.now(),
+      null,
+      0,
+      Date.now(),
+    );
+  });
+
+  after(() => {
+    try {
+      if (sqlite.isOpen()) sqlite.close();
+    } catch {
+      /* ignore */
+    }
+    rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  test('engine=rs + native loaded → routes through liveIngestBatch; Changes still built', async () => {
+    // Mock NativeAddon — captures the call and returns a plausible
+    // `LiveBatchResult` so the caller treats it as success.
+    let called = false;
+    let receivedRows: Array<{ category: string; slug?: string; sessionId?: string; payloadJson: string }> = [];
+    const native = {
+      nativeVersion: () => 'mock',
+      ingest: async () => {
+        throw new Error('unused in this test');
+      },
+      liveIngestBatch: (
+        path: string,
+        rows: Array<{ category: string; slug?: string; sessionId?: string; payloadJson: string }>,
+      ) => {
+        called = true;
+        receivedRows = rows;
+        assert.equal(path, dbPath);
+        return {
+          writtenRows: rows.map((r) => ({
+            category: r.category,
+            slug: r.slug,
+            sessionId: r.sessionId,
+            rowKey: 'mock-key',
+          })),
+          durationMs: 1,
+        };
+      },
+    };
+
+    const ingestRs = createIngestService(() => sqlite, {
+      engine: 'rs',
+      // NativeAddon's full surface includes more than the live path;
+      // we cast the mock once so the test stays readable.
+      native: native as unknown as NativeAddon,
+    });
+    ingestRs.open(dbPath);
+
+    const message = {
+      type: 'user',
+      uuid: 'uuid-rs-path',
+      message: { role: 'user', content: 'hello native route' },
+    } as unknown as SessionMessage;
+
+    const result = await ingestRs.writeBatch([
+      { category: 'message', slug: SLUG, sessionId: SESSION_ID, message, msgIndex: 100, byteOffset: 200 },
+    ]);
+
+    assert.equal(called, true, 'native.liveIngestBatch must be called');
+    assert.equal(receivedRows.length, 1);
+    assert.equal(receivedRows[0].category, 'message');
+    assert.equal(receivedRows[0].slug, SLUG);
+    assert.equal(receivedRows[0].sessionId, SESSION_ID);
+    // The serialized payload must include the projections the Rust side
+    // expects (msgIndex, byteOffset, msgType, rawJson).
+    const payload = JSON.parse(receivedRows[0].payloadJson);
+    assert.equal(payload.msgIndex, 100);
+    assert.equal(payload.byteOffset, 200);
+    assert.equal(payload.msgType, 'user');
+    assert.ok(typeof payload.rawJson === 'string');
+
+    // Change[] still built — subscribers see the same event regardless
+    // of which engine performed the write.
+    assert.equal(result.changes.length, 1);
+    assert.equal(result.changes[0].type, 'session.message.added');
+  });
+
+  test('native.liveIngestBatch throws → falls back to TS writer; batch still persists', async () => {
+    // Keep the mock native throwing so we can observe the fallback.
+    const native = {
+      nativeVersion: () => 'mock',
+      ingest: async () => {
+        throw new Error('unused');
+      },
+      liveIngestBatch: () => {
+        throw new Error('simulated native failure');
+      },
+    };
+
+    const ingestRs = createIngestService(() => sqlite, {
+      engine: 'rs',
+      native: native as unknown as NativeAddon,
+    });
+    ingestRs.open(dbPath);
+
+    const message = {
+      type: 'user',
+      uuid: 'uuid-fallback',
+      message: { role: 'user', content: 'hello fallback' },
+    } as unknown as SessionMessage;
+
+    // Clean slate: ensure the message row isn't already there.
+    sqlite.run(`DELETE FROM messages WHERE uuid = ?`, 'uuid-fallback');
+
+    const result = await ingestRs.writeBatch([
+      { category: 'message', slug: SLUG, sessionId: SESSION_ID, message, msgIndex: 200, byteOffset: 0 },
+    ]);
+
+    // Change[] still built.
+    assert.equal(result.changes.length, 1);
+    assert.equal(result.changes[0].type, 'session.message.added');
+
+    // And the row landed via the TS fallback path — uuid should be
+    // visible through the shared SqliteService.
+    const row = sqlite.get<{ uuid: string }>(`SELECT uuid FROM messages WHERE uuid = ?`, 'uuid-fallback');
+    assert.ok(row, 'row should exist after TS fallback');
+    assert.equal(row.uuid, 'uuid-fallback');
+  });
+
+  test('engine=ts (default) → native is never consulted', async () => {
+    let called = false;
+    const native = {
+      nativeVersion: () => 'mock',
+      ingest: async () => {
+        throw new Error('unused');
+      },
+      liveIngestBatch: () => {
+        called = true;
+        throw new Error('should not be called on engine=ts');
+      },
+    };
+
+    // Pass engine='ts' explicitly. The native handle is threaded in but
+    // must not be used because the engine pin is the gate.
+    const ingestTs = createIngestService(() => sqlite, {
+      engine: 'ts',
+      native: native as unknown as NativeAddon,
+    });
+    ingestTs.open(dbPath);
+
+    const message = {
+      type: 'user',
+      message: { role: 'user', content: 'hi from ts path' },
+    } as unknown as SessionMessage;
+
+    await ingestTs.writeBatch([
+      { category: 'message', slug: SLUG, sessionId: SESSION_ID, message, msgIndex: 300, byteOffset: 0 },
+    ]);
+
+    assert.equal(called, false, 'native.liveIngestBatch must NOT be called on engine=ts');
   });
 });
