@@ -1,5 +1,5 @@
 /**
- * AgentDataStore — unit tests (RFC 005 C1.1).
+ * AgentDataStore — unit tests (RFC 005 C1.1 + C1.2).
  *
  * Proves the new store works in isolation against a prepared SQLite
  * file, without needing the parser, ingest-service, or any ~/.claude
@@ -19,6 +19,7 @@ import { initializeSchema } from '../schema.js';
 import type { SqliteService } from '../../io/index.js';
 import type { QueryService } from '../query-service.js';
 import type { AgentDataStore } from '../agent-data-store.js';
+import type { AgentAnalytic, AgentConfig } from '../../types/index.js';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // FIXTURE CONSTANTS
@@ -244,5 +245,44 @@ describe('AgentDataStore (C1.1 skeleton)', () => {
     const first = result.results[0];
     assert.strictEqual(first.projectSlug, SLUG);
     assert.strictEqual(first.sessionId, SESSION_ID);
+  });
+
+  // ── C1.2: config + analytics cache ─────────────────────────────────────
+
+  test('setConfig → getConfig roundtrip preserves the snapshot', () => {
+    // The shapes are big aggregate types; casting a minimal object
+    // through `unknown` keeps the test focused on store semantics
+    // rather than on whether AgentConfig's sub-shapes are perfectly
+    // filled in.
+    const fakeConfig = { __fixture: 'config-v1' } as unknown as AgentConfig;
+    store.setConfig(fakeConfig);
+    assert.strictEqual(store.hasConfig(), true);
+    assert.strictEqual(store.getConfig(), fakeConfig);
+  });
+
+  test('setAnalytics → getAnalytics roundtrip preserves the snapshot', () => {
+    const fakeAnalytics = { __fixture: 'analytics-v1' } as unknown as AgentAnalytic;
+    store.setAnalytics(fakeAnalytics);
+    assert.strictEqual(store.hasAnalytics(), true);
+    assert.strictEqual(store.getAnalytics(), fakeAnalytics);
+  });
+
+  test('setConfig overwrites a previous value', () => {
+    const v1 = { __fixture: 'config-v1' } as unknown as AgentConfig;
+    const v2 = { __fixture: 'config-v2' } as unknown as AgentConfig;
+    store.setConfig(v1);
+    store.setConfig(v2);
+    assert.strictEqual(store.getConfig(), v2);
+  });
+
+  test('getConfig throws when no config has been set (fresh store)', () => {
+    // Build a second store that never had `setConfig` called so we can
+    // verify the "empty" contract without disturbing the shared fixture
+    // store used by the other tests.
+    const freshStore = createAgentDataStore(queryService);
+    assert.strictEqual(freshStore.hasConfig(), false);
+    assert.throws(() => freshStore.getConfig(), /config not set/);
+    assert.strictEqual(freshStore.hasAnalytics(), false);
+    assert.throws(() => freshStore.getAnalytics(), /analytics not set/);
   });
 });

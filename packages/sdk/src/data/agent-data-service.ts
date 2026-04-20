@@ -39,6 +39,7 @@ import type {
 } from '../types/index.js';
 import type { QueryService } from './query-service.js';
 import type { IngestService } from './ingest-service.js';
+import type { AgentDataStore } from './agent-data-store.js';
 import type { ClaudeCodeParser } from '../parser/claude-code-parser.js';
 import type { FileService } from '../io/index.js';
 import { createWorkerPool, isWorkerThreadsAvailable, type WorkerToMainMessage } from '../workers/index.js';
@@ -155,6 +156,7 @@ export class AgentDataServiceImpl extends EventEmitter implements ClaudeCodeAgen
   private parser: ClaudeCodeParser;
   private queryService: QueryService;
   private ingestService: IngestService;
+  private store: AgentDataStore;
   private options: AgentDataServiceOptions;
 
   private ready = false;
@@ -169,15 +171,12 @@ export class AgentDataServiceImpl extends EventEmitter implements ClaudeCodeAgen
    */
   private engine: IngestEngine;
 
-  // Cached config/analytics (parsed once, small data)
-  private cachedConfig: AgentConfig | null = null;
-  private cachedAnalytics: AgentAnalytic | null = null;
-
   constructor(
     fileService: FileService,
     parser: ClaudeCodeParser,
     queryService: QueryService,
     ingestService: IngestService,
+    store: AgentDataStore,
     options?: AgentDataServiceOptions,
   ) {
     super();
@@ -185,6 +184,7 @@ export class AgentDataServiceImpl extends EventEmitter implements ClaudeCodeAgen
     this.parser = parser;
     this.queryService = queryService;
     this.ingestService = ingestService;
+    this.store = store;
     this.options = options ?? {};
     this.engine = this.options.engine ?? resolveEngine();
     this.dbPath = this.options.dbPath ?? getDefaultDbPath(this.engine);
@@ -226,8 +226,8 @@ export class AgentDataServiceImpl extends EventEmitter implements ClaudeCodeAgen
         skipProjects: true,
         skipSessionMessages: true,
       });
-      this.cachedConfig = fullData.config;
-      this.cachedAnalytics = fullData.analytics;
+      this.store.setConfig(fullData.config);
+      this.store.setAnalytics(fullData.analytics);
 
       this.ready = true;
       const durationMs = Date.now() - startTime;
@@ -942,8 +942,10 @@ export class AgentDataServiceImpl extends EventEmitter implements ClaudeCodeAgen
 
   shutdown(): void {
     this.ready = false;
-    this.cachedConfig = null;
-    this.cachedAnalytics = null;
+    // Config/analytics caches now live on `AgentDataStore`. The store
+    // outlives `shutdown()` in the current wiring (both are owned by
+    // the same lifecycle), so we let its cached snapshots remain — the
+    // next `initialize()` will overwrite them via `setConfig/Analytics`.
     try {
       this.ingestService.close();
     } catch {
@@ -1023,26 +1025,27 @@ export class AgentDataServiceImpl extends EventEmitter implements ClaudeCodeAgen
   }
 
   getConfig(): AgentConfig {
-    if (this.cachedConfig) return this.cachedConfig;
-    // Fallback: parse config if not cached
+    if (this.store.hasConfig()) return this.store.getConfig();
+    // Fallback: parse config if not cached yet (rare — initialize()
+    // populates the cache for normal flows).
     const data = this.parser.parseSync({
       claudeDir: this.claudeDir,
       skipProjects: true,
       skipAnalytics: true,
     });
-    this.cachedConfig = data.config;
+    this.store.setConfig(data.config);
     return data.config;
   }
 
   getAnalytics(): AgentAnalytic {
-    if (this.cachedAnalytics) return this.cachedAnalytics;
-    // Fallback: parse analytics if not cached
+    if (this.store.hasAnalytics()) return this.store.getAnalytics();
+    // Fallback: parse analytics if not cached yet.
     const data = this.parser.parseSync({
       claudeDir: this.claudeDir,
       skipProjects: true,
       skipConfig: true,
     });
-    this.cachedAnalytics = data.analytics;
+    this.store.setAnalytics(data.analytics);
     return data.analytics;
   }
 
@@ -1150,8 +1153,8 @@ export class AgentDataServiceImpl extends EventEmitter implements ClaudeCodeAgen
       claudeDir: this.claudeDir,
       skipProjects: true,
     });
-    this.cachedConfig = fullData.config;
-    this.cachedAnalytics = fullData.analytics;
+    this.store.setConfig(fullData.config);
+    this.store.setAnalytics(fullData.analytics);
 
     this.ready = true;
     this.emit('change', { changes: [], timestamp: Date.now() } satisfies SegmentChangeBatch);

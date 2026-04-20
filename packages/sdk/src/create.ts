@@ -10,6 +10,7 @@ import { createSpaghettiAppService } from './app-service.js';
 import { createClaudeCodeParser } from './parser/claude-code-parser.js';
 import { createQueryService } from './data/query-service.js';
 import { createIngestService } from './data/ingest-service.js';
+import { createAgentDataStore } from './data/agent-data-store.js';
 import { AgentDataServiceImpl } from './data/agent-data-service.js';
 import type { SpaghettiAPI } from './api.js';
 import type { ClaudeCodeAgentDataService, AgentDataServiceOptions } from './data/agent-data-service.js';
@@ -57,13 +58,25 @@ export function createSpaghettiService(options?: SpaghettiServiceOptions): Spagh
   const queryService = createQueryService(sqliteFactory);
   const ingestService = createIngestService(sqliteFactory);
   const parser = createClaudeCodeParser(fileService);
+  // RFC 005 Phase 1: the store owns read delegations + config/analytics
+  // caches. The service still owns lifecycle (cold/warm start, engine
+  // selection, progress events). Sharing the same `QueryService` keeps
+  // a single SQLite connection, matching the comment above.
+  const store = createAgentDataStore(queryService);
 
   const dataServiceOptions: AgentDataServiceOptions = {};
   if (options?.dbPath) dataServiceOptions.dbPath = options.dbPath;
   if (options?.claudeDir) dataServiceOptions.claudeDir = options.claudeDir;
   if (options?.engine) dataServiceOptions.engine = options.engine;
 
-  const dataService = new AgentDataServiceImpl(fileService, parser, queryService, ingestService, dataServiceOptions);
+  const dataService = new AgentDataServiceImpl(
+    fileService,
+    parser,
+    queryService,
+    ingestService,
+    store,
+    dataServiceOptions,
+  );
 
   return createSpaghettiAppService(dataService);
 }

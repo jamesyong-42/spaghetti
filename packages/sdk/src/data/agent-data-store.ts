@@ -18,7 +18,7 @@
 
 import type { PaginatedSegmentResult, SearchQuery, SearchResultSet } from './segment-types.js';
 import type { ProjectSummaryData, SessionSummaryData } from './summary-types.js';
-import type { SessionMessage } from '../types/index.js';
+import type { AgentAnalytic, AgentConfig, SessionMessage } from '../types/index.js';
 import type { QueryService } from './query-service.js';
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -68,6 +68,25 @@ export interface AgentDataStore {
 
   // ── Search ───────────────────────────────────────────────────────────────
   search(query: SearchQuery): SearchResultSet;
+
+  // ── In-memory caches (config + analytics) ────────────────────────────────
+  /**
+   * Return the last-set `AgentConfig`. Throws if the lifecycle owner
+   * hasn't populated the cache yet (i.e. before `initialize()` has
+   * finished). Callers that want a lazy-populating fallback should
+   * keep using `AgentDataServiceImpl.getConfig()` — that surface still
+   * handles re-parsing when the cache is empty.
+   */
+  getConfig(): AgentConfig;
+  /** Same contract as `getConfig()`, for the analytics half. */
+  getAnalytics(): AgentAnalytic;
+  /** Replace the cached config snapshot. */
+  setConfig(config: AgentConfig): void;
+  /** Replace the cached analytics snapshot. */
+  setAnalytics(analytics: AgentAnalytic): void;
+  /** True once both caches have been populated at least once. */
+  hasConfig(): boolean;
+  hasAnalytics(): boolean;
 }
 
 /**
@@ -91,6 +110,13 @@ export type StorePaginatedMessages = PaginatedSegmentResult<SessionMessage>;
  */
 export class AgentDataStoreImpl implements AgentDataStore {
   private readonly queryService: QueryService;
+
+  // In-memory caches moved here from `AgentDataServiceImpl` in C1.2.
+  // The lifecycle owner still owns when these are populated (after cold
+  // or warm start runs `parser.parseSync({ skipProjects: true, ... })`)
+  // but the storage + accessor surface belongs to the store.
+  private cachedConfig: AgentConfig | null = null;
+  private cachedAnalytics: AgentAnalytic | null = null;
 
   constructor(queryService: QueryService) {
     this.queryService = queryService;
@@ -166,6 +192,40 @@ export class AgentDataStoreImpl implements AgentDataStore {
 
   search(query: SearchQuery): SearchResultSet {
     return this.queryService.search(query);
+  }
+
+  // ── In-memory caches ───────────────────────────────────────────────────
+
+  getConfig(): AgentConfig {
+    if (!this.cachedConfig) {
+      throw new Error('AgentDataStore: config not set. The lifecycle owner must call setConfig() during initialize().');
+    }
+    return this.cachedConfig;
+  }
+
+  getAnalytics(): AgentAnalytic {
+    if (!this.cachedAnalytics) {
+      throw new Error(
+        'AgentDataStore: analytics not set. The lifecycle owner must call setAnalytics() during initialize().',
+      );
+    }
+    return this.cachedAnalytics;
+  }
+
+  setConfig(config: AgentConfig): void {
+    this.cachedConfig = config;
+  }
+
+  setAnalytics(analytics: AgentAnalytic): void {
+    this.cachedAnalytics = analytics;
+  }
+
+  hasConfig(): boolean {
+    return this.cachedConfig !== null;
+  }
+
+  hasAnalytics(): boolean {
+    return this.cachedAnalytics !== null;
   }
 }
 
