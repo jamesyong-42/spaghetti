@@ -40,6 +40,11 @@ Checkpoint: `pnpm test` green, public SDK types unchanged, playground app still 
 - **C2.4** `feat(sdk): add IncrementalParser for JSONL tail (RFC 005)` — `live/incremental-parser.ts`, reuses existing `readJsonlStreaming` with `fromBytePosition`. Handles inode change, size decrease, partial final line. Unit tests.
 - **C2.5** `feat(sdk): add path Router for live categories (RFC 005)` — `live/router.ts`, pure classification function. Exhaustive unit tests including ignored paths.
 - **C2.6** `feat(sdk): add IngestService.writeBatch for live commits (RFC 005)` — `BEGIN IMMEDIATE` → per-category dispatch → `COMMIT`. Integration test: call with a synthetic `ParsedRow[]`, assert SQLite rows + FTS hit.
+
+  **Resolution pass — 2026-04-20 (C2.4b + C2.6b).** The initial C2.6 landing (`4cafc4a`) intentionally shipped as scaffolding + an explicit throw because the thin `{ category, payload }` ParsedRow couldn't feed the writer's `onX(slug, sessionId, domainObject, ...)` methods without adapter logic. Two follow-up commits close the gap:
+  - `ba682c4` (C2.4b) — reshape `ParsedRow` into a discriminated union whose per-variant payloads match `onX` signatures and `Change` variant fields verbatim (`msgIndex` + `byteOffset` for messages, aggregated `SubagentTranscript` for subagents, filename-extracted IDs for tool-results / todos / file-history, full `PlanFile` for plans).
+  - `6a5171a` (C2.6b) — replace the scaffold throw with real `BEGIN IMMEDIATE` → discriminated-union dispatch → `COMMIT`, plus per-category `Change` construction stamped with `seq` + `ts`. `project_memory` and `session_index` rows write through but emit no `Change` (no matching union variant).
+
 - **C2.7** `feat(sdk): wire LiveUpdates orchestrator (projects/ + todos/) (RFC 005)` — `live/live-updates.ts`. `createSpaghettiService({ live: true })` now constructs it; `start()` loads checkpoints + spawns writer loop but doesn't attach watchers yet. Integration test: write a fixture JSONL line with `onChange` registered (no-op callback), assert SQLite row appears.
 
 Checkpoint: live writes reach SQLite when watchers are manually attached in tests; no public event surface yet.

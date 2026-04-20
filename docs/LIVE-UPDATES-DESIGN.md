@@ -281,21 +281,52 @@ Dedup semantics: if a path is already enqueued, the reason collapses (rewrite be
 
 ```ts
 // live/incremental-parser.ts
-export interface ParsedRow {
-  category: 'message' | 'subagent' | 'tool_result' | 'file_history'
-          | 'todo' | 'task' | 'plan' | 'project_memory' | 'session_index';
+export type ParsedRow =
+  | { category: 'message';        slug: string; sessionId: string;
+      message: SessionMessage;    msgIndex: number; byteOffset: number }
+  | { category: 'subagent';       slug: string; sessionId: string;
+      transcript: SubagentTranscript }
+  | { category: 'tool_result';    slug: string; sessionId: string;
+      result: PersistedToolResult }
+  | { category: 'file_history';   sessionId: string;
+      history: FileHistorySession }
+  | { category: 'todo';           sessionId: string;
+      todo: TodoFile }
+  | { category: 'task';           sessionId: string;
+      task: TaskEntry }
+  | { category: 'plan';           slug: string;
+      plan: PlanFile }
+  | { category: 'project_memory'; slug: string;
+      content: string }
+  | { category: 'session_index';  slug: string;
+      originalPath: string;       sessionsIndex: SessionsIndex };
+
+export interface IncrementalParseResult {
+  rows: ParsedRow[];
+  newCheckpoint: Checkpoint;
+  rewrite: boolean;
+}
+
+export interface ParseFileDeltaParams {
+  path: string;
+  category: ParsedRowCategory;
   slug?: string;
   sessionId?: string;
-  payload: unknown;            // typed per-category at emit time
+  checkpoint: Checkpoint | undefined;
+  startMsgIndex?: number;   // message category only — continues msg_index across tail calls
+  claudeDir?: string;       // task category only — so we can read .lock / .highwatermark
 }
 
 export interface IncrementalParser {
-  parseFileDelta(path: string, cp: Checkpoint | undefined):
-    Promise<{ rows: ParsedRow[]; newCheckpoint: Checkpoint; rewrite: boolean }>;
+  parseFileDelta(params: ParseFileDeltaParams): Promise<IncrementalParseResult>;
 }
 ```
 
-Internals reuse the existing `project-parser.ts` per-category helpers — no new parsing logic, only a new entry point that targets a single file and tails by byte offset. The `file-service.ts` streaming-JSONL reader already supports `fromBytePosition`.
+Each variant's payload fields match the writer's corresponding `onX` method signature (and the downstream `Change` variant) verbatim, so `IngestService.writeBatch` dispatches by narrowing on `row.category` with no adapter types or `as` casts.
+
+Internals reuse the existing `project-parser.ts` per-category conventions — the subagent / todo / file-history filename regexes are duplicated deliberately (same pattern, private to each module) rather than exported. JSONL message rows tail by byte offset via `file-service.ts`'s streaming reader (`fromBytePosition`); subagent files are small and get a full re-parse per change for correctness.
+
+**Historical drift: 2026-04-20.** The first C2.4 landing used a thin `{ category, slug?, sessionId?, payload: unknown }` shape that let the parser stay category-agnostic. When C2.6 tried to dispatch those rows into `IngestService.onMessage(slug, sessionId, message, index, byteOffset)` and its siblings, the gap became structural: messages lost `msgIndex` + `byteOffset`, subagents needed one aggregated `SubagentTranscript` per file rather than one-row-per-line, tool-results / todos / file-history needed identifiers extracted from the filename, and plans needed `title` + `size` derived from content. The discriminated-union form above — each variant pre-shaped for the writer — is the resolution. See commits `ba682c4` (C2.4b, parser reshape) and `6a5171a` (C2.6b, writer dispatch) for the full move.
 
 ### 2.8 `Router`
 
@@ -378,11 +409,23 @@ interface IngestService {
 
 interface WriteResult {
   changes: Change[];
-  durationMs: number;
+  durationMs: number;     // wall time of the whole call
 }
 ```
 
-Implementation: `BEGIN IMMEDIATE`, switch on `row.category`, dispatch to the existing `onMessage`/`onSubagent`/etc. methods, `COMMIT`. On commit, compute the matching `Change[]` from `rows` (assigning an in-memory `seq = ++this.seqCounter` and `ts = Date.now()` on each) and return. This is the single point where TS and Rust engines diverge — in the Rust engine path, `writeBatch` calls `nativeAddon.live_ingest_batch(rows)` and unpacks its return. The Rust side writes rows; `seq` and `ts` are always assigned on the TS side.
+Implementation:
+
+1. Empty-batch short-circuit: no transaction, return `{ changes: [], durationMs }`.
+2. `BEGIN IMMEDIATE` (acquire the write lock up front).
+3. `switch (row.category)` — discriminated-union narrowing feeds each `on*` method its domain object directly. `project_memory` writes through `onProjectMemory`; `session_index` writes through a private `applySessionIndex` helper that reuses `onProject(slug, originalPath, sessionsIndex)` (no new sink method).
+4. `COMMIT` on success, `ROLLBACK` + rethrow on any row's throw.
+5. Build `Change[]` post-commit so `seq` / `ts` stamp the realized state. `seq = ++this.liveSeqCounter` (process-lifetime-monotonic, never persisted), `ts = Date.now()`.
+
+**No `Change` emitted for `project_memory` or `session_index` rows** — the `Change` union (§2.9) has no matching variants. Both rows still mutate SQLite; the `liveSeqCounter` bump for them is rolled back so the counter matches the number of returned events.
+
+**File-history special case.** If a `file_history` row carries an empty `snapshots` array (malformed fixture, upstream filename mismatch), the row writes to SQLite but no `Change` is emitted and the claimed `seq` is rolled back.
+
+This is the single point where TS and Rust engines diverge — in the Rust engine path (Phase 4), `writeBatch` calls `nativeAddon.live_ingest_batch(rows)` and unpacks its return. The Rust side writes rows; `seq` and `ts` are always assigned on the TS side.
 
 ### 2.11 Rust `live_ingest_batch`
 
