@@ -212,6 +212,19 @@ pub fn live_ingest_batch(db_path: String, rows: Vec<LiveRow>) -> Result<LiveBatc
     live_ingest_batch_inner(&db_path, rows).map_err(to_napi_err)
 }
 
+/// Cheap "has cold-start already run?" probe. A single
+/// `sqlite_master` lookup for the `messages` table — microseconds —
+/// lets us skip `initialize_schema`'s full CREATE-TABLE-IF-NOT-EXISTS
+/// sweep on every live-ingest batch.
+fn has_core_schema(conn: &Connection) -> bool {
+    conn.query_row(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='messages' LIMIT 1",
+        [],
+        |_| Ok(true),
+    )
+    .unwrap_or(false)
+}
+
 /// Non-NAPI core of [`live_ingest_batch`] — plain Rust `Result` so
 /// unit tests can call it directly. See that function's doc for the
 /// behavioural contract.
@@ -231,7 +244,16 @@ pub fn live_ingest_batch_inner(
 
     let conn = Connection::open(db_path)?;
     schema::set_pragmas(&conn).map_err(|e| LiveIngestError::Writer(WriterError::from(e)))?;
-    schema::initialize_schema(&conn).map_err(|e| LiveIngestError::Writer(WriterError::from(e)))?;
+    // Skip the full `initialize_schema` (16 CREATE TABLE IF NOT EXISTS
+    // + index/trigger DDL) on every batch — cold-start (TS or RS) has
+    // already populated the schema and this function can run at 75 ms
+    // cadence in a busy session. We sanity-check the schema exists via
+    // a cheap `sqlite_master` lookup and only fall back to a full init
+    // if a table we write to is missing (first-time open against a
+    // live-only fresh DB, e.g. in tests).
+    if !has_core_schema(&conn) {
+        schema::initialize_schema(&conn).map_err(|e| LiveIngestError::Writer(WriterError::from(e)))?;
+    }
 
     // Convert rows → events. Build the row-id list in lockstep so the
     // caller gets identifiers in the same order as input. If any row

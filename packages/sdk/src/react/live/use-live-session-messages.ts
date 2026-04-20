@@ -33,6 +33,9 @@ import { useSpaghettiAPI } from '../context.js';
 const MAX_MESSAGES = 500;
 
 interface MessagesSnapshot {
+  /** Input key the snapshot was computed against — used to detect stale cache. */
+  key: string;
+  /** Local seq bumped by the subscribe callback; pins the "has anything new landed" check. */
   seq: number;
   messages: SessionMessage[];
 }
@@ -45,23 +48,14 @@ export interface UseLiveSessionMessagesResult {
 export function useLiveSessionMessages(slug: string, sessionId: string): UseLiveSessionMessagesResult {
   const api = useSpaghettiAPI();
 
-  // Ref holds the last-returned snapshot + a local seq counter bumped
-  // by the subscribe callback. Using a local counter (rather than
-  // `store.lastEmittedSeq()`) keeps the hook decoupled from store
-  // internals and only triggers re-computes when an event actually
-  // matches the topic this hook subscribes to.
+  // Cache is a plain ref — never mutated from render. `getSnapshot`
+  // compares the cached entry's key to the current inputs and only
+  // reuses when they match. This avoids the StrictMode hazard of
+  // invalidating the ref inline during render.
   const cacheRef = useRef<MessagesSnapshot | null>(null);
   const localSeqRef = useRef(0);
-  const keyRef = useRef<string>('');
 
-  // Invalidate cache if slug/sessionId changed so the next getSnapshot
-  // reads fresh data. Using refs directly here because this runs
-  // inline with render — useEffect would be one paint too late.
   const key = `${slug}\u0000${sessionId}`;
-  if (keyRef.current !== key) {
-    keyRef.current = key;
-    cacheRef.current = null;
-  }
 
   // Prewarm the session scope on mount; effect cleanup drops the ref
   // so unmount auto-detaches the underlying watcher once refcount
@@ -80,7 +74,6 @@ export function useLiveSessionMessages(slug: string, sessionId: string): UseLive
     (onStoreChange: () => void): (() => void) => {
       const dispose = api.live?.onChange({ kind: 'session', slug, sessionId }, () => {
         localSeqRef.current += 1;
-        cacheRef.current = null;
         onStoreChange();
       });
       return dispose ?? (() => {});
@@ -90,14 +83,14 @@ export function useLiveSessionMessages(slug: string, sessionId: string): UseLive
 
   const getSnapshot = useCallback((): MessagesSnapshot => {
     const cached = cacheRef.current;
-    if (cached && cached.seq === localSeqRef.current) {
+    if (cached && cached.key === key && cached.seq === localSeqRef.current) {
       return cached;
     }
     const page = api.getSessionMessages(slug, sessionId, MAX_MESSAGES, 0);
-    const next: MessagesSnapshot = { seq: localSeqRef.current, messages: page.messages };
+    const next: MessagesSnapshot = { key, seq: localSeqRef.current, messages: page.messages };
     cacheRef.current = next;
     return next;
-  }, [api, slug, sessionId]);
+  }, [api, key, slug, sessionId]);
 
   const snapshot = useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
 

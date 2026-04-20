@@ -19,12 +19,14 @@
  * bumped by the subscribe callback.
  */
 
-import { useCallback, useEffect, useRef, useSyncExternalStore } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useSyncExternalStore } from 'react';
 import type { ProjectListItem, SessionListItem } from '../../api.js';
 import type { ChangeTopic } from '../../live/change-events.js';
 import { useSpaghettiAPI } from '../context.js';
 
 type ListSnapshot = {
+  /** Input key the snapshot was computed against. */
+  key: string;
   seq: number;
   items: SessionListItem[] | ProjectListItem[];
 };
@@ -39,50 +41,46 @@ export function useLiveSessionList(slug?: string): SessionListItem[] | ProjectLi
 
   const cacheRef = useRef<ListSnapshot | null>(null);
   const localSeqRef = useRef(0);
-  const keyRef = useRef<string>('');
 
   const key = slug ?? '';
-  if (keyRef.current !== key) {
-    keyRef.current = key;
-    cacheRef.current = null;
-  }
 
-  const topic: ChangeTopic = slug !== undefined ? { kind: 'session', slug } : { kind: 'session' };
+  // Memoize the topic so useEffect / useCallback deps stay honest —
+  // this replaces the previous `eslint-disable-next-line
+  // react-hooks/exhaustive-deps` escape hatches.
+  const topic = useMemo<ChangeTopic>(
+    () => (slug !== undefined ? { kind: 'session', slug } : { kind: 'session' }),
+    [slug],
+  );
 
   useEffect(() => {
     const dispose = api.live?.prewarm(topic);
     return () => {
       dispose?.();
     };
-    // topic is derived from slug; including it directly would change
-    // identity every render. slug+api are the real deps.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [api, slug]);
+  }, [api, topic]);
 
   const subscribe = useCallback(
     (onStoreChange: () => void): (() => void) => {
       const dispose = api.live?.onChange(topic, () => {
         localSeqRef.current += 1;
-        cacheRef.current = null;
         onStoreChange();
       });
       return dispose ?? (() => {});
-      // eslint-disable-next-line react-hooks/exhaustive-deps
     },
-    [api, slug],
+    [api, topic],
   );
 
   const getSnapshot = useCallback((): ListSnapshot => {
     const cached = cacheRef.current;
-    if (cached && cached.seq === localSeqRef.current) {
+    if (cached && cached.key === key && cached.seq === localSeqRef.current) {
       return cached;
     }
     const items: SessionListItem[] | ProjectListItem[] =
       slug !== undefined ? api.getSessionList(slug) : api.getProjectList();
-    const next: ListSnapshot = { seq: localSeqRef.current, items };
+    const next: ListSnapshot = { key, seq: localSeqRef.current, items };
     cacheRef.current = next;
     return next;
-  }, [api, slug]);
+  }, [api, key, slug]);
 
   const snapshot = useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
   return snapshot.items;

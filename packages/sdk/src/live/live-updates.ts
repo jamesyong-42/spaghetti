@@ -621,21 +621,36 @@ export function createLiveUpdates(deps: LiveUpdatesDeps, options: LiveUpdatesOpt
 
   // ── writer loop ────────────────────────────────────────────────────────
 
-  async function processEvent(evtPath: string, reason: QueuedReason): Promise<ParsedRow[]> {
-    if (!parser || !checkpoints) return [];
+  /**
+   * Result of parsing one queued event. The checkpoint + msg-index
+   * advances are returned as pending values so the writer loop can
+   * apply them only after `writeBatch` commits successfully — per
+   * RFC 005 §4 ("Checkpoints not advanced until write succeeds").
+   */
+  interface ProcessedEvent {
+    rows: ParsedRow[];
+    /** Null for delete events; otherwise the new checkpoint to persist on success. */
+    pendingCheckpoint: { path: string; checkpoint: Checkpoint } | null;
+    /** Set for message-category events; msg_index high-water to advance on success. */
+    pendingMsgIndex: { path: string; next: number } | null;
+    /** For delete events: drop this path's state (no-op if already absent). */
+    dropPath: string | null;
+  }
+
+  async function processEvent(evtPath: string, reason: QueuedReason): Promise<ProcessedEvent> {
+    const empty: ProcessedEvent = { rows: [], pendingCheckpoint: null, pendingMsgIndex: null, dropPath: null };
+    if (!parser || !checkpoints) return empty;
 
     const route = classify(evtPath, claudeDir);
     const parserCategory = routerCategoryToParserCategory(route.category);
-    if (!parserCategory) return [];
+    if (!parserCategory) return empty;
 
-    // Delete: drop the checkpoint, emit nothing. (Phase 5 may surface
-    // this as a `session.rewritten` for JSONL deletes; Phase 2 is
-    // ingest-only so we just drop state.)
+    // Delete is side-effect-only; surface via dropPath so the writer
+    // loop can tear state down after any in-flight batch settles.
+    // Phase 5 may promote this to a `session.rewritten` emit; today it's
+    // purely local cleanup.
     if (reason === 'delete') {
-      checkpoints.delete(evtPath);
-      checkpoints.scheduleFlush();
-      nextMsgIndexByPath.delete(evtPath);
-      return [];
+      return { ...empty, dropPath: evtPath };
     }
 
     const priorCheckpoint: Checkpoint | undefined = checkpoints.get(evtPath);
@@ -651,26 +666,49 @@ export function createLiveUpdates(deps: LiveUpdatesDeps, options: LiveUpdatesOpt
       claudeDir,
     });
 
-    // Update checkpoint + persisted-index bookkeeping.
-    checkpoints.set(evtPath, parseResult.newCheckpoint);
-    checkpoints.scheduleFlush();
+    // Defer every state advance until writeBatch commits — a transient
+    // SQLite failure must not leave the checkpoint pointing past bytes
+    // that never made it to disk (which would permanently skip them on
+    // the next tail).
+    const pendingMsgIndex =
+      parserCategory === 'message'
+        ? {
+            path: evtPath,
+            next: parseResult.rewrite ? parseResult.rows.length : startMsgIndex + parseResult.rows.length,
+          }
+        : null;
 
-    // TODO(RFC 005 Phase 5): when `parseResult.rewrite === true` and
-    // the category is `message`, the new JSONL may be shorter than
-    // the previous one — stale rows for `(session_id, msg_index >= N)`
-    // can leak. The writer's upsert-by-`(session_id, msg_index)`
-    // correctly overwrites overlapping rows. Truncated rewrites are
-    // not yet repaired; Phase 5 adds a targeted DELETE before write.
+    return {
+      rows: parseResult.rows,
+      pendingCheckpoint: { path: evtPath, checkpoint: parseResult.newCheckpoint },
+      pendingMsgIndex,
+      dropPath: null,
+    };
+  }
 
-    if (parserCategory === 'message') {
-      if (parseResult.rewrite) {
-        nextMsgIndexByPath.set(evtPath, parseResult.rows.length);
-      } else {
-        nextMsgIndexByPath.set(evtPath, startMsgIndex + parseResult.rows.length);
+  /**
+   * Apply the checkpoint + msg-index advances collected from a batch.
+   * Called only after the batch's `writeBatch` has committed, so we
+   * never advance past bytes that failed to reach SQLite.
+   */
+  function applyPending(processed: ProcessedEvent[]): void {
+    if (!checkpoints) return;
+    let touched = false;
+    for (const p of processed) {
+      if (p.dropPath !== null) {
+        checkpoints.delete(p.dropPath);
+        nextMsgIndexByPath.delete(p.dropPath);
+        touched = true;
+      }
+      if (p.pendingCheckpoint !== null) {
+        checkpoints.set(p.pendingCheckpoint.path, p.pendingCheckpoint.checkpoint);
+        touched = true;
+      }
+      if (p.pendingMsgIndex !== null) {
+        nextMsgIndexByPath.set(p.pendingMsgIndex.path, p.pendingMsgIndex.next);
       }
     }
-
-    return parseResult.rows;
+    if (touched) checkpoints.scheduleFlush();
   }
 
   async function writerLoop(): Promise<void> {
@@ -690,39 +728,45 @@ export function createLiveUpdates(deps: LiveUpdatesDeps, options: LiveUpdatesOpt
 
       // Parse each queued event into parsed rows. Parser errors are
       // reported via onError and the event is skipped — the pipeline
-      // must not crash on a malformed JSONL.
+      // must not crash on a malformed JSONL. All checkpoint/state
+      // advances are DEFERRED onto the processed list and applied only
+      // after writeBatch commits (see applyPending below).
+      const processed: ProcessedEvent[] = [];
       const rows: ParsedRow[] = [];
       for (const evt of batch) {
         try {
-          const evtRows = await processEvent(evt.path, evt.reason);
-          for (const r of evtRows) rows.push(r);
+          const p = await processEvent(evt.path, evt.reason);
+          processed.push(p);
+          for (const r of p.rows) rows.push(r);
         } catch (err) {
           onError(err instanceof Error ? err : new Error(String(err)));
         }
       }
 
-      if (rows.length === 0) continue;
+      // Delete-only batches (no row work) still need their dropPath
+      // side-effects applied; writeBatch won't be called in that case.
+      if (rows.length === 0) {
+        applyPending(processed);
+        continue;
+      }
 
       try {
         const result = await ingestService.writeBatch(rows);
-        // Reset the idle deadline on every successful batch — a
-        // steady stream of live appends keeps the pipeline "active"
-        // and pushes the WAL/FTS maintenance pass out of the hot
-        // path. (No-op when idle maintenance is disabled.)
+        // Success — only now is it safe to advance the checkpoint and
+        // msg-index bookkeeping. On failure we fall through to the
+        // catch below and the advances are discarded; the next watcher
+        // event will re-parse from the prior checkpoint.
+        applyPending(processed);
         idleMaintenance?.noteActivity();
         for (const change of result.changes) {
-          // As of C3.1, `store.emit()` stamps the change's seq and
-          // fans out through the subscriber registry. `attachStore`
-          // (C3.2) is how `create.ts` hands us the canonical store
-          // reference; we call that instance here.
           store.emit(change);
         }
       } catch (err) {
         onError(err instanceof Error ? err : new Error(String(err)));
-        // Do NOT advance state beyond what processEvent already set —
-        // checkpoints have been persisted for the delta, which is the
-        // current contract even on write failure. Retry loop is a
-        // Phase 5 concern; Phase 2 just surfaces the error.
+        // State advances intentionally discarded — next tail will
+        // re-read the same bytes and retry the write. Upserts on
+        // (session_id, msg_index) make this idempotent for messages;
+        // all other categories re-read whole files on rewrite anyway.
       }
     }
   }

@@ -300,47 +300,39 @@ export function createIncrementalParser(options: CreateIncrementalParserOptions)
     }
 
     const rows: ParsedRow[] = [];
-    let highWater = fromBytePosition;
+    // Advance `lastCompleteLineEnd` only on properly newline-terminated
+    // lines; the reader also emits a final "leftover" entry when a
+    // file has no trailing newline (partial mid-write). Live tailers
+    // must not consume the leftover — we drop both the row and any
+    // offset advance, so the next tail re-reads the unfinished line
+    // once a `\n` arrives.
+    let lastCompleteLineEnd = fromBytePosition;
+    let leftoverCount = 0;
 
     fileService.readJsonlStreaming<SessionMessage>(
       filePath,
-      (message, lineIndex, byteOffset) => {
-        rows.push({
-          category: 'message',
-          slug,
-          sessionId,
-          message,
-          msgIndex: indexBase + lineIndex,
-          byteOffset,
-        });
-        if (byteOffset >= highWater) {
-          highWater = byteOffset;
+      (message, lineIndex, byteOffset, endByteOffset, terminated) => {
+        if (terminated) {
+          rows.push({
+            category: 'message',
+            slug,
+            sessionId,
+            message,
+            msgIndex: indexBase + lineIndex,
+            byteOffset,
+          });
+          lastCompleteLineEnd = endByteOffset;
+        } else {
+          // Leftover partial line — skip entirely. Don't push the row,
+          // don't advance the offset.
+          leftoverCount += 1;
         }
       },
       { fromBytePosition },
     );
+    void leftoverCount; // only tracked for future observability
 
-    // Clamp newCheckpoint.lastOffset to just past the final complete
-    // `\n` so a partial EOF line is re-read next time. Same logic as
-    // the pre-reshape version.
-    let finalOffset: number;
-    if (rows.length === 0) {
-      finalOffset = fromBytePosition;
-    } else {
-      let tail: Buffer;
-      try {
-        tail = fileService.readBytes(filePath, { start: highWater, length: size - highWater });
-      } catch {
-        return { rows: [], newCheckpoint: emptyCheckpoint(filePath, checkpoint), rewrite };
-      }
-      const lastNl = tail.lastIndexOf(0x0a);
-      if (lastNl === -1) {
-        rows.pop();
-        finalOffset = highWater;
-      } else {
-        finalOffset = highWater + lastNl + 1;
-      }
-    }
+    const finalOffset = lastCompleteLineEnd;
 
     return {
       rows,

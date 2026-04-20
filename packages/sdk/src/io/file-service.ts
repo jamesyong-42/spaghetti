@@ -117,7 +117,7 @@ export interface FileService extends EventEmitter {
   readJsonlIncremental<T>(path: string, fromPosition: number): IncrementalReadResult<T>;
   readJsonlStreaming<T>(
     path: string,
-    callback: (entry: T, lineIndex: number, byteOffset: number) => void,
+    callback: (entry: T, lineIndex: number, byteOffset: number, endByteOffset: number, terminated: boolean) => void,
     options?: { fromBytePosition?: number; onError?: (lineIndex: number, error: string) => void },
   ): StreamingJsonlResult;
 
@@ -394,7 +394,7 @@ export class FileServiceImpl extends EventEmitter implements FileService {
 
   readJsonlStreaming<T>(
     path: string,
-    callback: (entry: T, lineIndex: number, byteOffset: number) => void,
+    callback: (entry: T, lineIndex: number, byteOffset: number, endByteOffset: number, terminated: boolean) => void,
     options?: { fromBytePosition?: number; onError?: (lineIndex: number, error: string) => void },
   ): StreamingJsonlResult {
     return readJsonlStreamingImpl<T>(path, callback, options as StreamingJsonlOptions | undefined);

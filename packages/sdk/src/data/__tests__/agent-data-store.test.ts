@@ -453,11 +453,11 @@ describe('AgentDataStore (C1.1 skeleton)', () => {
   test('throttleMs + latest:false coalesces events into an array', async () => {
     const freshStore = createAgentDataStore(queryService);
     const batches: string[][] = [];
+    // The overloaded subscribe pins the listener to (e: Change[]) => void
+    // when `{ throttleMs, latest: false }` is passed — no cast needed.
     freshStore.subscribe(
       undefined,
-      // `latest: false` delivers Change[] — cast at the call site
-      // since the public signature is the single-change form.
-      ((batch: Parameters<typeof store.emit>[0][]) => {
+      (batch) => {
         const tags = batch.map((e) => {
           if (e.type === 'session.message.added') {
             return (e.message as unknown as { __tag: string }).__tag;
@@ -465,7 +465,7 @@ describe('AgentDataStore (C1.1 skeleton)', () => {
           return '?';
         });
         batches.push(tags);
-      }) as unknown as (e: Parameters<typeof store.emit>[0]) => void,
+      },
       { throttleMs: 30, latest: false },
     );
 

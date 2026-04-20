@@ -230,8 +230,10 @@ export function createCheckpointStore(options: CreateCheckpointStoreOptions): Ch
         flushTimer = null;
         // Fire-and-forget — errors are logged but not surfaced to the
         // scheduler. Callers that need to observe failures use
-        // `flush()` directly.
-        void this.flush().catch((err: unknown) => {
+        // `flush()` directly. Call through the closure-captured `store`
+        // rather than `this` so a destructured / detached invocation of
+        // `scheduleFlush` still works correctly.
+        void store.flush().catch((err: unknown) => {
           console.warn(`[CheckpointStore] Debounced flush failed: ${String(err)}`);
         });
       }, FLUSH_DEBOUNCE_MS);
@@ -240,7 +242,7 @@ export function createCheckpointStore(options: CreateCheckpointStoreOptions): Ch
 
     async stop() {
       clearFlushTimer();
-      await this.flush();
+      await store.flush();
     },
   };
 

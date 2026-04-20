@@ -160,16 +160,38 @@ export type ChangeTopic =
  *
  * - `throttleMs`: minimum gap in milliseconds between listener
  *   invocations.
- * - `latest`: when `true`, intermediate events are dropped and only
- *   the most recent is emitted at each throttle boundary. When
- *   `false`, coalesced events are delivered as an array via a
- *   separate registry path. Defaults to `true` when `throttleMs`
- *   is set.
+ * - `latest`: when `true` (default when `throttleMs` is set),
+ *   intermediate events are dropped and only the most recent is
+ *   emitted at each throttle boundary — the listener signature stays
+ *   `(e: Change) => void`. When `false`, coalesced events are
+ *   delivered as an array and the listener signature widens to
+ *   `(e: Change[]) => void`. The two shapes are distinguished at the
+ *   type level via the overloaded `subscribe()` / `onChange()`
+ *   signatures so consumers never see a listener called with the
+ *   "wrong" argument shape.
  */
-export interface SubscribeOptions {
+export type SubscribeOptions = SubscribeOptionsLatest | SubscribeOptionsCoalesced;
+
+/** Default — listener gets one `Change` at a time. */
+export interface SubscribeOptionsLatest {
   throttleMs?: number;
-  latest?: boolean;
+  latest?: true;
 }
+
+/** Explicit opt-in — listener gets a batch array at each throttle boundary. */
+export interface SubscribeOptionsCoalesced {
+  throttleMs: number;
+  latest: false;
+}
+
+/**
+ * Listener type selected by the options object. When `options.latest`
+ * is literally `false`, the listener argument widens to `Change[]`;
+ * otherwise (default, `true`, or no throttle) it stays `Change`.
+ */
+export type SubscribeListener<O extends SubscribeOptions | undefined> = O extends { latest: false }
+  ? (e: Change[]) => void
+  : (e: Change) => void;
 
 // ═══════════════════════════════════════════════════════════════════════════
 // TYPE GUARDS (one per variant)

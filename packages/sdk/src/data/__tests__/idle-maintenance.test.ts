@@ -103,7 +103,7 @@ describe('IdleMaintenance (RFC 005 C5.1)', () => {
 
       // Assert the three maintenance statements fired at least once.
       const checkpointFired = counts.exec.some((s) => /wal_checkpoint/.test(s));
-      const mergeFired = counts.run.some((s) => /INSERT INTO messages_fts/.test(s));
+      const mergeFired = [...counts.run, ...counts.exec].some((s) => /INSERT INTO messages_fts/.test(s));
       const optimizeFired = counts.exec.some((s) => /PRAGMA optimize/.test(s));
 
       assert.equal(checkpointFired, true, 'wal_checkpoint should have fired');
@@ -141,7 +141,7 @@ describe('IdleMaintenance (RFC 005 C5.1)', () => {
         await new Promise((r) => setTimeout(r, 20));
       }
 
-      const midMerges = counts.run.filter((s) => /INSERT INTO messages_fts/.test(s)).length;
+      const midMerges = [...counts.run, ...counts.exec].filter((s) => /INSERT INTO messages_fts/.test(s)).length;
       assert.equal(
         midMerges,
         0,
@@ -151,7 +151,7 @@ describe('IdleMaintenance (RFC 005 C5.1)', () => {
       // Now stop touching activity; a tick should fire within idleMs + check cadence.
       await new Promise((r) => setTimeout(r, IDLE_MS + CHECK_MS * 3));
 
-      const lateMerges = counts.run.filter((s) => /INSERT INTO messages_fts/.test(s)).length;
+      const lateMerges = [...counts.run, ...counts.exec].filter((s) => /INSERT INTO messages_fts/.test(s)).length;
       assert.ok(lateMerges >= 1, `merge should fire once activity stops: ran ${lateMerges}x`);
 
       im.stop();
@@ -183,7 +183,7 @@ describe('IdleMaintenance (RFC 005 C5.1)', () => {
       // Wait more than enough for a tick to have fired if stop hadn't.
       await new Promise((r) => setTimeout(r, IDLE_MS + CHECK_MS * 4));
 
-      const merges = counts.run.filter((s) => /INSERT INTO messages_fts/.test(s)).length;
+      const merges = [...counts.run, ...counts.exec].filter((s) => /INSERT INTO messages_fts/.test(s)).length;
       assert.equal(merges, 0, `stop() should halt maintenance: saw ${merges} merge call(s)`);
 
       // noteActivity() after stop is a no-op (no throw).
@@ -233,7 +233,7 @@ describe('IdleMaintenance (RFC 005 C5.1)', () => {
       );
 
       // FTS merge + optimize should still fire (they don't depend on WAL).
-      const mergeFired = counts.run.some((s) => /INSERT INTO messages_fts/.test(s));
+      const mergeFired = [...counts.run, ...counts.exec].some((s) => /INSERT INTO messages_fts/.test(s));
       assert.equal(mergeFired, true, 'merge should fire even when -wal is absent');
 
       // Checkpoint should NOT fire (gated by threshold + missing sidecar = 0 size).

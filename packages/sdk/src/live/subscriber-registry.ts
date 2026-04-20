@@ -40,7 +40,14 @@
  *    in RFC 005 §4 (Backpressure & failure semantics).
  */
 
-import type { Change, ChangeTopic, Dispose, SubscribeOptions } from './change-events.js';
+import type {
+  Change,
+  ChangeTopic,
+  Dispose,
+  SubscribeOptions,
+  SubscribeOptionsCoalesced,
+  SubscribeOptionsLatest,
+} from './change-events.js';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // PUBLIC TYPES
@@ -56,7 +63,12 @@ export interface SubscriberRegistry {
    * independently — the returned dispose is the only handle that
    * removes them.
    */
-  subscribe(topic: ChangeTopic | undefined, listener: (e: Change) => void, options?: SubscribeOptions): Dispose;
+  subscribe(topic: ChangeTopic | undefined, listener: (e: Change) => void, options?: SubscribeOptionsLatest): Dispose;
+  subscribe(
+    topic: ChangeTopic | undefined,
+    listener: (e: Change[]) => void,
+    options: SubscribeOptionsCoalesced,
+  ): Dispose;
 
   /**
    * Publish a Change to every firehose listener plus every scoped
@@ -104,8 +116,17 @@ type TopicKey = string;
  * delivery path so an in-flight `emit()` that dispatches to an entry
  * which was just unsubscribed turns into a no-op.
  */
+/**
+ * Internal listener type — the public overloads guarantee that when
+ * `options.latest === false` the registered function takes a `Change[]`
+ * batch, and otherwise it takes a single `Change`. Storing both shapes
+ * as one union lets the fan-out code stay structural; dispatch branches
+ * on `options.latest` before invoking.
+ */
+type InternalListener = ((e: Change) => void) | ((e: Change[]) => void);
+
 interface Entry {
-  readonly listener: (e: Change) => void;
+  readonly listener: InternalListener;
   readonly options: SubscribeOptions | undefined;
   disposed: boolean;
 
@@ -205,7 +226,11 @@ class SubscriberRegistryImpl implements SubscriberRegistry {
     this.onListenerError = options?.onListenerError;
   }
 
-  subscribe(topic: ChangeTopic | undefined, listener: (e: Change) => void, options?: SubscribeOptions): Dispose {
+  subscribe(
+    topic: ChangeTopic | undefined,
+    listener: ((e: Change) => void) | ((e: Change[]) => void),
+    options?: SubscribeOptions,
+  ): Dispose {
     // Subscribe-after-dispose is a no-op returning a no-op dispose —
     // matches the "disposed registry no-op" testing contract from
     // `docs/LIVE-UPDATES-DESIGN.md` §6.1.
@@ -214,7 +239,7 @@ class SubscriberRegistryImpl implements SubscriberRegistry {
     }
 
     const entry: Entry = {
-      listener,
+      listener: listener as InternalListener,
       options,
       disposed: false,
       pendingTimer: null,
@@ -348,13 +373,11 @@ class SubscriberRegistryImpl implements SubscriberRegistry {
         entry.pendingCoalesce = null;
         if (batch && batch.length > 0) {
           // Coalesce mode delivers the batch as a single call. The
-          // public type is `(e: Change) => void`; the batched array is
-          // cast through `unknown` to match the documented RFC shape
-          // — consumers opting in to `latest: false` are responsible
-          // for reading the array form. (No breaking change to the
-          // single-change path.)
+          // public subscribe() overload guarantees the listener
+          // signature is `(e: Change[]) => void` when
+          // `options.latest === false`, so this cast is sound.
           try {
-            (entry.listener as unknown as (e: Change[]) => void)(batch);
+            (entry.listener as (e: Change[]) => void)(batch);
           } catch (err) {
             if (this.onListenerError) {
               // Surface the first change so the sink has some context.
@@ -368,7 +391,11 @@ class SubscriberRegistryImpl implements SubscriberRegistry {
 
   private invokeSafely(entry: Entry, change: Change): void {
     try {
-      entry.listener(change);
+      // Non-coalesce listeners have signature `(e: Change) => void`;
+      // the public subscribe() overload guarantees coalesce-mode
+      // listeners are only invoked via the batched path above, never
+      // through this method.
+      (entry.listener as (e: Change) => void)(change);
     } catch (err) {
       if (this.onListenerError) this.onListenerError(err, change);
     }

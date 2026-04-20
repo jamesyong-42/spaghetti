@@ -35,7 +35,14 @@
  *    for the rationale.
  */
 
-import type { Change, ChangeTopic, Dispose, SubscribeOptions } from './change-events.js';
+import type {
+  Change,
+  ChangeTopic,
+  Dispose,
+  SubscribeOptions,
+  SubscribeOptionsCoalesced,
+  SubscribeOptionsLatest,
+} from './change-events.js';
 import type { AgentDataStore } from '../data/agent-data-store.js';
 import type { LiveUpdates } from './live-updates.js';
 
@@ -49,10 +56,14 @@ import type { LiveUpdates } from './live-updates.js';
  * §8.
  */
 export interface SpaghettiLive {
-  /** Firehose subscribe — delivers every emitted Change. */
-  onChange(listener: (e: Change) => void, options?: SubscribeOptions): Dispose;
-  /** Scoped subscribe — delivers Changes whose topic matches. */
-  onChange(topic: ChangeTopic, listener: (e: Change) => void, options?: SubscribeOptions): Dispose;
+  /** Firehose subscribe (single-change delivery). */
+  onChange(listener: (e: Change) => void, options?: SubscribeOptionsLatest): Dispose;
+  /** Firehose subscribe (coalesced batch delivery when `{ latest: false }` is set). */
+  onChange(listener: (e: Change[]) => void, options: SubscribeOptionsCoalesced): Dispose;
+  /** Scoped subscribe (single-change delivery). */
+  onChange(topic: ChangeTopic, listener: (e: Change) => void, options?: SubscribeOptionsLatest): Dispose;
+  /** Scoped subscribe (coalesced batch delivery when `{ latest: false }` is set). */
+  onChange(topic: ChangeTopic, listener: (e: Change[]) => void, options: SubscribeOptionsCoalesced): Dispose;
 
   /**
    * Async iterable form. Use with `for await (const e of
@@ -88,24 +99,37 @@ class SpaghettiLiveImpl implements SpaghettiLive {
     private readonly liveUpdates: LiveUpdates,
   ) {}
 
-  onChange(listener: (e: Change) => void, options?: SubscribeOptions): Dispose;
-  onChange(topic: ChangeTopic, listener: (e: Change) => void, options?: SubscribeOptions): Dispose;
+  onChange(listener: (e: Change) => void, options?: SubscribeOptionsLatest): Dispose;
+  onChange(listener: (e: Change[]) => void, options: SubscribeOptionsCoalesced): Dispose;
+  onChange(topic: ChangeTopic, listener: (e: Change) => void, options?: SubscribeOptionsLatest): Dispose;
+  onChange(topic: ChangeTopic, listener: (e: Change[]) => void, options: SubscribeOptionsCoalesced): Dispose;
   onChange(
-    topicOrListener: ChangeTopic | ((e: Change) => void),
-    listenerOrOptions?: ((e: Change) => void) | SubscribeOptions,
+    topicOrListener: ChangeTopic | ((e: Change) => void) | ((e: Change[]) => void),
+    listenerOrOptions?: ((e: Change) => void) | ((e: Change[]) => void) | SubscribeOptions,
     maybeOptions?: SubscribeOptions,
   ): Dispose {
     // Overload resolution: when the first arg is a function, this is
     // the firehose form.
     const isFirehose = typeof topicOrListener === 'function';
     const topic: ChangeTopic | undefined = isFirehose ? undefined : topicOrListener;
-    const listener = (isFirehose ? topicOrListener : (listenerOrOptions as (e: Change) => void))!;
+    const listener = (
+      isFirehose ? topicOrListener : (listenerOrOptions as ((e: Change) => void) | ((e: Change[]) => void))
+    )!;
     const options = (isFirehose ? (listenerOrOptions as SubscribeOptions | undefined) : maybeOptions) ?? undefined;
 
     // Firehose: don't force every scope online. See the module
     // doc-comment for the rationale.
     const prewarmDispose: Dispose | undefined = topic !== undefined ? this.liveUpdates.prewarm(topic) : undefined;
-    const subscribeDispose = this.store.subscribe(topic, listener, options);
+    // Forward to the store's overloaded subscribe through a widened
+    // signature — the public overloads above keep the caller's
+    // listener/options shapes aligned.
+    const subscribeDispose = (
+      this.store.subscribe as (
+        t: ChangeTopic | undefined,
+        l: ((e: Change) => void) | ((e: Change[]) => void),
+        o?: SubscribeOptions,
+      ) => Dispose
+    )(topic, listener, options);
 
     let disposed = false;
     return () => {

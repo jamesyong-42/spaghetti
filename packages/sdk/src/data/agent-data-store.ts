@@ -20,7 +20,14 @@ import type { PaginatedSegmentResult, SearchQuery, SearchResultSet, StoreStats }
 import type { ProjectSummaryData, SessionSummaryData } from './summary-types.js';
 import type { AgentAnalytic, AgentConfig, SessionMessage } from '../types/index.js';
 import type { QueryService } from './query-service.js';
-import type { Change, ChangeTopic, Dispose, SubscribeOptions } from '../live/change-events.js';
+import type {
+  Change,
+  ChangeTopic,
+  Dispose,
+  SubscribeOptions,
+  SubscribeOptionsCoalesced,
+  SubscribeOptionsLatest,
+} from '../live/change-events.js';
 import { createSubscriberRegistry, type SubscriberRegistry } from '../live/subscriber-registry.js';
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -127,7 +134,12 @@ export interface AgentDataStore {
    * at each boundary; `latest: false` coalesces pending changes into
    * an array.
    */
-  subscribe(topic: ChangeTopic | undefined, listener: (e: Change) => void, options?: SubscribeOptions): Dispose;
+  subscribe(topic: ChangeTopic | undefined, listener: (e: Change) => void, options?: SubscribeOptionsLatest): Dispose;
+  subscribe(
+    topic: ChangeTopic | undefined,
+    listener: (e: Change[]) => void,
+    options: SubscribeOptionsCoalesced,
+  ): Dispose;
   /**
    * Last `seq` the store has assigned to an emitted `Change` this
    * process. Monotonically increases with every `emit()` call
@@ -312,8 +324,22 @@ export class AgentDataStoreImpl implements AgentDataStore {
     this.registry.emit(stamped);
   }
 
-  subscribe(topic: ChangeTopic | undefined, listener: (e: Change) => void, options?: SubscribeOptions): Dispose {
-    return this.registry.subscribe(topic, listener, options);
+  subscribe(
+    topic: ChangeTopic | undefined,
+    listener: ((e: Change) => void) | ((e: Change[]) => void),
+    options?: SubscribeOptions,
+  ): Dispose {
+    // The public overloads pin the listener shape to whichever arm of
+    // SubscribeOptions the caller selected. Internally we forward to the
+    // registry — which has the same overload set — via a widened
+    // signature so TypeScript accepts both arms through one call site.
+    return (
+      this.registry.subscribe as (
+        t: ChangeTopic | undefined,
+        l: ((e: Change) => void) | ((e: Change[]) => void),
+        o?: SubscribeOptions,
+      ) => Dispose
+    )(topic, listener, options);
   }
 
   lastEmittedSeq(): number {

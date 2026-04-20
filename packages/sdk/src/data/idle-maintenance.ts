@@ -175,12 +175,13 @@ export function createIdleMaintenance(
       }
 
       // `messages_fts` is the sole FTS5 virtual table in the schema.
-      // The `merge` command is a no-op when there's nothing to merge,
-      // so gating it on WAL size or activity is unnecessary. The
-      // two-column form is the one SQLite's FTS5 grammar accepts on
-      // every build we ship (see FTS5 docs: "The 'merge' command");
-      // the string-form equivalent (`'merge=N'`) is parsed only by
-      // newer builds and fails on the `better-sqlite3`-bundled SQLite.
+      // `merge` is a no-op when there is nothing to merge, so gating
+      // it on WAL size or activity is unnecessary. The two-column
+      // `(fts, rank) VALUES('merge', N)` form is the one FTS5 actually
+      // accepts on the `better-sqlite3`-bundled SQLite — an earlier
+      // review flagged the single-column `'merge=N'` string form as
+      // "more standard", but it returns SQL logic error on the bundled
+      // build (confirmed by the `missing -wal sidecar` test).
       deps.sqlite.run(`INSERT INTO messages_fts(messages_fts, rank) VALUES('merge', ?)`, ftsMergeChunk);
 
       deps.sqlite.exec('PRAGMA optimize');

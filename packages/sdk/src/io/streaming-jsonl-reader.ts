@@ -12,7 +12,22 @@ import { openSync, readSync, closeSync, statSync } from 'fs';
 // ═══════════════════════════════════════════════════════════════════════════
 
 export interface JsonlLineCallback<T> {
-  (entry: T, lineIndex: number, byteOffset: number): void;
+  /**
+   * Invoked per parsed JSON line.
+   *
+   * @param entry         - Parsed JSON value.
+   * @param lineIndex     - 0-based position among successfully parsed lines.
+   * @param byteOffset    - Start offset of the line in the file.
+   * @param endByteOffset - Byte just past the trailing `\n` for newline-
+   *   terminated lines, or just past the last byte of the line when the
+   *   file has no final newline.
+   * @param terminated    - True when the line ended with an explicit
+   *   `\n`. False for the "leftover" tail when a file has no final
+   *   newline — live tailers should NOT advance past such lines since
+   *   they're typically a partially-written row that will complete on
+   *   a subsequent append.
+   */
+  (entry: T, lineIndex: number, byteOffset: number, endByteOffset: number, terminated: boolean): void;
 }
 
 export interface StreamingJsonlOptions {
@@ -123,13 +138,14 @@ export function readJsonlStreaming<T>(
           const lineBytes = workBuf.subarray(scanFrom, newlinePos);
           const lineStr = lineBytes.toString('utf-8').trim();
           const lineByteOffset = workBufFileStart + scanFrom;
+          const lineEndByteOffset = workBufFileStart + newlinePos + 1;
 
           if (lineStr.length > 0) {
             result.totalLines++;
 
             try {
               const entry = JSON.parse(lineStr) as T;
-              callback(entry, lineIndex, lineByteOffset);
+              callback(entry, lineIndex, lineByteOffset, lineEndByteOffset, /* terminated */ true);
               result.processedLines++;
             } catch (error) {
               result.errorCount++;
@@ -151,10 +167,11 @@ export function readJsonlStreaming<T>(
       if (finalStr.length > 0) {
         result.totalLines++;
         const lineByteOffset = fileOffset - leftoverBuf.length;
+        const lineEndByteOffset = fileOffset;
 
         try {
           const entry = JSON.parse(finalStr) as T;
-          callback(entry, lineIndex, lineByteOffset);
+          callback(entry, lineIndex, lineByteOffset, lineEndByteOffset, /* terminated */ false);
           result.processedLines++;
         } catch (error) {
           result.errorCount++;
