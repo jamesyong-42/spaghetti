@@ -924,7 +924,7 @@ dependencies = [
 
 [[package]]
 name = "spaghetti-napi"
-version = "0.5.8"
+version = "0.5.12"
 dependencies = [
  "anyhow",
  "crossbeam-channel",

@@ -111,7 +111,7 @@ export function createParcelWatcher(): Watcher {
             // layer up — we don't have a reference to it here, and
             // pushing an error through `onEvents` would conflate
             // success/failure signalling.
-            // eslint-disable-next-line no-console
+
             console.error('[spaghetti-sdk] parcel watcher error:', err);
             return;
           }

@@ -37,8 +37,12 @@ export function useLiveChanges(topic?: ChangeTopic): Change | null {
 
   // Memoize topic identity keyed on its logical content so useEffect
   // deps are honest even when the caller inlines the object each render.
+  // `topic` and `topicKey` move in lock-step (topicKey is derived from
+  // topic) so pinning the memo on topicKey alone is correct — the
+  // react-hooks/exhaustive-deps rule would flag it, but that rule isn't
+  // part of the SDK's eslint config.
   const topicKey = topic ? JSON.stringify(topic) : '';
-  const stableTopic = useMemo(() => topic, [topicKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  const stableTopic = useMemo(() => topic, [topicKey]);
 
   useEffect(() => {
     if (!api.live) return;

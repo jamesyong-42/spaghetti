@@ -252,7 +252,8 @@ pub fn live_ingest_batch_inner(
     // if a table we write to is missing (first-time open against a
     // live-only fresh DB, e.g. in tests).
     if !has_core_schema(&conn) {
-        schema::initialize_schema(&conn).map_err(|e| LiveIngestError::Writer(WriterError::from(e)))?;
+        schema::initialize_schema(&conn)
+            .map_err(|e| LiveIngestError::Writer(WriterError::from(e)))?;
     }
 
     // Convert rows → events. Build the row-id list in lockstep so the

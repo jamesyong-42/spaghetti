@@ -724,10 +724,11 @@ class IngestServiceImpl implements IngestService {
       this.inTransaction = true;
     }
 
-    const ctx: RowWriteContext = this;
     try {
+      // Pass `this` directly as the RowWriteContext — IngestServiceImpl
+      // implements the context surface structurally, so no alias needed.
       for (const row of rows) {
-        applyRowHandler(row, ctx);
+        applyRowHandler(row, this);
       }
 
       if (weOpenedTx) {

@@ -137,7 +137,6 @@ export function createIdleMaintenance(
   const onError =
     options.onError ??
     ((err: Error) => {
-      // eslint-disable-next-line no-console
       console.warn(`[spaghetti-sdk] IdleMaintenance error: ${err.message}`);
     });
 

@@ -64,7 +64,6 @@ export function createConsoleErrorSink(prefix = '[spaghetti-sdk]'): ErrorSink {
       const component = context?.component;
       const head = component ? `${prefix} ${component}` : prefix;
       try {
-        // eslint-disable-next-line no-console
         console.warn(`${head} error: ${err.message}`);
       } catch {
         /* console.warn itself shouldn't throw, but be defensive. */
