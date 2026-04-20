@@ -196,6 +196,39 @@ const WATCHER_IGNORE_GLOBS = [
  * Returns `null` for categories the writer-loop pipeline does not
  * handle directly.
  */
+/**
+ * Canonical "one row per sessionId" path for task events. Every
+ * watcher event inside `tasks/<sid>/` (`.lock`, `.highwatermark`,
+ * numbered `N.json`) normalizes onto this synthetic filename so the
+ * CoalescingQueue's path-dedup collapses a burst of rapid edits into
+ * a single queued entry per debounce window. The parser reads the
+ * whole task dir on any event under it, so losing the per-file
+ * identity here is harmless — `parseTaskDelta` rebuilds the
+ * `TaskEntry` from disk regardless of which file woke it.
+ *
+ * The filename must satisfy the router's `^tasks/<sid>/[^/]+$` shape
+ * so `classify()` still returns `{ category: 'task', sessionId }`
+ * downstream. `.coalesced` is a literal name (no `.tmp` / `.DS_Store`
+ * suffix) so the hard-ignore list doesn't accidentally eat it.
+ */
+export const TASK_COALESCE_FILENAME = '.coalesced';
+
+/**
+ * Map a watcher event path to the path that actually gets enqueued.
+ * For tasks this collapses every file under `tasks/<sid>/` onto a
+ * single per-session coalesce point; for every other category it's
+ * the identity mapping.
+ *
+ * Pure helper at module scope so unit tests can exercise it without
+ * spinning up a full LiveUpdates instance.
+ */
+export function coalescePath(evtPath: string, route: RouteResult, claudeDir: string): string {
+  if (route.category === 'task' && route.sessionId) {
+    return path.join(claudeDir, 'tasks', route.sessionId, TASK_COALESCE_FILENAME);
+  }
+  return evtPath;
+}
+
 function routerCategoryToParserCategory(category: Category): ParsedRowCategory | null {
   switch (category) {
     case 'session':
@@ -377,36 +410,6 @@ export function createLiveUpdates(deps: LiveUpdatesDeps, options: LiveUpdatesOpt
 
   // ── watcher event dispatch ─────────────────────────────────────────────
 
-  /**
-   * Canonical "one row per sessionId" path for task events. Every
-   * watcher event inside `tasks/<sid>/` (`.lock`, `.highwatermark`,
-   * numbered `N.json`) normalizes onto this synthetic filename so the
-   * CoalescingQueue's path-dedup collapses a burst of rapid edits into
-   * a single queued entry per debounce window. The parser reads the
-   * whole task dir on any event under it, so losing the per-file
-   * identity here is harmless — `parseTaskDelta` rebuilds the
-   * `TaskEntry` from disk regardless of which file woke it.
-   *
-   * The filename must satisfy the router's `^tasks/<sid>/[^/]+$` shape
-   * so `classify()` still returns `{ category: 'task', sessionId }`
-   * downstream. `.coalesced` is a literal name (no `.tmp` / `.DS_Store`
-   * suffix) so the hard-ignore list doesn't accidentally eat it.
-   */
-  const TASK_COALESCE_FILENAME = '.coalesced';
-
-  /**
-   * Map a watcher event path to the path we actually enqueue. For
-   * tasks this collapses every file under `tasks/<sid>/` onto a single
-   * per-session coalesce point; for every other category it's the
-   * identity mapping.
-   */
-  function coalescePath(evtPath: string, route: RouteResult): string {
-    if (route.category === 'task' && route.sessionId) {
-      return path.join(claudeDir, 'tasks', route.sessionId, TASK_COALESCE_FILENAME);
-    }
-    return evtPath;
-  }
-
   function handleWatchEvents(events: WatchEvent[]): void {
     if (!running) return;
     for (const event of events) {
@@ -423,7 +426,7 @@ export function createLiveUpdates(deps: LiveUpdatesDeps, options: LiveUpdatesOpt
         continue;
       }
 
-      const enqueuePath = coalescePath(event.path, route);
+      const enqueuePath = coalescePath(event.path, route, claudeDir);
 
       // create + delete are rare; enqueue immediately so priority
       // collapse can't strand them behind a debounced append.

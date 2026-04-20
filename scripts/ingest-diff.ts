@@ -2,10 +2,23 @@
 /**
  * ingest-diff.ts — correctness gate for the Rust ingest port.
  *
- * Runs the TS ingest (via `@vibecook/spaghetti-sdk` → `createSpaghettiService`)
- * and the Rust ingest (via `@vibecook/spaghetti-sdk-native`) against the same
- * fixture directory, dumps every row of every table from both resulting
- * SQLite databases, and asserts the two dumps are semantically identical.
+ * Two modes, picked via `--mode=`:
+ *
+ *   - `cold` (default) — runs the TS ingest (via
+ *     `@vibecook/spaghetti-sdk` → `createSpaghettiService`) and the Rust
+ *     ingest (via `@vibecook/spaghetti-sdk-native`) against the same
+ *     fixture directory, dumps every row of every table from both
+ *     resulting SQLite databases, and asserts the two dumps are
+ *     semantically identical.
+ *
+ *   - `live-batch` (RFC 005 C4.3 parity) — generates a synthetic session
+ *     JSONL incrementally (configurable line count + step), parses it
+ *     into `ParsedRow[]` once, then exercises both write paths:
+ *       * TS:   `IngestService.writeBatch(rows)` directly.
+ *       * Rust: `native.liveIngestBatch(dbPath, rows)`.
+ *     The two DBs are then diffed via the same per-table walker the
+ *     `cold` mode uses. This proves the live-update fast path produces
+ *     identical SQLite state across engines.
  *
  * The TS SDK writes first (and closes its connection cleanly) before the
  * Rust addon ever opens the Rust DB — they use different files and are
@@ -30,23 +43,15 @@
  *     and derive from trigger output. We sanity-check the row count
  *     matches `messages` on both sides and leave it at that.
  *
+ * Run examples:
+ *   tsx scripts/ingest-diff.ts                              # cold mode, default fixture
+ *   tsx scripts/ingest-diff.ts --mode=live-batch            # 200 lines, 25-row chunks
+ *   tsx scripts/ingest-diff.ts --mode=live-batch --lines=500 --chunk=50
+ *
  * Exit codes:
  *   0 — zero diffs.
  *   1 — at least one semantic diff, first ~10 printed.
  *   2 — harness error (fixture missing, DB open failed, etc.).
- *
- * TODO(RFC 005 C4.3): extend this harness with a "live-batch" fixture
- *   mode — generate a session JSONL with N lines, exercise both
- *   `IngestService.writeBatch` (TS path) and `live_ingest_batch` (Rust
- *   path) against the same seed, and diff the two resulting DB states.
- *   Deferred because the current harness assumes a one-shot cold-ingest
- *   flow and the SDK's dist bundle today can't be imported outside the
- *   SDK build due to a pre-existing `@parcel/watcher` dynamic-require
- *   bundling issue that crashes the harness at entry. Until that's
- *   resolved (separate bundler config fix), C4.3 parity is covered by
- *   the cargo-side tests in `crates/spaghetti-napi/src/live_ingest.rs`
- *   and the TS-side mocked-native tests in
- *   `packages/sdk/src/data/__tests__/ingest-service-write-batch.test.ts`.
  */
 
 import { createRequire } from 'node:module';
@@ -56,7 +61,12 @@ import { parseArgs } from 'node:util';
 
 import Database from 'better-sqlite3';
 
-import { createSpaghettiService } from '../packages/sdk/dist/index.js';
+import {
+  createSpaghettiService,
+  createIngestService,
+  createSqliteService,
+  initializeSchema,
+} from '../packages/sdk/dist/index.js';
 
 // `@vibecook/spaghetti-sdk-native` is a workspace dep of the SDK, so it's
 // already installed in node_modules — but `createRequire` lets us reach it
@@ -70,8 +80,18 @@ const { values } = parseArgs({
     fixture: { type: 'string' },
     'ts-db': { type: 'string' },
     'rust-db': { type: 'string' },
+    mode: { type: 'string' },
+    lines: { type: 'string' },
+    chunk: { type: 'string' },
   },
 });
+
+type Mode = 'cold' | 'live-batch';
+const mode: Mode = (values.mode as Mode | undefined) ?? 'cold';
+if (mode !== 'cold' && mode !== 'live-batch') {
+  console.error(`unknown --mode=${values.mode!}; expected 'cold' or 'live-batch'`);
+  process.exit(2);
+}
 
 const repoRoot = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..');
 const defaultFixture = path.join(repoRoot, 'crates/spaghetti-napi/fixtures/small/.claude');
@@ -79,7 +99,18 @@ const fixtureClaudeDir = path.resolve(values.fixture ?? defaultFixture);
 const tsDbPath = path.resolve(values['ts-db'] ?? '/tmp/ingest-diff-ts.db');
 const rustDbPath = path.resolve(values['rust-db'] ?? '/tmp/ingest-diff-rust.db');
 
-if (!existsSync(fixtureClaudeDir)) {
+const liveBatchLines = Number.parseInt(values.lines ?? '200', 10);
+const liveBatchChunk = Number.parseInt(values.chunk ?? '25', 10);
+if (!Number.isFinite(liveBatchLines) || liveBatchLines <= 0) {
+  console.error(`--lines must be a positive integer, got: ${values.lines}`);
+  process.exit(2);
+}
+if (!Number.isFinite(liveBatchChunk) || liveBatchChunk <= 0) {
+  console.error(`--chunk must be a positive integer, got: ${values.chunk}`);
+  process.exit(2);
+}
+
+if (mode === 'cold' && !existsSync(fixtureClaudeDir)) {
   console.error(`fixture not found: ${fixtureClaudeDir}`);
   console.error('regenerate with: node scripts/generate-ingest-fixture.mjs --out crates/spaghetti-napi/fixtures/small');
   process.exit(2);
@@ -158,6 +189,22 @@ interface NativeAddon {
     subagentsWritten: number;
     errors: Array<{ slug: string; message: string }>;
   }>;
+  /**
+   * RFC 005 C4.3: live-update fast path. Takes a fully-prepared
+   * `LiveRow[]` batch (the same shape `IngestServiceImpl.writeBatch`
+   * derives via `parsedRowToNativeLiveRow`) and writes it to `dbPath`
+   * inside one transaction. The script's live-batch mode mirrors the
+   * exact wire shape so both engines see byte-identical input.
+   */
+  liveIngestBatch(
+    dbPath: string,
+    rows: Array<{
+      category: string;
+      slug?: string;
+      sessionId?: string;
+      payloadJson: string;
+    }>,
+  ): unknown;
   nativeVersion(): string;
 }
 
@@ -170,6 +217,130 @@ async function runRustIngest(): Promise<{ durationMs: number; stats: Awaited<Ret
     mode: 'cold',
   });
   return { durationMs: Date.now() - start, stats };
+}
+
+// ─── Live-batch fixture (RFC 005 C4.3 parity) ──────────────────────────────
+//
+// Synthesises N session-message ParsedRows (one per JSONL line) plus a
+// single project + sessions_index seed so the message rows have a parent.
+// Both writers consume the same array; we slice it into chunks of
+// `liveBatchChunk` rows to mirror the live pipeline's drain windows.
+
+const LIVE_SLUG = 'live-batch-slug';
+const LIVE_SESSION_ID = 'live-batch-session';
+const LIVE_PROJECT_PATH = '/tmp/live-batch-project';
+
+interface LiveBatchRow {
+  category: string;
+  slug?: string;
+  sessionId?: string;
+  msgIndex?: number;
+  byteOffset?: number;
+  message?: Record<string, unknown>;
+}
+
+/**
+ * Build the ParsedRow[] for the live-batch fixture. Two row types:
+ *   - One `session_index` row to seed the project + session index.
+ *   - N `message` rows with monotonically increasing msgIndex.
+ *
+ * Returns the array typed loosely as `LiveBatchRow[]`; the TS writer
+ * accepts it through its discriminated-union narrowing on `category`.
+ */
+function buildLiveBatchRows(lines: number): LiveBatchRow[] {
+  const rows: LiveBatchRow[] = [];
+  // Seed the project. session_index rows reuse `onProject` underneath.
+  rows.push({
+    category: 'session_index',
+    slug: LIVE_SLUG,
+    // Carrier fields — read by the writer's session_index handler.
+    // Match the inline handler signature.
+    ...({
+      originalPath: LIVE_PROJECT_PATH,
+      sessionsIndex: { sessions: [{ sessionId: LIVE_SESSION_ID, fullPath: '/tmp/x.jsonl' }] },
+    } as unknown as Record<string, unknown>),
+  });
+  for (let i = 0; i < lines; i++) {
+    rows.push({
+      category: 'message',
+      slug: LIVE_SLUG,
+      sessionId: LIVE_SESSION_ID,
+      msgIndex: i,
+      byteOffset: i * 200, // synthetic
+      message: {
+        type: i % 2 === 0 ? 'user' : 'assistant',
+        uuid: `uuid-${i}`,
+        timestamp: new Date(2026, 0, 1, 0, 0, i).toISOString(),
+        sessionId: LIVE_SESSION_ID,
+        message:
+          i % 2 === 0
+            ? { role: 'user', content: `prompt ${i}` }
+            : {
+                role: 'assistant',
+                content: [{ type: 'text', text: `response ${i}` }],
+                usage: {
+                  input_tokens: 10,
+                  output_tokens: 20,
+                  cache_creation_input_tokens: 0,
+                  cache_read_input_tokens: 0,
+                },
+              },
+      },
+    });
+  }
+  return rows;
+}
+
+interface LiveBatchResult {
+  durationMs: number;
+  batchCount: number;
+}
+
+/**
+ * Open a fresh SQLite DB at `dbPath`, build an `IngestService` pinned
+ * to `engine`, then writeBatch the rows in chunks of size
+ * `liveBatchChunk`. Closes the DB cleanly before returning so the
+ * compare phase can re-open it read-only.
+ */
+async function runLiveBatch(engine: 'ts' | 'rs', dbPath: string): Promise<LiveBatchResult> {
+  const sqlite = createSqliteService();
+  sqlite.open({ path: dbPath });
+  initializeSchema(sqlite);
+  // Sanity rows for the messages_fts triggers — none of the
+  // session_index handler's writes need the projects row up front
+  // (the row IS the projects row), so we go straight to writeBatch.
+
+  const native = engine === 'rs' ? (require('@vibecook/spaghetti-sdk-native') as NativeAddon) : null;
+  const ingest = createIngestService(() => sqlite, {
+    engine,
+    // The SDK type declares `native` as the loaded NativeAddon
+    // shape; structural typing accepts the same object the script
+    // already requires for the cold-mode rust path.
+    native: native as unknown as never,
+  });
+  ingest.open(dbPath);
+
+  const rows = buildLiveBatchRows(liveBatchLines);
+  // Use `unknown` to bridge the loose harness shape onto the SDK's
+  // ParsedRow union — the writer's switch branches on `category` so
+  // structurally-compatible rows hit the right handler.
+  const start = Date.now();
+  let batchCount = 0;
+  for (let i = 0; i < rows.length; i += liveBatchChunk) {
+    const chunk = rows.slice(i, i + liveBatchChunk) as unknown as Parameters<typeof ingest.writeBatch>[0];
+    await ingest.writeBatch(chunk);
+    batchCount += 1;
+  }
+  ingest.close();
+  return { durationMs: Date.now() - start, batchCount };
+}
+
+async function runTsLiveBatch(): Promise<LiveBatchResult> {
+  return runLiveBatch('ts', tsDbPath);
+}
+
+async function runRustLiveBatch(): Promise<LiveBatchResult> {
+  return runLiveBatch('rs', rustDbPath);
 }
 
 // ─── Table inventory ────────────────────────────────────────────────────────
@@ -386,28 +557,45 @@ function diffTable(tsRows: Row[], rustRows: Row[], spec: TableSpec): Diff[] {
 // ─── Orchestration ──────────────────────────────────────────────────────────
 
 async function main(): Promise<void> {
-  console.log(`fixture: ${fixtureClaudeDir}`);
+  console.log(`mode:    ${mode}`);
+  if (mode === 'cold') {
+    console.log(`fixture: ${fixtureClaudeDir}`);
+  } else {
+    console.log(`live-batch: ${liveBatchLines} lines, ${liveBatchChunk}-row chunks`);
+  }
   console.log(`ts-db:   ${tsDbPath}`);
   console.log(`rust-db: ${rustDbPath}`);
   console.log('');
 
-  // Run TS first — it holds the DB handle open via better-sqlite3 inside the
-  // SDK. Calling shutdown() releases it. Only then do we touch Rust.
-  console.log('running TS ingest...');
-  const ts = await runTsIngest();
-  console.log(`  TS ingest: ${ts.durationMs}ms`);
+  if (mode === 'cold') {
+    // Run TS first — it holds the DB handle open via better-sqlite3
+    // inside the SDK. Calling shutdown() releases it. Only then do we
+    // touch Rust.
+    console.log('running TS ingest...');
+    const ts = await runTsIngest();
+    console.log(`  TS ingest: ${ts.durationMs}ms`);
 
-  console.log('running Rust ingest...');
-  const rust = await runRustIngest();
-  console.log(`  Rust ingest: ${rust.durationMs}ms`);
-  console.log(
-    `  stats: projects=${rust.stats.projectsProcessed} sessions=${rust.stats.sessionsProcessed} messages=${rust.stats.messagesWritten} subagents=${rust.stats.subagentsWritten}`,
-  );
-  if (rust.stats.errors.length > 0) {
-    console.log(`  WARN: Rust ingest recorded ${rust.stats.errors.length} parse errors:`);
-    for (const e of rust.stats.errors.slice(0, 5)) {
-      console.log(`    [${e.slug}] ${e.message}`);
+    console.log('running Rust ingest...');
+    const rust = await runRustIngest();
+    console.log(`  Rust ingest: ${rust.durationMs}ms`);
+    console.log(
+      `  stats: projects=${rust.stats.projectsProcessed} sessions=${rust.stats.sessionsProcessed} messages=${rust.stats.messagesWritten} subagents=${rust.stats.subagentsWritten}`,
+    );
+    if (rust.stats.errors.length > 0) {
+      console.log(`  WARN: Rust ingest recorded ${rust.stats.errors.length} parse errors:`);
+      for (const e of rust.stats.errors.slice(0, 5)) {
+        console.log(`    [${e.slug}] ${e.message}`);
+      }
     }
+  } else {
+    // live-batch mode: build a synthetic batch and feed both writers.
+    console.log('running TS live-batch...');
+    const ts = await runTsLiveBatch();
+    console.log(`  TS live-batch: ${ts.durationMs}ms (${ts.batchCount} batches)`);
+
+    console.log('running Rust live-batch...');
+    const rust = await runRustLiveBatch();
+    console.log(`  Rust live-batch: ${rust.durationMs}ms (${rust.batchCount} batches)`);
   }
 
   console.log('');
@@ -420,12 +608,8 @@ async function main(): Promise<void> {
   try {
     for (const spec of TABLE_SPECS) {
       // Sanity: both DBs must have the table (schema is owned identically by both).
-      const tsExists = tsDb
-        .prepare(`SELECT name FROM sqlite_master WHERE type='table' AND name=?`)
-        .get(spec.name);
-      const rustExists = rustDb
-        .prepare(`SELECT name FROM sqlite_master WHERE type='table' AND name=?`)
-        .get(spec.name);
+      const tsExists = tsDb.prepare(`SELECT name FROM sqlite_master WHERE type='table' AND name=?`).get(spec.name);
+      const rustExists = rustDb.prepare(`SELECT name FROM sqlite_master WHERE type='table' AND name=?`).get(spec.name);
       if (!tsExists || !rustExists) {
         allDiffs.push({
           table: spec.name,

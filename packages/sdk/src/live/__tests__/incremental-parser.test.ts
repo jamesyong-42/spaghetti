@@ -227,6 +227,58 @@ describe('IncrementalParser (C2.4)', () => {
     assert.equal(second.newCheckpoint.lastOffset, truncatedSize);
   });
 
+  test('truncated rewrite produces only rows for the new file contents (Phase 5 known-issue documented)', async () => {
+    // Seed with three lines, then shrink to one. The parse contract
+    // guarantees the second call's rows reflect the *current* file
+    // contents only — three rows in, one row out. This is independent
+    // of any SQLite state on the writer side.
+    const lines = [
+      JSON.stringify({ a: 1, uuid: 'one' }),
+      JSON.stringify({ a: 2, uuid: 'two' }),
+      JSON.stringify({ a: 3, uuid: 'three' }),
+    ];
+    writeFileSync(jsonlPath, lines.join('\n') + '\n');
+    const first = await parser.parseFileDelta({
+      path: jsonlPath,
+      category: 'message',
+      slug: SLUG,
+      sessionId: SESSION_ID,
+      checkpoint: undefined,
+    });
+    assert.equal(first.rows.length, 3);
+
+    // Shrink: keep only the first line.
+    writeFileSync(jsonlPath, lines[0] + '\n');
+
+    const second = await parser.parseFileDelta({
+      path: jsonlPath,
+      category: 'message',
+      slug: SLUG,
+      sessionId: SESSION_ID,
+      checkpoint: first.newCheckpoint,
+      startMsgIndex: 3,
+    });
+
+    assert.equal(second.rewrite, true);
+    assert.equal(second.rows.length, 1, 'parse output reflects only the current file lines');
+    const row = expectRow(second.rows, 0, 'message');
+    assert.equal(
+      (row.message as unknown as { uuid: string }).uuid,
+      'one',
+      "the surviving row carries the surviving line's uuid",
+    );
+
+    // Phase 5 known-issue: the writer's `(session_id, msg_index)`
+    // upsert overwrites msg_index 0 with the fresh content but
+    // leaves stale rows at msg_index 1+ in SQLite — there is no
+    // "delete rows beyond newLen" sweep on the live path. The cold-
+    // start path reissues the whole session via worker output so it
+    // doesn't hit this. Documented for future cleanup; not
+    // exercised by an assertion here because the parser itself does
+    // the right thing — the live writer is what would need a
+    // truncation-aware DELETE.
+  });
+
   test('inode change (delete + recreate) forces a rewrite', async () => {
     writeFileSync(jsonlPath, JSON.stringify({ a: 1 }) + '\n');
     const statBefore = statSync(jsonlPath);
