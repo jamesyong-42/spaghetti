@@ -285,4 +285,59 @@ describe('AgentDataStore (C1.1 skeleton)', () => {
     assert.strictEqual(freshStore.hasAnalytics(), false);
     assert.throws(() => freshStore.getAnalytics(), /analytics not set/);
   });
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Phase 3 subscriber-registry stubs (RFC 005 C1.4)
+  // ─────────────────────────────────────────────────────────────────────────
+  //
+  // These tests pin the no-op contract so Phase 2 can safely call
+  // `store.emit()` / `store.subscribe()` before Phase 3 wires the real
+  // registry. If Phase 3 later changes the contract (e.g. `emit` starts
+  // throwing on unknown types), these tests flag the regression first.
+
+  test('emit() is a no-op and does not throw for any Change variant', () => {
+    // Minimal sample across the union — cast through unknown since the
+    // payload shapes aren't exercised in Phase 1.
+    const samples = [
+      {
+        type: 'session.message.added',
+        seq: 1,
+        ts: Date.now(),
+        slug: SLUG,
+        sessionId: SESSION_ID,
+        message: {},
+        byteOffset: 0,
+      },
+      { type: 'settings.changed', seq: 2, ts: Date.now(), file: 'settings', settings: {} },
+    ] as unknown as Parameters<typeof store.emit>[0][];
+    for (const s of samples) {
+      assert.doesNotThrow(() => store.emit(s));
+    }
+  });
+
+  test('subscribe() returns a callable Dispose that no-ops', () => {
+    const listener = (): void => {
+      throw new Error('should never be invoked in Phase 1 stub');
+    };
+    const dispose = store.subscribe(undefined, listener);
+    assert.strictEqual(typeof dispose, 'function');
+    // The dispose itself must be a no-op (no throw on call, idempotent).
+    assert.doesNotThrow(() => dispose());
+    assert.doesNotThrow(() => dispose());
+    // Emitting after subscribe still must not invoke the listener.
+    assert.doesNotThrow(() =>
+      store.emit({ type: 'session.rewritten', seq: 3, ts: Date.now(), slug: SLUG, sessionId: SESSION_ID } as Parameters<
+        typeof store.emit
+      >[0]),
+    );
+  });
+
+  test('lastEmittedSeq() returns 0 until the Phase 3 registry lands', () => {
+    assert.strictEqual(store.lastEmittedSeq(), 0);
+    store.emit({ type: 'session.rewritten', seq: 99, ts: Date.now(), slug: SLUG, sessionId: SESSION_ID } as Parameters<
+      typeof store.emit
+    >[0]);
+    // Stub must not bump the counter on emit.
+    assert.strictEqual(store.lastEmittedSeq(), 0);
+  });
 });

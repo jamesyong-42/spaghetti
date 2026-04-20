@@ -1170,7 +1170,7 @@ export class LifecycleOwner extends EventEmitter implements ClaudeCodeAgentDataS
   }
 
   getStoreStats(): StoreStats {
-    return this.queryService.getStats();
+    return this.store.getStats();
   }
 
   // ─────────────────────────────────────────────────────────────────────────

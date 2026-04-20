@@ -16,7 +16,7 @@
  * `docs/LIVE-UPDATES-DESIGN.md` §2.2 for the full intended shape.
  */
 
-import type { PaginatedSegmentResult, SearchQuery, SearchResultSet } from './segment-types.js';
+import type { PaginatedSegmentResult, SearchQuery, SearchResultSet, StoreStats } from './segment-types.js';
 import type { ProjectSummaryData, SessionSummaryData } from './summary-types.js';
 import type { AgentAnalytic, AgentConfig, SessionMessage } from '../types/index.js';
 import type { QueryService } from './query-service.js';
@@ -70,6 +70,9 @@ export interface AgentDataStore {
   // ── Search ───────────────────────────────────────────────────────────────
   search(query: SearchQuery): SearchResultSet;
 
+  // ── Stats ────────────────────────────────────────────────────────────────
+  getStats(): StoreStats;
+
   // ── In-memory caches (config + analytics) ────────────────────────────────
   /**
    * Return the last-set `AgentConfig`. Throws if the lifecycle owner
@@ -88,6 +91,12 @@ export interface AgentDataStore {
   /** True once both caches have been populated at least once. */
   hasConfig(): boolean;
   hasAnalytics(): boolean;
+
+  // TODO(RFC 005 phase 2): add `open(dbPath)` / `close()` so the store
+  // owns connection lifecycle; today `LifecycleOwner` drives
+  // `QueryService.open/close` and the store is a pass-through consumer.
+  // `getSnapshot()` / `subscribeSnapshot()` for `useSyncExternalStore`
+  // land in phase 3 alongside the real subscriber registry.
 
   // ── Subscriber registry (RFC 005 phase 3 stub) ──────────────────────────
   /**
@@ -225,6 +234,12 @@ export class AgentDataStoreImpl implements AgentDataStore {
     return this.queryService.search(query);
   }
 
+  // ── Stats ──────────────────────────────────────────────────────────────
+
+  getStats(): StoreStats {
+    return this.queryService.getStats();
+  }
+
   // ── In-memory caches ───────────────────────────────────────────────────
 
   getConfig(): AgentConfig {
@@ -261,23 +276,14 @@ export class AgentDataStoreImpl implements AgentDataStore {
 
   // ── Subscriber registry (RFC 005 phase 3 stub) ───────────────────────────
 
-  /**
-   * Capture-only implementation: events drop into a private Set that is
-   * never read. This keeps the method side-effect-typed (phase-3 will
-   * add topic matching + fan-out) while letting `LiveUpdates` call
-   * `store.emit(change)` safely during phase 2.
-   *
-   * TODO(RFC 005 phase 3): replace with subscriber-registry dispatch
-   * (topic matching, throttle + `latest` coalescing, `seq` bump).
-   */
-  private readonly pendingChanges = new Set<Change>();
-
-  emit(change: Change): void {
-    // TODO(RFC 005 phase 3): route through subscriber-registry.ts and
-    // bump the seq counter. For now we only retain the change in a
-    // private Set so the call-site has stable semantics (no throw, no
-    // allocation surprises).
-    this.pendingChanges.add(change);
+  emit(_change: Change): void {
+    // TODO(RFC 005 phase 3): route through subscriber-registry.ts
+    // (topic matching, throttle + `latest` coalescing, `seq` bump).
+    // Intentionally a pure no-op today — an earlier draft accumulated
+    // changes into a private Set; that Set was never drained, so a
+    // long-lived process would leak one Change per live-commit. The
+    // signature is wired so `LiveUpdates` (phase 2) can compile against
+    // the final contract while the registry is still inert.
   }
 
   subscribe(_topic: ChangeTopic | undefined, _listener: (e: Change) => void, _options?: SubscribeOptions): Dispose {

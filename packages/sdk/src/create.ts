@@ -62,6 +62,11 @@ export function createSpaghettiService(options?: SpaghettiServiceOptions): Spagh
   // caches. The service still owns lifecycle (cold/warm start, engine
   // selection, progress events). Sharing the same `QueryService` keeps
   // a single SQLite connection, matching the comment above.
+  //
+  // TODO(RFC 005 phase 2): the design doc §1 has the store compose its
+  // own `QueryService` once the store owns `open()`/`close()`. Today we
+  // pass the same instance into both `ingestService` and the store so
+  // all writers + readers share one SQLite connection.
   const store = createAgentDataStore(queryService);
 
   const dataServiceOptions: AgentDataServiceOptions = {};
