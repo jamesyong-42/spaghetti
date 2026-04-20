@@ -27,6 +27,7 @@ import * as path from 'node:path';
 import type { FileService } from '../io/file-service.js';
 import type { IngestService } from './../data/ingest-service.js';
 import type { AgentDataStore } from './../data/agent-data-store.js';
+import type { ChangeTopic, Dispose } from './change-events.js';
 
 import { createCheckpointStore, type Checkpoint, type CheckpointStore } from './checkpoints.js';
 import { createCoalescingQueue, type CoalescingQueue, type QueuedReason } from './coalescing-queue.js';
@@ -82,10 +83,40 @@ export interface LiveUpdatesOptions {
 }
 
 export interface LiveUpdates {
+  /**
+   * Load checkpoints + spawn the writer loop. As of C3.2 this does NOT
+   * attach any filesystem watchers — attachment is driven on demand by
+   * `prewarm()` / consumer subscriptions hitting `api.live.onChange`.
+   * A consumer that calls neither pays zero watcher overhead.
+   */
   start(): Promise<void>;
   stop(): Promise<void>;
   isRunning(): boolean;
   isSaturated(): boolean;
+
+  /**
+   * Register interest in a scope. The underlying `~/.claude/` subtree
+   * is watched for as long as at least one `prewarm` or subscription
+   * holds a ref on it. The returned `Dispose` drops that ref; when the
+   * last ref goes away, the watcher detaches.
+   *
+   * Topics whose category is not yet live-wired in Phase 2/3 (e.g.
+   * `task`, `file-history`, `plan`, `settings`) register the ref but
+   * defer actual watcher attachment to Phase 5 — `prewarm` still
+   * returns a valid Dispose so callers can wire up future-proof
+   * subscriptions today.
+   */
+  prewarm(topic: ChangeTopic): Dispose;
+
+  /**
+   * Hook the store into the writer loop's emit path. Called once from
+   * `create.ts` after construction. The writer loop already calls
+   * `store.emit(change)` — `attachStore` simply retains the reference
+   * so future instrumentation (e.g. "skip emit when listenerCount is
+   * zero") has a hook. Currently a no-op beyond the reference store;
+   * present as a seam the later phases can grow into.
+   */
+  attachStore(store: AgentDataStore): void;
 }
 
 /**
@@ -169,8 +200,82 @@ function routerCategoryToParserCategory(category: Category): ParsedRowCategory |
 // FACTORY
 // ═══════════════════════════════════════════════════════════════════════════
 
+/**
+ * Canonical string key for a watch scope (a particular `~/.claude/`
+ * subtree). A ref-count map is keyed on these so "sessions in slug
+ * foo" and "sessions in slug foo, sessionId bar" collapse onto the
+ * same projects/-root watcher in Phase 2/3.
+ */
+type WatchScopeKey =
+  | 'projects' // projects/**: covers session / subagent / tool-result / project-memory / session-index
+  | 'todos' // todos/** (flat)
+  | 'tasks' // tasks/** (Phase 5)
+  | 'file-history' // file-history/** (Phase 5)
+  | 'plans' // plans/** (Phase 5)
+  | 'settings'; // settings.json + settings.local.json (Phase 5)
+
+/** Per-scope ref-count state. */
+interface ScopeState {
+  /**
+   * Number of live `prewarm` / subscription refs holding this scope.
+   * Attach fires on 0 → 1, detach fires on 1 → 0.
+   */
+  refCount: number;
+  /**
+   * Live `Unsubscribe` handle for the current watcher attach — unset
+   * while the attach is in-flight (pending promise) or the scope is
+   * Phase 5-only. Carries the responsibility of tearing down the
+   * parcel/chokidar subscription when the ref count drops back to 0.
+   */
+  unsubscribe: Unsubscribe | null;
+  /**
+   * In-flight attach promise. Serialised against disposes so a
+   * refcount bounce (0 → 1 → 0) during a slow attach cleanly tears
+   * down once the attach lands.
+   */
+  pending: Promise<void> | null;
+  /**
+   * `true` for scopes whose Phase 2/3 wiring actually attaches a
+   * watcher (projects/, todos/). `false` for scopes whose attachment
+   * defers to Phase 5 — we still track the ref count so callers can
+   * prewarm a future-proof `{ kind: 'task' }` topic today.
+   */
+  attachable: boolean;
+}
+
+/**
+ * Map a `ChangeTopic` onto the watch scopes it depends on. Every topic
+ * today resolves to exactly one scope, but the return type is an
+ * array so a future topic that spans subtrees (e.g. a firehose-ish
+ * "all sessions across all projects plus their tool-results") doesn't
+ * require a signature change.
+ *
+ * Note: `project-memory` isn't exposed as a ChangeTopic kind — it's
+ * emitted as a lower-level SQLite-only mutation, so there's no
+ * caller-facing topic for it. The projects/ scope subsumes it anyway.
+ */
+function topicToScopes(topic: ChangeTopic): WatchScopeKey[] {
+  switch (topic.kind) {
+    case 'session':
+    case 'subagent':
+    case 'tool-result':
+      return ['projects'];
+    case 'todo':
+      return ['todos'];
+    case 'task':
+      return ['tasks'];
+    case 'file-history':
+      return ['file-history'];
+    case 'plan':
+      return ['plans'];
+    case 'settings':
+      return ['settings'];
+  }
+}
+
 export function createLiveUpdates(deps: LiveUpdatesDeps, options: LiveUpdatesOptions): LiveUpdates {
-  const { fileService, ingestService, store } = deps;
+  const { fileService, ingestService } = deps;
+  let store: AgentDataStore = deps.store;
 
   // ── resolve options with defaults ──────────────────────────────────────
   const claudeDir = options.claudeDir;
@@ -189,8 +294,27 @@ export function createLiveUpdates(deps: LiveUpdatesDeps, options: LiveUpdatesOpt
   let queue: CoalescingQueue | null = null;
   let parser: IncrementalParser | null = null;
   let watcher: Watcher | null = null;
-  const unsubscribes: Unsubscribe[] = [];
   let writerLoopDone: Promise<void> | null = null;
+
+  /** Per-scope ref-count + attachment state (RFC 005 C3.2). */
+  const scopes = new Map<WatchScopeKey, ScopeState>();
+
+  /**
+   * Which scopes Phase 2/3 wires to real watchers. TODO(RFC 005 phase
+   * 5): add `'tasks'`, `'file-history'`, `'plans'`, and `'settings'`
+   * once each category has a router + incremental parser landing.
+   */
+  const ATTACHABLE_SCOPES: ReadonlySet<WatchScopeKey> = new Set(['projects', 'todos']);
+
+  /** Subpath under claudeDir for each attachable scope. */
+  const SCOPE_SUBPATH: Record<WatchScopeKey, string> = {
+    projects: 'projects',
+    todos: 'todos',
+    tasks: 'tasks',
+    'file-history': 'file-history',
+    plans: 'plans',
+    settings: '.',
+  };
 
   /**
    * Per-path trailing-edge debounce for `append` events. On every
@@ -380,9 +504,10 @@ export function createLiveUpdates(deps: LiveUpdatesDeps, options: LiveUpdatesOpt
       try {
         const result = await ingestService.writeBatch(rows);
         for (const change of result.changes) {
-          // Phase 2: store.emit() is a no-op. Phase 3 wires the real
-          // subscriber registry; the call-site here is the single
-          // seam that changes.
+          // As of C3.1, `store.emit()` stamps the change's seq and
+          // fans out through the subscriber registry. `attachStore`
+          // (C3.2) is how `create.ts` hands us the canonical store
+          // reference; we call that instance here.
           store.emit(change);
         }
       } catch (err) {
@@ -395,24 +520,97 @@ export function createLiveUpdates(deps: LiveUpdatesDeps, options: LiveUpdatesOpt
     }
   }
 
-  // ── watcher attach helper ──────────────────────────────────────────────
+  // ── scope ref-count + attach/detach ────────────────────────────────────
 
-  async function attachWatcher(subPath: string, label: string): Promise<void> {
-    if (!watcher) return;
+  function getOrCreateScope(scope: WatchScopeKey): ScopeState {
+    let state = scopes.get(scope);
+    if (!state) {
+      state = {
+        refCount: 0,
+        unsubscribe: null,
+        pending: null,
+        attachable: ATTACHABLE_SCOPES.has(scope),
+      };
+      scopes.set(scope, state);
+    }
+    return state;
+  }
+
+  async function attachScope(scope: WatchScopeKey, state: ScopeState): Promise<void> {
+    if (!watcher || !state.attachable) return;
+    const subPath = SCOPE_SUBPATH[scope];
     const fullPath = path.join(claudeDir, subPath);
     try {
       const unsub = await watcher.subscribe(fullPath, handleWatchEvents, {
         ignore: WATCHER_IGNORE_GLOBS,
         recursive: true,
       });
-      unsubscribes.push(unsub);
+      // If the refcount dropped back to zero during the attach
+      // (prewarm + dispose raced faster than parcel could bind), tear
+      // down immediately instead of retaining a watcher nobody wants.
+      if (state.refCount === 0) {
+        try {
+          await unsub();
+        } catch {
+          /* best-effort */
+        }
+        return;
+      }
+      state.unsubscribe = unsub;
     } catch (err) {
       onError(
         err instanceof Error
-          ? new Error(`[LiveUpdates] failed to attach watcher on ${label} (${fullPath}): ${err.message}`)
-          : new Error(`[LiveUpdates] failed to attach watcher on ${label} (${fullPath}): ${String(err)}`),
+          ? new Error(`[LiveUpdates] failed to attach watcher on ${scope}/ (${fullPath}): ${err.message}`)
+          : new Error(`[LiveUpdates] failed to attach watcher on ${scope}/ (${fullPath}): ${String(err)}`),
       );
     }
+  }
+
+  async function detachScope(state: ScopeState): Promise<void> {
+    const unsub = state.unsubscribe;
+    state.unsubscribe = null;
+    if (unsub) {
+      try {
+        await unsub();
+      } catch {
+        /* best-effort — watcher may already be torn down */
+      }
+    }
+  }
+
+  /**
+   * Bump the ref count for one scope. On 0 → 1 we kick off an attach;
+   * the promise is stored on the scope state so `stop()` and the
+   * dispose path can serialise against in-flight attaches.
+   */
+  function acquireScope(scope: WatchScopeKey): void {
+    const state = getOrCreateScope(scope);
+    state.refCount += 1;
+    if (state.refCount !== 1) return;
+    if (!state.attachable) return; // Phase 5: just track the ref.
+    if (!running || !watcher) return; // start() will attach on its own.
+    const pending = attachScope(scope, state).finally(() => {
+      if (state.pending === pending) state.pending = null;
+    });
+    state.pending = pending;
+  }
+
+  /**
+   * Drop one ref from a scope. On 1 → 0 we detach. Runs async (we
+   * return the detach promise via a fire-and-forget pattern — the
+   * caller keeps using the sync `Dispose` handle; `stop()` separately
+   * awaits any remaining work).
+   */
+  function releaseScope(scope: WatchScopeKey): void {
+    const state = scopes.get(scope);
+    if (!state || state.refCount <= 0) return;
+    state.refCount -= 1;
+    if (state.refCount !== 0) return;
+    if (!state.attachable) return;
+    // If a pending attach is still in flight, let it see refCount=0
+    // and tear itself down. Otherwise detach right now.
+    if (state.pending) return;
+    void detachScope(state);
   }
 
   // ── public surface ─────────────────────────────────────────────────────
@@ -440,35 +638,53 @@ export function createLiveUpdates(deps: LiveUpdatesDeps, options: LiveUpdatesOpt
         watcher = createParcelWatcher();
       }
 
-      // 5. Flip running BEFORE attaching watchers so the event handler
-      //    sees `running === true` on the very first batch.
+      // 5. Flip running BEFORE spawning the writer loop so the event
+      //    handler sees `running === true` on the very first batch.
       running = true;
 
       // 6. Start the writer loop (detached — stored for `stop()` await).
       writerLoopDone = writerLoop();
 
-      // 7. Attach watchers eagerly on projects/ and todos/. Phase 3 flips
-      //    this to lazy / ref-counted. If a subdir doesn't exist the
-      //    watcher factory reports via onError and we continue — an
-      //    empty ~/.claude/ must not block start().
-      await attachWatcher('projects', 'projects/');
-      await attachWatcher('todos', 'todos/');
+      // C3.2: watchers are NOT attached here. `prewarm()` or a
+      //       subscription landing via `api.live.onChange` will
+      //       ref-bump the scope and trigger attach. A process that
+      //       never calls either pays zero watcher/FS-event overhead.
+      //
+      // If any scopes were prewarm()'d before start() resolved
+      // (exotic, but legal — we accept bumps at any time), bring them
+      // online now.
+      for (const [scope, state] of scopes) {
+        if (state.attachable && state.refCount > 0 && !state.unsubscribe && !state.pending) {
+          const pending = attachScope(scope, state).finally(() => {
+            if (state.pending === pending) state.pending = null;
+          });
+          state.pending = pending;
+        }
+      }
     },
 
     async stop(): Promise<void> {
       if (!running) return;
       running = false;
 
-      // Unsubscribe from watchers first so no further events enqueue
-      // while we drain.
-      for (const unsub of unsubscribes) {
+      // Let any in-flight attaches resolve (so their unsub handles
+      // land on state.unsubscribe), then detach every scope. This is
+      // the C3.2 equivalent of the old `unsubscribes[]` teardown.
+      const pendings = Array.from(scopes.values())
+        .map((s) => s.pending)
+        .filter((p): p is Promise<void> => p !== null);
+      if (pendings.length > 0) {
         try {
-          await unsub();
+          await Promise.all(pendings);
         } catch {
-          /* watcher already torn down — ignore */
+          /* errors already routed via onError during attach */
         }
       }
-      unsubscribes.length = 0;
+      for (const state of scopes.values()) {
+        await detachScope(state);
+      }
+      // Leave the ref-count entries in place — callers can re-acquire
+      // after a re-start. Just drop the watcher handle.
       watcher = null;
 
       // Wake the drain loop.
@@ -507,6 +723,24 @@ export function createLiveUpdates(deps: LiveUpdatesDeps, options: LiveUpdatesOpt
 
     isSaturated(): boolean {
       return queue?.saturated() ?? false;
+    },
+
+    prewarm(topic: ChangeTopic): Dispose {
+      const acquired = topicToScopes(topic);
+      for (const scope of acquired) acquireScope(scope);
+      let disposed = false;
+      return () => {
+        if (disposed) return;
+        disposed = true;
+        for (const scope of acquired) releaseScope(scope);
+      };
+    },
+
+    attachStore(next: AgentDataStore): void {
+      // Retain a reference. The writer loop closes over `store` via
+      // the enclosing `let`, so reassignment here is all that's
+      // needed for future emits to go through the attached store.
+      store = next;
     },
   };
 }

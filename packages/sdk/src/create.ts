@@ -111,6 +111,12 @@ export function createSpaghettiService(options?: SpaghettiServiceOptions): Spagh
       )
     : undefined;
 
+  // C3.2: hand the store reference to LiveUpdates so the writer loop
+  // can emit through the canonical subscriber registry. Safe to call
+  // before `start()` — `attachStore` just retains the reference; the
+  // writer loop doesn't exist yet.
+  if (liveUpdates) liveUpdates.attachStore(store);
+
   const dataService = new AgentDataServiceImpl(
     fileService,
     parser,

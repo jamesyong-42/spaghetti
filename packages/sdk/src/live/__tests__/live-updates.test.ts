@@ -1,11 +1,12 @@
 /**
- * LiveUpdates — integration tests (RFC 005 C2.7).
+ * LiveUpdates — integration tests (RFC 005 C2.7 + C3.2).
  *
  * Proves the end-to-end pipeline works: a filesystem change under
  * `<claudeDir>/projects/` or `<claudeDir>/todos/` reaches SQLite via
- * watcher → queue → parser → writeBatch. `store.emit()` is still a
- * no-op stub in Phase 2, so we don't assert on subscribers — just on
- * the DB rows that land.
+ * watcher → queue → parser → writeBatch. Since C3.2, watchers are
+ * attached lazily — every test that expects ingest must `prewarm()`
+ * the relevant topic (or the end-to-end `api.live.onChange` path from
+ * C3.4, which we'll migrate to once that surface ships).
  *
  * Style matches `data/__tests__/ingest-service-write-batch.test.ts` and
  * `live/__tests__/watcher.test.ts`: `node:test` + `assert/strict`,
@@ -166,6 +167,17 @@ describe('LiveUpdates end-to-end (RFC 005 C2.7)', () => {
       },
     );
     await live.start();
+
+    // C3.2: start() no longer attaches watchers eagerly. Prewarm both
+    // scopes the suite exercises so the projects/ and todos/ watchers
+    // come online before any test writes a fixture file. The disposes
+    // returned here are held for the lifetime of the suite and torn
+    // down implicitly via `live.stop()` in `after()`.
+    live.prewarm({ kind: 'session', slug: SLUG, sessionId: SESSION_ID });
+    live.prewarm({ kind: 'todo', sessionId: SESSION_ID });
+    // Give parcel a tick to actually bind the watcher — attach is
+    // async, triggered by the prewarm ref-count bump.
+    await new Promise((r) => setTimeout(r, 100));
   });
 
   after(async () => {
@@ -331,18 +343,185 @@ describe('LiveUpdates graceful startup (RFC 005 C2.7)', () => {
     rmSync(tempRoot, { recursive: true, force: true });
   });
 
-  test('start() resolves even when todos/ is missing; onError sees the failure', { timeout: 10000 }, async () => {
-    // Must not throw. parcel-watcher refuses to attach on a missing
-    // directory; the orchestrator should surface via onError and
-    // keep going.
-    await assert.doesNotReject(() => live.start());
-    assert.equal(live.isRunning(), true);
+  test(
+    'start() resolves without attaching watchers; prewarm on missing todos/ surfaces via onError',
+    { timeout: 10000 },
+    async () => {
+      // Must not throw. Under C3.2, start() only loads checkpoints +
+      // spawns the writer loop; no watcher is attached yet.
+      await assert.doesNotReject(() => live.start());
+      assert.equal(live.isRunning(), true);
 
-    // At least one error should describe the missing todos/ attach.
-    const todoErr = errors.find((e) => /todos\//.test(e.message));
-    assert.ok(
-      todoErr,
-      `expected onError to report the missing todos/ subdir. Collected: ${errors.map((e) => e.message).join(' | ')}`,
+      // Without prewarm, no errors have been observed yet — watchers
+      // are inert.
+      assert.equal(
+        errors.length,
+        0,
+        `expected no errors pre-prewarm, got: ${errors.map((e) => e.message).join(' | ')}`,
+      );
+
+      // Prewarm the todos/ scope explicitly — this triggers the attach
+      // that fails because the directory is missing.
+      live.prewarm({ kind: 'todo', sessionId: 'whatever' });
+      // Give the async attach a moment to fail and route through onError.
+      await new Promise((r) => setTimeout(r, 150));
+
+      const todoErr = errors.find((e) => /todos\//.test(e.message));
+      assert.ok(
+        todoErr,
+        `expected onError to report the missing todos/ subdir. Collected: ${errors.map((e) => e.message).join(' | ')}`,
+      );
+    },
+  );
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// SUITE: lazy ref-counting (RFC 005 C3.2)
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('LiveUpdates lazy ref-counting (RFC 005 C3.2)', () => {
+  let tempRoot: string;
+  let claudeDir: string;
+  let projectDir: string;
+  let sessionPath: string;
+  let dbPath: string;
+  let sqlite: SqliteService;
+  let queryService: QueryService;
+  let ingest: IngestService;
+  let store: AgentDataStore;
+  let live: LiveUpdates;
+
+  before(async () => {
+    tempRoot = mkdtempSync(path.join(os.tmpdir(), 'spaghetti-live-updates-lazy-'));
+    tempRoot = realpathSync(tempRoot);
+    claudeDir = path.join(tempRoot, '.claude');
+    projectDir = path.join(claudeDir, 'projects', SLUG);
+    sessionPath = path.join(projectDir, `${SESSION_ID}.jsonl`);
+    mkdirSync(projectDir, { recursive: true });
+
+    dbPath = path.join(tempRoot, 'live.db');
+    sqlite = createSqliteService();
+    sqlite.open({ path: dbPath });
+    initializeSchema(sqlite);
+
+    // Parent rows for nicer downstream observability.
+    sqlite.run(
+      `INSERT INTO projects (slug, original_path, sessions_index, updated_at) VALUES (?, ?, ?, ?)`,
+      SLUG,
+      '/tmp/fake',
+      JSON.stringify({ sessions: [] }),
+      Date.now(),
     );
+    sqlite.run(
+      `INSERT INTO sessions (id, project_slug, full_path, first_prompt, summary, git_branch, project_path, is_sidechain, created_at, modified_at, file_mtime, plan_slug, has_task, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      SESSION_ID,
+      SLUG,
+      sessionPath,
+      'fixture',
+      'fixture session',
+      'main',
+      '/tmp/fake',
+      0,
+      '2026-04-20T00:00:00Z',
+      '2026-04-20T00:05:00Z',
+      Date.now(),
+      null,
+      0,
+      Date.now(),
+    );
+
+    const fileService = createFileService();
+    queryService = createQueryService(() => sqlite);
+    queryService.open(dbPath);
+    ingest = createIngestService(() => sqlite);
+    ingest.open(dbPath);
+    store = createAgentDataStore(queryService);
+
+    live = createLiveUpdates({ fileService, ingestService: ingest, store }, { claudeDir });
+    await live.start();
+  });
+
+  after(async () => {
+    try {
+      await live.stop();
+    } catch {
+      /* ignore */
+    }
+    try {
+      ingest.close();
+    } catch {
+      /* ignore */
+    }
+    try {
+      if (sqlite.isOpen()) sqlite.close();
+    } catch {
+      /* ignore */
+    }
+    rmSync(tempRoot, { recursive: true, force: true });
+  });
+
+  test('without prewarm: writing a JSONL line produces no SQLite rows', { timeout: 10000 }, async () => {
+    // Start from a known baseline: count existing rows so concurrent
+    // test pollution (should be none, but safety) can't skew the delta.
+    const before = sqlite.get<{ n: number }>(`SELECT COUNT(*) AS n FROM messages WHERE session_id = ?`, SESSION_ID);
+    const startCount = before?.n ?? 0;
+
+    // No prewarm has been issued — the projects/ watcher is detached.
+    writeFileSync(sessionPath, makeUserMessage('uuid-no-prewarm', 'should not ingest'));
+
+    // Wait generously; if the watcher were attached we'd see a row.
+    await new Promise((r) => setTimeout(r, QUIET_MS));
+
+    const after = sqlite.get<{ n: number }>(`SELECT COUNT(*) AS n FROM messages WHERE session_id = ?`, SESSION_ID);
+    assert.equal(
+      (after?.n ?? 0) - startCount,
+      0,
+      `no prewarm → no watcher attached → no ingest (delta should be 0, got ${(after?.n ?? 0) - startCount})`,
+    );
+  });
+
+  test('prewarm attaches the watcher; subsequent writes ingest', { timeout: 10000 }, async () => {
+    const baseline =
+      sqlite.get<{ n: number }>(`SELECT COUNT(*) AS n FROM messages WHERE session_id = ?`, SESSION_ID)?.n ?? 0;
+
+    const dispose = live.prewarm({ kind: 'session', slug: SLUG, sessionId: SESSION_ID });
+    // parcel attach is async — give it a tick.
+    await new Promise((r) => setTimeout(r, 150));
+
+    writeFileSync(sessionPath, makeUserMessage('uuid-prewarmed', 'with prewarm'));
+
+    const row = await pollUntil(() => {
+      const r = sqlite.get<{ n: number }>(`SELECT COUNT(*) AS n FROM messages WHERE session_id = ?`, SESSION_ID);
+      return r && r.n > baseline ? r : undefined;
+    });
+    assert.ok(row.n > baseline, 'post-prewarm ingest should advance the row count');
+    // Keep the scope attached for the next test by NOT disposing yet.
+    // Return the dispose so a stacking test can verify ref semantics.
+    // (Disposed at the end of the suite via `live.stop()`.)
+    void dispose;
+  });
+
+  test('stacking two prewarms then disposing one keeps the watcher attached', { timeout: 10000 }, async () => {
+    // First prewarm: already held from the previous test (slug+sessionId).
+    // Second prewarm: slug-only. Both resolve to the same `projects`
+    // scope, so the ref count should be 2. Disposing one drops it to
+    // 1, not 0, and the watcher stays attached.
+    const dispose2 = live.prewarm({ kind: 'session', slug: SLUG });
+    await new Promise((r) => setTimeout(r, 50));
+
+    dispose2();
+    await new Promise((r) => setTimeout(r, 50));
+
+    const baseline =
+      sqlite.get<{ n: number }>(`SELECT COUNT(*) AS n FROM messages WHERE session_id = ?`, SESSION_ID)?.n ?? 0;
+
+    appendFileSync(sessionPath, makeUserMessage('uuid-stacking', 'after partial release'));
+
+    const row = await pollUntil(() => {
+      const r = sqlite.get<{ n: number }>(`SELECT COUNT(*) AS n FROM messages WHERE session_id = ?`, SESSION_ID);
+      return r && r.n > baseline ? r : undefined;
+    });
+    assert.ok(row.n > baseline, 'watcher should still be attached via the first prewarm');
   });
 });
