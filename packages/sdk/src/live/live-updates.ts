@@ -25,9 +25,11 @@
 import * as path from 'node:path';
 
 import type { FileService } from '../io/file-service.js';
+import type { SqliteService } from '../io/sqlite-service.js';
 import type { IngestService } from './../data/ingest-service.js';
 import type { AgentDataStore } from './../data/agent-data-store.js';
 import type { ChangeTopic, Dispose } from './change-events.js';
+import { createIdleMaintenance, type IdleMaintenance } from '../data/idle-maintenance.js';
 
 import { createCheckpointStore, type Checkpoint, type CheckpointStore } from './checkpoints.js';
 import { createCoalescingQueue, type CoalescingQueue, type QueuedReason } from './coalescing-queue.js';
@@ -80,6 +82,17 @@ export interface LiveUpdatesOptions {
    * `watcherFactory` is set.
    */
   useChokidarFallback?: boolean;
+  /**
+   * Knobs for the idle-window WAL + FTS5 maintenance loop (RFC 005
+   * C5.1). Only consulted when `deps.sqlite` + `deps.dbPath` are set;
+   * otherwise idle maintenance is disabled regardless.
+   */
+  idleMaintenance?: {
+    idleMs?: number;
+    walCheckpointThresholdBytes?: number;
+    ftsMergeChunk?: number;
+    checkIntervalMs?: number;
+  };
 }
 
 export interface LiveUpdates {
@@ -122,11 +135,22 @@ export interface LiveUpdates {
 /**
  * Dependencies the orchestrator composes. Passed in so tests can wire
  * up everything with a shared SQLite connection.
+ *
+ * `sqlite` + `dbPath` are optional but land together: when both are
+ * set, `LiveUpdates` constructs an `IdleMaintenance` (RFC 005 C5.1)
+ * and ticks it across writer-loop activity. Omitting either disables
+ * the idle maintenance loop cleanly — useful for tests that don't
+ * care about WAL reclamation and for the engine=rs path where the
+ * writer runs inside the native addon.
  */
 export interface LiveUpdatesDeps {
   fileService: FileService;
   ingestService: IngestService;
   store: AgentDataStore;
+  /** Shared SqliteService for idle WAL + FTS maintenance (RFC 005 C5.1). */
+  sqlite?: SqliteService;
+  /** Absolute DB path — used to stat the `-wal` sidecar during idle ticks. */
+  dbPath?: string;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -295,6 +319,12 @@ export function createLiveUpdates(deps: LiveUpdatesDeps, options: LiveUpdatesOpt
   let parser: IncrementalParser | null = null;
   let watcher: Watcher | null = null;
   let writerLoopDone: Promise<void> | null = null;
+  /**
+   * Idle-window WAL + FTS5 maintenance handle (RFC 005 C5.1). Built
+   * only when `deps.sqlite` + `deps.dbPath` are both provided; its
+   * lifetime matches the running state of the pipeline.
+   */
+  let idleMaintenance: IdleMaintenance | null = null;
 
   /** Per-scope ref-count + attachment state (RFC 005 C3.2). */
   const scopes = new Map<WatchScopeKey, ScopeState>();
@@ -503,6 +533,11 @@ export function createLiveUpdates(deps: LiveUpdatesDeps, options: LiveUpdatesOpt
 
       try {
         const result = await ingestService.writeBatch(rows);
+        // Reset the idle deadline on every successful batch — a
+        // steady stream of live appends keeps the pipeline "active"
+        // and pushes the WAL/FTS maintenance pass out of the hot
+        // path. (No-op when idle maintenance is disabled.)
+        idleMaintenance?.noteActivity();
         for (const change of result.changes) {
           // As of C3.1, `store.emit()` stamps the change's seq and
           // fans out through the subscriber registry. `attachStore`
@@ -645,6 +680,31 @@ export function createLiveUpdates(deps: LiveUpdatesDeps, options: LiveUpdatesOpt
       // 6. Start the writer loop (detached — stored for `stop()` await).
       writerLoopDone = writerLoop();
 
+      // 6a. Idle maintenance (RFC 005 C5.1). Only wired up when the
+      //     caller supplied a SqliteService + dbPath — otherwise the
+      //     handle stays null and noteActivity()/stop() paths no-op.
+      if (deps.sqlite && deps.dbPath) {
+        idleMaintenance = createIdleMaintenance(
+          { sqlite: deps.sqlite, dbPath: deps.dbPath },
+          {
+            ...(options.idleMaintenance?.idleMs !== undefined && {
+              idleMs: options.idleMaintenance.idleMs,
+            }),
+            ...(options.idleMaintenance?.walCheckpointThresholdBytes !== undefined && {
+              walCheckpointThresholdBytes: options.idleMaintenance.walCheckpointThresholdBytes,
+            }),
+            ...(options.idleMaintenance?.ftsMergeChunk !== undefined && {
+              ftsMergeChunk: options.idleMaintenance.ftsMergeChunk,
+            }),
+            ...(options.idleMaintenance?.checkIntervalMs !== undefined && {
+              checkIntervalMs: options.idleMaintenance.checkIntervalMs,
+            }),
+            onError,
+          },
+        );
+        idleMaintenance.start();
+      }
+
       // C3.2: watchers are NOT attached here. `prewarm()` or a
       //       subscription landing via `api.live.onChange` will
       //       ref-bump the scope and trigger attach. A process that
@@ -666,6 +726,13 @@ export function createLiveUpdates(deps: LiveUpdatesDeps, options: LiveUpdatesOpt
     async stop(): Promise<void> {
       if (!running) return;
       running = false;
+
+      // Halt idle maintenance first so a tick racing stop() can't
+      // try to run SQL against a DB that's about to close.
+      if (idleMaintenance) {
+        idleMaintenance.stop();
+        idleMaintenance = null;
+      }
 
       // Let any in-flight attaches resolve (so their unsub handles
       // land on state.unsubscribe), then detach every scope. This is

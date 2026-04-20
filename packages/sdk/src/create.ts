@@ -108,9 +108,22 @@ export function createSpaghettiService(options?: SpaghettiServiceOptions): Spagh
   // loop. The `claudeDir` fallback mirrors `LifecycleOwner`'s own
   // resolution so both sides agree on the watched root.
   const resolvedClaudeDir = options?.claudeDir ?? path.join(os.homedir(), '.claude');
+  // Resolve dbPath the same way AgentDataServiceImpl does so
+  // LiveUpdates' idle-maintenance loop operates on the exact file the
+  // writer loop is committing to. Kept in sync with
+  // `AgentDataServiceImpl`'s own default resolution.
+  const resolvedDbPath = options?.dbPath ?? path.join(os.homedir(), '.spaghetti', 'cache.db');
   const liveUpdates = options?.live
     ? createLiveUpdates(
-        { fileService, ingestService, store },
+        {
+          fileService,
+          ingestService,
+          store,
+          // RFC 005 C5.1: hand the shared SqliteService + dbPath to
+          // LiveUpdates so it can run idle WAL + FTS maintenance.
+          sqlite: sharedSqlite,
+          dbPath: resolvedDbPath,
+        },
         {
           claudeDir: resolvedClaudeDir,
           onError: (err) => {
