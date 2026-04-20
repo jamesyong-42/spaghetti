@@ -33,6 +33,7 @@ import type { SqliteService } from '../../io/index.js';
 import type { IngestService } from '../../data/ingest-service.js';
 import type { QueryService } from '../../data/query-service.js';
 import type { AgentDataStore } from '../../data/agent-data-store.js';
+import type { Change } from '../change-events.js';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // CONSTANTS
@@ -523,5 +524,177 @@ describe('LiveUpdates lazy ref-counting (RFC 005 C3.2)', () => {
       return r && r.n > baseline ? r : undefined;
     });
     assert.ok(row.n > baseline, 'watcher should still be attached via the first prewarm');
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// SUITE: tasks/ live updates (RFC 005 C5.2)
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('LiveUpdates tasks/ scope (RFC 005 C5.2)', () => {
+  let tempRoot: string;
+  let claudeDir: string;
+  let dbPath: string;
+  let sqlite: SqliteService;
+  let queryService: QueryService;
+  let ingest: IngestService;
+  let store: AgentDataStore;
+  let live: LiveUpdates;
+
+  before(async () => {
+    tempRoot = mkdtempSync(path.join(os.tmpdir(), 'spaghetti-live-tasks-'));
+    tempRoot = realpathSync(tempRoot);
+    claudeDir = path.join(tempRoot, '.claude');
+    mkdirSync(path.join(claudeDir, 'tasks'), { recursive: true });
+
+    dbPath = path.join(tempRoot, 'live.db');
+    sqlite = createSqliteService();
+    sqlite.open({ path: dbPath });
+    initializeSchema(sqlite);
+
+    // Parent session row so the `UPDATE sessions SET has_task = 1` in
+    // onTask has a target; the test itself only cares about the tasks row.
+    sqlite.run(
+      `INSERT INTO projects (slug, original_path, sessions_index, updated_at) VALUES (?, ?, ?, ?)`,
+      'task-slug',
+      '/tmp/fake',
+      JSON.stringify({ sessions: [] }),
+      Date.now(),
+    );
+    sqlite.run(
+      `INSERT INTO sessions (id, project_slug, full_path, first_prompt, summary, git_branch, project_path, is_sidechain, created_at, modified_at, file_mtime, plan_slug, has_task, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      's1',
+      'task-slug',
+      '/dev/null',
+      'fixture',
+      'fixture',
+      'main',
+      '/tmp/fake',
+      0,
+      '2026-04-20T00:00:00Z',
+      '2026-04-20T00:05:00Z',
+      Date.now(),
+      null,
+      0,
+      Date.now(),
+    );
+
+    const fileService = createFileService();
+    queryService = createQueryService(() => sqlite);
+    queryService.open(dbPath);
+    ingest = createIngestService(() => sqlite);
+    ingest.open(dbPath);
+    store = createAgentDataStore(queryService);
+
+    live = createLiveUpdates({ fileService, ingestService: ingest, store }, { claudeDir });
+    await live.start();
+  });
+
+  after(async () => {
+    try {
+      await live.stop();
+    } catch {
+      /* ignore */
+    }
+    try {
+      ingest.close();
+    } catch {
+      /* ignore */
+    }
+    try {
+      if (sqlite.isOpen()) sqlite.close();
+    } catch {
+      /* ignore */
+    }
+    rmSync(tempRoot, { recursive: true, force: true });
+  });
+
+  test('task prewarm + .lock create lands a tasks row + emits task.updated', { timeout: 10000 }, async () => {
+    const captured: Change[] = [];
+    const sub = store.subscribe({ kind: 'task', sessionId: 's1' }, (c) => {
+      captured.push(c);
+    });
+
+    const dispose = live.prewarm({ kind: 'task', sessionId: 's1' });
+    // Parcel attach is async — give it a tick.
+    await new Promise((r) => setTimeout(r, 150));
+
+    const taskDir = path.join(claudeDir, 'tasks', 's1');
+    mkdirSync(taskDir, { recursive: true });
+    writeFileSync(path.join(taskDir, '.lock'), '');
+
+    const row = await pollUntil(() => {
+      const r = sqlite.get<{ lock_exists: number }>(`SELECT lock_exists FROM tasks WHERE session_id = ?`, 's1');
+      return r ? r : undefined;
+    });
+    assert.equal(row.lock_exists, 1, 'tasks row should record lock_exists=1');
+
+    // The task.updated event should have fired.
+    const taskEvent = captured.find((c) => c.type === 'task.updated');
+    assert.ok(taskEvent, `expected a task.updated change, got: ${captured.map((c) => c.type).join(', ')}`);
+
+    sub();
+    dispose();
+  });
+
+  test('.lock + .highwatermark within debounce window coalesce to one task.updated', { timeout: 10000 }, async () => {
+    // Use a fresh session to sidestep any lingering task row from the
+    // previous test.
+    sqlite.run(
+      `INSERT INTO sessions (id, project_slug, full_path, first_prompt, summary, git_branch, project_path, is_sidechain, created_at, modified_at, file_mtime, plan_slug, has_task, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      's2',
+      'task-slug',
+      '/dev/null',
+      'fixture',
+      'fixture',
+      'main',
+      '/tmp/fake',
+      0,
+      '2026-04-20T00:00:00Z',
+      '2026-04-20T00:05:00Z',
+      Date.now(),
+      null,
+      0,
+      Date.now(),
+    );
+
+    const captured: Change[] = [];
+    const sub = store.subscribe({ kind: 'task', sessionId: 's2' }, (c) => {
+      captured.push(c);
+    });
+    const dispose = live.prewarm({ kind: 'task', sessionId: 's2' });
+    await new Promise((r) => setTimeout(r, 150));
+
+    const taskDir = path.join(claudeDir, 'tasks', 's2');
+    mkdirSync(taskDir, { recursive: true });
+    // Two events within the 75 ms batch window + path-dedup should
+    // collapse to a single enqueue → single writeBatch → single change.
+    writeFileSync(path.join(taskDir, '.lock'), '');
+    writeFileSync(path.join(taskDir, '.highwatermark'), '42');
+
+    // Wait for the coalesced write to land.
+    await pollUntil(() => {
+      const r = sqlite.get<{ has_highwatermark: number; highwatermark: number }>(
+        `SELECT has_highwatermark, highwatermark FROM tasks WHERE session_id = ?`,
+        's2',
+      );
+      return r && r.has_highwatermark === 1 ? r : undefined;
+    });
+
+    // Give any lingering duplicate write-batch one more drain window to
+    // slip through before we assert the tally.
+    await new Promise((r) => setTimeout(r, 250));
+
+    const taskChanges = captured.filter((c) => c.type === 'task.updated');
+    assert.equal(
+      taskChanges.length,
+      1,
+      `.lock + .highwatermark within the debounce window should coalesce into one task.updated, got ${taskChanges.length}: ${taskChanges.map((c) => JSON.stringify(c.type)).join(', ')}`,
+    );
+
+    sub();
+    dispose();
   });
 });
