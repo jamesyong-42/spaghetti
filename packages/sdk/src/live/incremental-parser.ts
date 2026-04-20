@@ -49,6 +49,13 @@ import type {
   TaskEntry,
   PlanFile,
 } from '../types/index.js';
+import {
+  parseSubagentFilename,
+  inferSubagentType as inferSubagentTypeShared,
+  parseTodoFilename,
+  parseFileHistoryFilename,
+  parsePlanFilename,
+} from '../parser/filename-conventions.js';
 import type { Checkpoint } from './checkpoints.js';
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -185,38 +192,36 @@ export interface CreateIncrementalParserOptions {
 // ═══════════════════════════════════════════════════════════════════════════
 
 /**
- * Conventions mirrored verbatim from `parser/project-parser.ts`:
- *   - subagent files: `agent-{agentId}.jsonl` (agentId begins with `a`)
- *   - todo files:     `{sessionId}-agent-{agentId}.json`
- *   - file-history:   `{hash}@v{version}` (hash is lowercase hex)
- *   - tool-result:    `{toolUseId}.txt`
- *   - plan:           `{slug}.md`
+ * Filename conventions live in `parser/filename-conventions.ts`.
+ * Cold-start (`project-parser.ts`) and the live tail share that
+ * module so divergence here can't drift.
+ *
+ * tool-result files (`<toolUseId>.txt`) and the cold-start fallback
+ * for unmatched subagent transcripts (`fileName.replace(/\.jsonl$/, '')`)
+ * are inline below — they're trivial enough not to warrant their own
+ * exported helper.
  */
 
-const SUBAGENT_FILENAME = /^agent-(a.+)\.jsonl$/;
-const TODO_FILENAME = /^(.+?)-agent-(.+)\.json$/;
-const FILE_HISTORY_FILENAME = /^([0-9a-f]+)@v(\d+)(?:\..*)?$/;
-
 function extractSubagentAgentId(fileName: string): string {
-  const match = fileName.match(SUBAGENT_FILENAME);
-  return match ? match[1] : fileName.replace(/\.jsonl$/, '');
+  const parsed = parseSubagentFilename(fileName);
+  // Cold-start parity: when the strict `agent-<id>.jsonl` shape
+  // doesn't match, fall back to stripping the `.jsonl` extension so
+  // bespoke transcript filenames still get an identity.
+  return parsed ? parsed.agentId : fileName.replace(/\.jsonl$/, '');
 }
 
 function inferSubagentType(fileName: string): SubagentType {
-  if (fileName.includes('prompt_suggestion')) return 'prompt_suggestion';
-  if (fileName.includes('compact')) return 'compact';
-  return 'task';
+  return inferSubagentTypeShared(fileName);
 }
 
 function extractTodoAgentId(fileName: string): string | null {
-  const match = fileName.match(TODO_FILENAME);
-  return match ? match[2] : null;
+  return parseTodoFilename(fileName)?.agentId ?? null;
 }
 
 function extractFileHistoryParts(fileName: string): { hash: string; version: number } | null {
-  const match = fileName.match(FILE_HISTORY_FILENAME);
-  if (!match) return null;
-  return { hash: match[1], version: parseInt(match[2], 10) };
+  const parsed = parseFileHistoryFilename(fileName);
+  if (!parsed) return null;
+  return { hash: parsed.hash, version: parsed.version };
 }
 
 function extractToolUseId(fileName: string): string {
@@ -224,7 +229,7 @@ function extractToolUseId(fileName: string): string {
 }
 
 function extractPlanSlug(fileName: string): string {
-  return fileName.replace(/\.md$/, '');
+  return parsePlanFilename(fileName)?.slug ?? fileName;
 }
 
 /**

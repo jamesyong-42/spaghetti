@@ -18,6 +18,13 @@ import type {
   PlanFile,
 } from '../types/index.js';
 import type { ProjectParseSink } from './parse-sink.js';
+import {
+  parseSubagentFilename,
+  inferSubagentType,
+  parseTodoFilename,
+  parseFileHistoryFilename,
+  parsePlanFilename,
+} from './filename-conventions.js';
 
 // Sentinel object used to break out of streaming JSONL reads early
 const EARLY_EXIT_SIGNAL = Symbol('EARLY_EXIT_SIGNAL');
@@ -457,14 +464,15 @@ export class ProjectParserImpl implements ProjectParser {
   }
 
   private extractAgentId(fileName: string): string {
-    const match = fileName.match(/^agent-(a.+)\.jsonl$/);
-    return match ? match[1] : fileName.replace(/\.jsonl$/, '');
+    const parsed = parseSubagentFilename(fileName);
+    // Cold-start fallback: when the strict `agent-<id>.jsonl` shape
+    // doesn't match, drop the extension so bespoke transcript names
+    // still produce an agentId.
+    return parsed ? parsed.agentId : fileName.replace(/\.jsonl$/, '');
   }
 
   private inferAgentType(fileName: string): SubagentType {
-    if (fileName.includes('prompt_suggestion')) return 'prompt_suggestion';
-    if (fileName.includes('compact')) return 'compact';
-    return 'task';
+    return inferSubagentType(fileName);
   }
 
   private parseToolResults(projectDir: string, sessionId: string): PersistedToolResult[] {
@@ -511,15 +519,15 @@ export class ProjectParserImpl implements ProjectParser {
       for (const filePath of filePaths) {
         try {
           const fileName = path.basename(filePath);
-          const match = fileName.match(/^([0-9a-f]+)@v(\d+)$/);
-          if (!match) continue;
+          const parsed = parseFileHistoryFilename(fileName);
+          if (!parsed) continue;
 
           const content = this.fileService.readFileSync(filePath);
           const stats = this.fileService.getStats(filePath);
 
           snapshots.push({
-            hash: match[1],
-            version: parseInt(match[2], 10),
+            hash: parsed.hash,
+            version: parsed.version,
             fileName,
             content,
             size: stats?.size ?? 0,
@@ -547,14 +555,14 @@ export class ProjectParserImpl implements ProjectParser {
       for (const filePath of filePaths) {
         try {
           const fileName = path.basename(filePath);
-          const match = fileName.match(/^(.+?)-agent-(.+)\.json$/);
-          if (!match) continue;
+          const parsed = parseTodoFilename(fileName);
+          if (!parsed) continue;
 
           const items = this.fileService.readJsonSync<TodoItem[]>(filePath) ?? [];
 
           todoFiles.push({
-            sessionId: match[1],
-            agentId: match[2],
+            sessionId: parsed.sessionId,
+            agentId: parsed.agentId,
             items: Array.isArray(items) ? items : [],
           });
         } catch {
@@ -603,7 +611,9 @@ export class ProjectParserImpl implements ProjectParser {
       for (const filePath of filePaths) {
         try {
           const fileName = path.basename(filePath);
-          const planSlug = fileName.replace(/\.md$/, '');
+          const parsed = parsePlanFilename(fileName);
+          if (!parsed) continue;
+          const planSlug = parsed.slug;
           const content = this.fileService.readFileSync(filePath);
           const stats = this.fileService.getStats(filePath);
 
