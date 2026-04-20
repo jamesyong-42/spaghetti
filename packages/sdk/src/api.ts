@@ -11,6 +11,7 @@ import type {
 } from './data/segment-types.js';
 import type { TokenUsageSummary } from './data/summary-types.js';
 import type { SessionMessage } from './types/index.js';
+import type { SpaghettiLive } from './live/spaghetti-live.js';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // RESPONSE TYPES
@@ -138,4 +139,26 @@ export interface SpaghettiAPI {
 
   /** Subscribe to data change events */
   onChange(cb: (batch: SegmentChangeBatch) => void): () => void;
+
+  /**
+   * Live-updates surface (RFC 005). Present only when the service
+   * was constructed with `{ live: true }`. See
+   * `docs/rfcs/005-live-updates.md` §Public API for the full
+   * subscribe + events + prewarm contract.
+   */
+  readonly live?: SpaghettiLive;
+
+  /**
+   * Awaitable teardown. Stops the live pipeline, drains in-flight
+   * writes, disposes subscribers, and closes SQLite. Prefer this to
+   * `shutdown()` when the caller can `await` — `shutdown()` is
+   * fire-and-forget.
+   *
+   * Declared as a plain method because the SDK's tsconfig targets
+   * ES2022 and `Symbol.asyncDispose` (ES2024) isn't available in the
+   * type lib. Once the target bumps, this becomes
+   * `[Symbol.asyncDispose](): Promise<void>` and consumers can use
+   * `await using`.
+   */
+  dispose(): Promise<void>;
 }

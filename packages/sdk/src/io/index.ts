@@ -48,3 +48,11 @@ export { type ChannelRegistryOptions, type ChannelRegistry, createChannelRegistr
 export { type ChannelClientOptions, type ChannelClient, createChannelClient } from './channel-client.js';
 
 export { type ChannelManagerOptions, type ChannelManager, createChannelManager } from './channel-manager.js';
+
+export {
+  type ErrorSink,
+  type ErrorContext,
+  createConsoleErrorSink,
+  createNoopErrorSink,
+  errorSinkFromCallback,
+} from './error-sink.js';

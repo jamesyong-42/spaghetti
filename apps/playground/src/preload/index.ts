@@ -61,7 +61,6 @@ contextBridge.exposeInMainWorld('spaghetti', bridge);
 
 // Make the bridge type available globally for the renderer's consumers.
 declare global {
-  // eslint-disable-next-line no-var
   var spaghetti: SpaghettiBridge;
   interface Window {
     spaghetti: SpaghettiBridge;

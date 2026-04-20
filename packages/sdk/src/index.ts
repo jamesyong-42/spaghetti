@@ -16,11 +16,13 @@ export * from './data/segment-types.js';
 export * from './data/summary-types.js';
 export { createSearchIndexer, type SearchIndexer, type SearchIndexEntry } from './data/search-indexer.js';
 export { createSegmentStore, type SegmentStore } from './data/segment-store.js';
-export {
-  type ClaudeCodeAgentDataService,
-  AgentDataServiceImpl,
-  type AgentDataServiceOptions,
-} from './data/agent-data-service.js';
+// Public data-service interface + options. The concrete impl
+// (`AgentDataServiceImpl` / `LifecycleOwner`) is intentionally NOT
+// re-exported — consumers should construct services through
+// `createSpaghettiService(...)`. The shim file at
+// `./data/agent-data-service.js` keeps existing internal imports
+// working but the public barrel only exposes the interface.
+export { type ClaudeCodeAgentDataService, type AgentDataServiceOptions } from './data/agent-data-service.js';
 
 // Schema
 export { SCHEMA_VERSION, initializeSchema } from './data/schema.js';
@@ -59,3 +61,19 @@ export {
   defaultDbPathForEngine,
   settingsPath,
 } from './settings.js';
+
+// Live updates (RFC 005 Phase 3) — public surface + event types.
+export type { SpaghettiLive } from './live/spaghetti-live.js';
+export type { Change, ChangeType, ChangeTopic, SubscribeOptions, Dispose } from './live/change-events.js';
+export {
+  isSessionMessageAdded,
+  isSessionCreated,
+  isSessionRewritten,
+  isSubagentUpdated,
+  isToolResultAdded,
+  isFileHistoryAdded,
+  isTodoUpdated,
+  isTaskUpdated,
+  isPlanUpserted,
+  isSettingsChanged,
+} from './live/change-events.js';

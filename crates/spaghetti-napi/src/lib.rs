@@ -18,6 +18,7 @@ pub mod fingerprint;
 pub mod fts_text;
 pub mod ingest;
 pub mod jsonl_reader;
+pub mod live_ingest;
 pub mod parse_sink;
 pub mod project_parser;
 pub mod schema;

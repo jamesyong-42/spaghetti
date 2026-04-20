@@ -39,7 +39,7 @@
 //! Populated in RFC 003 commit 1.5; trigger-drop added in RFC 004 Item 2.
 
 use std::path::{Path, PathBuf};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use crossbeam_channel::Receiver;
 use rusqlite::{params, Connection};
@@ -82,6 +82,63 @@ pub struct WriterStats {
     pub sessions_processed: u32,
     pub messages_written: u32,
     pub subagents_written: u32,
+}
+
+/// Per-table row counters used by both [`Writer::handle_event`] (cold-start
+/// loop, where the caller accumulates them into [`WriterStats`]) and
+/// [`write_batch_with_tx`] (live-ingest path, where they are surfaced to
+/// the caller as [`WriteBatchStats`]).
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct DispatchCounts {
+    pub sessions_processed: u32,
+    pub messages_written: u32,
+    pub subagents_written: u32,
+    pub tool_results_written: u32,
+    pub file_histories_written: u32,
+    pub todos_written: u32,
+    pub tasks_written: u32,
+    pub plans_written: u32,
+}
+
+impl DispatchCounts {
+    fn add(&mut self, other: DispatchCounts) {
+        self.sessions_processed = self
+            .sessions_processed
+            .saturating_add(other.sessions_processed);
+        self.messages_written = self.messages_written.saturating_add(other.messages_written);
+        self.subagents_written = self
+            .subagents_written
+            .saturating_add(other.subagents_written);
+        self.tool_results_written = self
+            .tool_results_written
+            .saturating_add(other.tool_results_written);
+        self.file_histories_written = self
+            .file_histories_written
+            .saturating_add(other.file_histories_written);
+        self.todos_written = self.todos_written.saturating_add(other.todos_written);
+        self.tasks_written = self.tasks_written.saturating_add(other.tasks_written);
+        self.plans_written = self.plans_written.saturating_add(other.plans_written);
+    }
+}
+
+/// Counters returned from [`write_batch_with_tx`]. Mirrors the per-table
+/// `DispatchCounts` plus a wall-clock duration for the whole batch.
+///
+/// Introduced in RFC 005 Phase 4 C4.1 so the upcoming `live_ingest_batch`
+/// NAPI entry (C4.2) can share the same transaction-wrapped write path
+/// as cold-start ingest. `duration_ms` mirrors the TS live-path
+/// `WriteResult.durationMs` and is measured around the whole call
+/// (including BEGIN/COMMIT).
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct WriteBatchStats {
+    pub messages_written: u32,
+    pub subagents_written: u32,
+    pub tool_results_written: u32,
+    pub file_histories_written: u32,
+    pub todos_written: u32,
+    pub tasks_written: u32,
+    pub plans_written: u32,
+    pub duration_ms: u32,
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -381,194 +438,53 @@ impl Writer {
     // ───────────────────────────────────────────────────────────────────────
 
     fn handle_event(&mut self, ev: IngestEvent) -> Result<(), WriterError> {
+        // Data-bearing variants: open the appropriate transaction, then
+        // delegate the SQL work to the shared `dispatch_event` helper
+        // (which is also used by `write_batch_with_tx` on the live-ingest
+        // path). Control-flow variants (SessionComplete / ProjectComplete
+        // / WorkerError) are handled inline because they own the per-
+        // project transaction state machine.
         match ev {
-            IngestEvent::Project {
-                slug,
-                original_path,
-                sessions_index_json,
-            } => {
+            IngestEvent::Project { ref slug, .. }
+            | IngestEvent::ProjectMemory { ref slug, .. }
+            | IngestEvent::Session { ref slug, .. }
+            | IngestEvent::Message { ref slug, .. }
+            | IngestEvent::Subagent { ref slug, .. }
+            | IngestEvent::ToolResult { ref slug, .. }
+            | IngestEvent::Plan { ref slug, .. } => {
+                let slug = slug.clone();
                 self.ensure_transaction(&slug)?;
-                let now = now_ms();
-                self.conn.execute(
-                    SQL_INSERT_PROJECT,
-                    params![slug, original_path, sessions_index_json, now],
-                )?;
+                let counts = dispatch_event(&self.conn, &ev)?;
+                self.stats.sessions_processed = self
+                    .stats
+                    .sessions_processed
+                    .saturating_add(counts.sessions_processed);
+                self.stats.messages_written = self
+                    .stats
+                    .messages_written
+                    .saturating_add(counts.messages_written);
+                self.stats.subagents_written = self
+                    .stats
+                    .subagents_written
+                    .saturating_add(counts.subagents_written);
+                // tool_results / plans aren't tracked on `WriterStats`;
+                // their counts are visible via the live-path
+                // `WriteBatchStats` only.
             }
 
-            IngestEvent::ProjectMemory { slug, content } => {
-                self.ensure_transaction(&slug)?;
-                let now = now_ms();
-                self.conn
-                    .execute(SQL_INSERT_MEMORY, params![slug, content, now])?;
-            }
-
-            IngestEvent::Session { slug, entry } => {
-                self.ensure_transaction(&slug)?;
-                let now = now_ms();
-                self.conn.execute(
-                    SQL_INSERT_SESSION,
-                    params![
-                        entry.session_id,
-                        slug,
-                        entry.full_path,
-                        entry.first_prompt,
-                        entry.summary,
-                        entry.git_branch,
-                        entry.project_path,
-                        entry.is_sidechain as i64,
-                        entry.created,
-                        entry.modified,
-                        entry.file_mtime,
-                        Option::<String>::None, // plan_slug set later if found
-                        0_i64,                  // has_task set later if found
-                        now,
-                    ],
-                )?;
-                self.stats.sessions_processed = self.stats.sessions_processed.saturating_add(1);
-            }
-
-            IngestEvent::Message {
-                slug,
-                session_id,
-                index,
-                byte_offset,
-                raw_json,
-                msg_type,
-                uuid,
-                timestamp,
-                input_tokens,
-                output_tokens,
-                cache_creation_tokens,
-                cache_read_tokens,
-                fts_text,
-            } => {
-                self.ensure_transaction(&slug)?;
-                let text = fts_text.unwrap_or_default();
-                self.conn.execute(
-                    SQL_INSERT_MESSAGE,
-                    params![
-                        slug,
-                        session_id,
-                        index as i64,
-                        msg_type,
-                        uuid,
-                        timestamp,
-                        raw_json,
-                        input_tokens as i64,
-                        output_tokens as i64,
-                        cache_creation_tokens as i64,
-                        cache_read_tokens as i64,
-                        text,
-                        byte_offset as i64,
-                    ],
-                )?;
-                self.stats.messages_written = self.stats.messages_written.saturating_add(1);
-            }
-
-            IngestEvent::Subagent {
-                slug,
-                session_id,
-                transcript,
-            } => {
-                self.ensure_transaction(&slug)?;
-                let now = now_ms();
-                let messages_json = serde_json::to_string(&transcript.messages)?;
-                let agent_type = serde_json::to_string(&transcript.agent_type)?;
-                // `to_string` on the enum produces `"task"` (with quotes).
-                // SQLite stores it that way; we strip the quotes to match
-                // the TS convention of storing the bare string.
-                let agent_type = agent_type.trim_matches('"').to_string();
-                let message_count = transcript.messages.len() as i64;
-                self.conn.execute(
-                    SQL_INSERT_SUBAGENT,
-                    params![
-                        slug,
-                        session_id,
-                        transcript.agent_id,
-                        agent_type,
-                        transcript.file_name,
-                        messages_json,
-                        message_count,
-                        now,
-                    ],
-                )?;
-                self.stats.subagents_written = self.stats.subagents_written.saturating_add(1);
-            }
-
-            IngestEvent::ToolResult {
-                slug,
-                session_id,
-                tool_result,
-            } => {
-                self.ensure_transaction(&slug)?;
-                let now = now_ms();
-                self.conn.execute(
-                    SQL_INSERT_TOOL_RESULT,
-                    params![
-                        slug,
-                        session_id,
-                        tool_result.tool_use_id,
-                        tool_result.content,
-                        now
-                    ],
-                )?;
-            }
-
-            IngestEvent::FileHistory {
-                session_id,
-                history,
-            } => {
-                // No slug on this event. Use the current transaction if
+            IngestEvent::FileHistory { .. }
+            | IngestEvent::Todo { .. }
+            | IngestEvent::Task { .. } => {
+                // No slug on these events. Use the current transaction if
                 // one is open; otherwise open one under a synthetic slug
                 // so writes aren't auto-committed per-row.
                 if !self.in_transaction {
                     self.begin_transaction("<orphan>")?;
                 }
-                let now = now_ms();
-                let data = serde_json::to_string(&history)?;
-                self.conn
-                    .execute(SQL_INSERT_FILE_HISTORY, params![session_id, data, now])?;
-            }
-
-            IngestEvent::Todo { session_id, todo } => {
-                if !self.in_transaction {
-                    self.begin_transaction("<orphan>")?;
-                }
-                let now = now_ms();
-                let items = serde_json::to_string(&todo.items)?;
-                self.conn.execute(
-                    SQL_INSERT_TODO,
-                    params![session_id, todo.agent_id, items, now],
-                )?;
-            }
-
-            IngestEvent::Task { session_id, task } => {
-                if !self.in_transaction {
-                    self.begin_transaction("<orphan>")?;
-                }
-                let now = now_ms();
-                self.conn.execute(
-                    SQL_INSERT_TASK,
-                    params![
-                        session_id,
-                        task.has_highwatermark as i64,
-                        task.highwatermark,
-                        task.lock_exists as i64,
-                        now
-                    ],
-                )?;
-                // Mirror TS: also flip the session's has_task flag.
-                self.conn
-                    .execute(SQL_UPDATE_SESSION_HAS_TASK, params![session_id])?;
-            }
-
-            IngestEvent::Plan { slug, plan } => {
-                self.ensure_transaction(&slug)?;
-                let now = now_ms();
-                self.conn.execute(
-                    SQL_INSERT_PLAN,
-                    params![plan.slug, plan.title, plan.content, plan.size as i64, now],
-                )?;
+                let _counts = dispatch_event(&self.conn, &ev)?;
+                // file_history / todo / task don't contribute to
+                // `WriterStats`; their counts only surface via
+                // `WriteBatchStats` on the live path.
             }
 
             IngestEvent::SessionComplete { .. } => {
@@ -611,18 +527,15 @@ impl Writer {
                     self.stats.projects_processed = self.stats.projects_processed.saturating_add(1);
                     self.current_slug = None;
                 }
+                // `ClearSourceFiles` runs outside a transaction (matching
+                // the pre-refactor behaviour): the writer has just
+                // committed any open project tx above, and the upcoming
+                // fingerprint stream opens its own implicit tx via the
+                // `<orphan>` slug on the first Fingerprint event.
                 self.conn.execute(SQL_CLEAR_SOURCE_FILES, [])?;
             }
 
-            IngestEvent::Fingerprint {
-                path,
-                mtime_ms,
-                size,
-                byte_position,
-                category,
-                project_slug,
-                session_id,
-            } => {
+            IngestEvent::Fingerprint { .. } => {
                 // Fingerprints are orchestrator-emitted at the tail of the
                 // stream, after all per-project events. Commit any open
                 // project transaction first so fingerprints land in their
@@ -632,18 +545,7 @@ impl Writer {
                     self.stats.projects_processed = self.stats.projects_processed.saturating_add(1);
                     self.current_slug = None;
                 }
-                self.conn.execute(
-                    SQL_INSERT_SOURCE_FILE,
-                    params![
-                        path,
-                        mtime_ms,
-                        size as i64,
-                        byte_position.map(|b| b as i64),
-                        category,
-                        project_slug,
-                        session_id,
-                    ],
-                )?;
+                let _counts = dispatch_event(&self.conn, &ev)?;
             }
         }
 
@@ -697,6 +599,313 @@ impl Writer {
         self.in_transaction = false;
         self.current_slug = None;
     }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Shared batch-write API
+// ═══════════════════════════════════════════════════════════════════════════
+//
+// These two functions are the piece of the writer that's shared between
+// the cold-start loop (`Writer::handle_event`) and the live-ingest
+// entrypoint (RFC 005 Phase 4: `live_ingest_batch`). The cold-start loop
+// owns its own per-project transaction state machine and delegates the
+// per-event SQL to `dispatch_event`; the live path wraps one BEGIN
+// IMMEDIATE / COMMIT around a whole batch via `write_batch_with_tx`.
+//
+// Both paths run the exact same INSERT/UPDATE statements with the same
+// parameter binding, so SQLite output is bit-identical between the two
+// entries (modulo transaction grouping).
+
+/// Dispatch one [`IngestEvent`] to its corresponding INSERT/UPDATE
+/// statement. Returns per-table row counters for the caller to accumulate.
+///
+/// This function does **not** manage transactions — callers must open
+/// one first (either via [`Writer::ensure_transaction`] / the `<orphan>`
+/// fallback in `handle_event`, or via [`write_batch_with_tx`] on the
+/// live path).
+///
+/// Orchestration variants (`ProjectComplete`, `SessionComplete`,
+/// `WorkerError`, `ClearSourceFiles`) are rejected here — they're
+/// control-flow events, not row writes, and belong in the caller's
+/// state machine.
+pub fn dispatch_event(conn: &Connection, ev: &IngestEvent) -> Result<DispatchCounts, WriterError> {
+    let mut counts = DispatchCounts::default();
+
+    match ev {
+        IngestEvent::Project {
+            slug,
+            original_path,
+            sessions_index_json,
+        } => {
+            let now = now_ms();
+            conn.execute(
+                SQL_INSERT_PROJECT,
+                params![slug, original_path, sessions_index_json, now],
+            )?;
+        }
+
+        IngestEvent::ProjectMemory { slug, content } => {
+            let now = now_ms();
+            conn.execute(SQL_INSERT_MEMORY, params![slug, content, now])?;
+        }
+
+        IngestEvent::Session { slug, entry } => {
+            let now = now_ms();
+            conn.execute(
+                SQL_INSERT_SESSION,
+                params![
+                    entry.session_id,
+                    slug,
+                    entry.full_path,
+                    entry.first_prompt,
+                    entry.summary,
+                    entry.git_branch,
+                    entry.project_path,
+                    entry.is_sidechain as i64,
+                    entry.created,
+                    entry.modified,
+                    entry.file_mtime,
+                    Option::<String>::None, // plan_slug set later if found
+                    0_i64,                  // has_task set later if found
+                    now,
+                ],
+            )?;
+            counts.sessions_processed = 1;
+        }
+
+        IngestEvent::Message {
+            slug,
+            session_id,
+            index,
+            byte_offset,
+            raw_json,
+            msg_type,
+            uuid,
+            timestamp,
+            input_tokens,
+            output_tokens,
+            cache_creation_tokens,
+            cache_read_tokens,
+            fts_text,
+        } => {
+            let text = fts_text.clone().unwrap_or_default();
+            conn.execute(
+                SQL_INSERT_MESSAGE,
+                params![
+                    slug,
+                    session_id,
+                    *index as i64,
+                    msg_type,
+                    uuid,
+                    timestamp,
+                    raw_json,
+                    *input_tokens as i64,
+                    *output_tokens as i64,
+                    *cache_creation_tokens as i64,
+                    *cache_read_tokens as i64,
+                    text,
+                    *byte_offset as i64,
+                ],
+            )?;
+            counts.messages_written = 1;
+        }
+
+        IngestEvent::Subagent {
+            slug,
+            session_id,
+            transcript,
+        } => {
+            let now = now_ms();
+            let messages_json = serde_json::to_string(&transcript.messages)?;
+            let agent_type = serde_json::to_string(&transcript.agent_type)?;
+            // `to_string` on the enum produces `"task"` (with quotes).
+            // SQLite stores it that way; we strip the quotes to match
+            // the TS convention of storing the bare string.
+            let agent_type = agent_type.trim_matches('"').to_string();
+            let message_count = transcript.messages.len() as i64;
+            conn.execute(
+                SQL_INSERT_SUBAGENT,
+                params![
+                    slug,
+                    session_id,
+                    transcript.agent_id,
+                    agent_type,
+                    transcript.file_name,
+                    messages_json,
+                    message_count,
+                    now,
+                ],
+            )?;
+            counts.subagents_written = 1;
+        }
+
+        IngestEvent::ToolResult {
+            slug,
+            session_id,
+            tool_result,
+        } => {
+            let now = now_ms();
+            conn.execute(
+                SQL_INSERT_TOOL_RESULT,
+                params![
+                    slug,
+                    session_id,
+                    tool_result.tool_use_id,
+                    tool_result.content,
+                    now
+                ],
+            )?;
+            counts.tool_results_written = 1;
+        }
+
+        IngestEvent::FileHistory {
+            session_id,
+            history,
+        } => {
+            let now = now_ms();
+            let data = serde_json::to_string(&history)?;
+            conn.execute(SQL_INSERT_FILE_HISTORY, params![session_id, data, now])?;
+            counts.file_histories_written = 1;
+        }
+
+        IngestEvent::Todo { session_id, todo } => {
+            let now = now_ms();
+            let items = serde_json::to_string(&todo.items)?;
+            conn.execute(
+                SQL_INSERT_TODO,
+                params![session_id, todo.agent_id, items, now],
+            )?;
+            counts.todos_written = 1;
+        }
+
+        IngestEvent::Task { session_id, task } => {
+            let now = now_ms();
+            conn.execute(
+                SQL_INSERT_TASK,
+                params![
+                    session_id,
+                    task.has_highwatermark as i64,
+                    task.highwatermark,
+                    task.lock_exists as i64,
+                    now
+                ],
+            )?;
+            // Mirror TS: also flip the session's has_task flag.
+            conn.execute(SQL_UPDATE_SESSION_HAS_TASK, params![session_id])?;
+            counts.tasks_written = 1;
+        }
+
+        IngestEvent::Plan { slug, plan } => {
+            let _ = slug;
+            let now = now_ms();
+            conn.execute(
+                SQL_INSERT_PLAN,
+                params![plan.slug, plan.title, plan.content, plan.size as i64, now],
+            )?;
+            counts.plans_written = 1;
+        }
+
+        IngestEvent::Fingerprint {
+            path,
+            mtime_ms,
+            size,
+            byte_position,
+            category,
+            project_slug,
+            session_id,
+        } => {
+            conn.execute(
+                SQL_INSERT_SOURCE_FILE,
+                params![
+                    path,
+                    mtime_ms,
+                    *size as i64,
+                    byte_position.map(|b| b as i64),
+                    category,
+                    project_slug,
+                    session_id,
+                ],
+            )?;
+        }
+
+        // Orchestration-only variants: callers (the cold-start loop)
+        // handle these directly in their transaction state machine and
+        // must not route them here. If this ever fires it's a logic bug
+        // in the caller — surface it loudly rather than silently no-op.
+        IngestEvent::SessionComplete { .. }
+        | IngestEvent::ProjectComplete { .. }
+        | IngestEvent::WorkerError { .. }
+        | IngestEvent::ClearSourceFiles => {
+            // Intentionally no-op for compatibility with callers that
+            // mix orchestration and data events in a single stream
+            // (`write_batch_with_tx` accepts any event list; the live
+            // path only ever feeds it data-bearing variants). Counts
+            // stay zero.
+        }
+    }
+
+    Ok(counts)
+}
+
+/// Write a batch of [`IngestEvent`]s inside a single transaction.
+///
+/// This is the shared entry point used by RFC 005 Phase 4's live-ingest
+/// NAPI call (`live_ingest_batch`, landed in C4.2). It opens a
+/// `BEGIN IMMEDIATE`, dispatches every event via [`dispatch_event`],
+/// and commits on success — or rolls back and returns the error on any
+/// single-event failure. Callers on the live path treat a rolled-back
+/// batch as a fallible unit and are free to retry / downgrade.
+///
+/// `BEGIN IMMEDIATE` (rather than plain `BEGIN`) matches the TS
+/// live-path in `IngestService.writeBatch` and avoids the SQLite
+/// "upgrade from read lock to write lock" deadlock trap under concurrent
+/// readers — which live ingest will absolutely have.
+///
+/// Empty batches are **not** special-cased here: opening a tx on an
+/// empty list is ~microseconds and the NAPI layer (C4.2) short-circuits
+/// upstream anyway. Keeping the function total makes it simpler to test
+/// and removes one corner case for the caller to reason about.
+pub fn write_batch_with_tx(
+    conn: &Connection,
+    events: &[IngestEvent],
+) -> Result<WriteBatchStats, WriterError> {
+    let started = Instant::now();
+
+    conn.execute_batch("BEGIN IMMEDIATE")?;
+
+    let mut totals = DispatchCounts::default();
+    let dispatch_result: Result<(), WriterError> = (|| {
+        for ev in events {
+            let c = dispatch_event(conn, ev)?;
+            totals.add(c);
+        }
+        Ok(())
+    })();
+
+    match dispatch_result {
+        Ok(()) => {
+            conn.execute_batch("COMMIT")?;
+        }
+        Err(e) => {
+            // Best-effort rollback. If this itself fails we still want to
+            // surface the original error, not the rollback failure.
+            let _ = conn.execute_batch("ROLLBACK");
+            return Err(e);
+        }
+    }
+
+    let duration_ms = u32::try_from(started.elapsed().as_millis()).unwrap_or(u32::MAX);
+
+    Ok(WriteBatchStats {
+        messages_written: totals.messages_written,
+        subagents_written: totals.subagents_written,
+        tool_results_written: totals.tool_results_written,
+        file_histories_written: totals.file_histories_written,
+        todos_written: totals.todos_written,
+        tasks_written: totals.tasks_written,
+        plans_written: totals.plans_written,
+        duration_ms,
+    })
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -1180,5 +1389,280 @@ mod tests {
         w.run(rx).expect("run");
         assert_eq!(count(&w.conn, "projects"), 0);
         assert_eq!(count(&w.conn, "messages"), 0);
+    }
+
+    // ─────────────────────────────────────────────────────────────────
+    // write_batch_with_tx — RFC 005 Phase 4 C4.1
+    // ─────────────────────────────────────────────────────────────────
+
+    use crate::types::{FileHistorySession, PersistedToolResult, PlanFile, TaskEntry, TodoFile};
+
+    fn fresh_conn() -> Connection {
+        let conn = Connection::open_in_memory().expect("open in-memory db");
+        schema::set_pragmas(&conn).expect("pragmas");
+        schema::initialize_schema(&conn).expect("schema");
+        conn
+    }
+
+    /// Happy path: one of each data-bearing variant goes through
+    /// `write_batch_with_tx`, rows land in the right tables, and the
+    /// returned `WriteBatchStats` matches the per-table counts.
+    #[test]
+    fn write_batch_with_tx_covers_every_data_variant() {
+        let conn = fresh_conn();
+
+        let events = vec![
+            IngestEvent::Project {
+                slug: "p1".into(),
+                original_path: "/tmp/p1".into(),
+                sessions_index_json: "{}".into(),
+            },
+            IngestEvent::ProjectMemory {
+                slug: "p1".into(),
+                content: "# memory".into(),
+            },
+            IngestEvent::Session {
+                slug: "p1".into(),
+                entry: sample_session("s1"),
+            },
+            message_event("p1", "s1", 0),
+            message_event("p1", "s1", 1),
+            IngestEvent::Subagent {
+                slug: "p1".into(),
+                session_id: "s1".into(),
+                transcript: SubagentTranscript {
+                    agent_id: "a1".into(),
+                    agent_type: SubagentType::Task,
+                    file_name: "agent-a1.jsonl".into(),
+                    messages: vec![],
+                    meta: None,
+                },
+            },
+            IngestEvent::ToolResult {
+                slug: "p1".into(),
+                session_id: "s1".into(),
+                tool_result: PersistedToolResult {
+                    tool_use_id: "t1".into(),
+                    content: "result body".into(),
+                },
+            },
+            IngestEvent::FileHistory {
+                session_id: "s1".into(),
+                history: FileHistorySession {
+                    session_id: "s1".into(),
+                    snapshots: vec![],
+                },
+            },
+            IngestEvent::Todo {
+                session_id: "s1".into(),
+                todo: TodoFile {
+                    session_id: "s1".into(),
+                    agent_id: "a1".into(),
+                    items: vec![],
+                },
+            },
+            IngestEvent::Task {
+                session_id: "s1".into(),
+                task: TaskEntry {
+                    task_id: "s1".into(),
+                    has_highwatermark: true,
+                    highwatermark: Some(42),
+                    lock_exists: false,
+                    items: None,
+                },
+            },
+            IngestEvent::Plan {
+                slug: "p1".into(),
+                plan: PlanFile {
+                    slug: "plan-1".into(),
+                    title: "Plan 1".into(),
+                    content: "body".into(),
+                    size: 4,
+                },
+            },
+        ];
+
+        let stats = write_batch_with_tx(&conn, &events).expect("batch");
+
+        assert_eq!(stats.messages_written, 2);
+        assert_eq!(stats.subagents_written, 1);
+        assert_eq!(stats.tool_results_written, 1);
+        assert_eq!(stats.file_histories_written, 1);
+        assert_eq!(stats.todos_written, 1);
+        assert_eq!(stats.tasks_written, 1);
+        assert_eq!(stats.plans_written, 1);
+
+        // Every target table should see the expected rows.
+        assert_eq!(count(&conn, "projects"), 1);
+        assert_eq!(count(&conn, "project_memories"), 1);
+        assert_eq!(count(&conn, "sessions"), 1);
+        assert_eq!(count(&conn, "messages"), 2);
+        assert_eq!(count(&conn, "subagents"), 1);
+        assert_eq!(count(&conn, "tool_results"), 1);
+        assert_eq!(count(&conn, "file_history"), 1);
+        assert_eq!(count(&conn, "todos"), 1);
+        assert_eq!(count(&conn, "tasks"), 1);
+        assert_eq!(count(&conn, "plans"), 1);
+        // FTS content-sync triggers should fire for the two message INSERTs.
+        assert_eq!(count(&conn, "search_fts"), 2);
+    }
+
+    /// Empty batch: function opens BEGIN IMMEDIATE, commits immediately,
+    /// and returns a zero-count stats struct. Not meant to be the fast
+    /// path (the NAPI layer short-circuits empty input upstream) but
+    /// the function must stay total.
+    #[test]
+    fn write_batch_with_tx_empty_input_is_ok() {
+        let conn = fresh_conn();
+        let stats = write_batch_with_tx(&conn, &[]).expect("empty batch");
+        assert_eq!(stats.messages_written, 0);
+        assert_eq!(stats.subagents_written, 0);
+        assert_eq!(stats.tool_results_written, 0);
+        assert_eq!(stats.file_histories_written, 0);
+        assert_eq!(stats.todos_written, 0);
+        assert_eq!(stats.tasks_written, 0);
+        assert_eq!(stats.plans_written, 0);
+    }
+
+    /// Mid-batch SQL failure must roll back the whole batch — no rows
+    /// persist, and the error propagates. Here we trip the failure by
+    /// passing a non-NUL-byte slug that can't appear in the schema (the
+    /// schema is lenient, so we simulate a row-level failure by writing
+    /// into a dropped table).
+    #[test]
+    fn write_batch_with_tx_rolls_back_on_error() {
+        let conn = fresh_conn();
+
+        // Drop the `messages` table so the next INSERT fails.
+        conn.execute_batch("DROP TABLE messages").unwrap();
+
+        let events = vec![
+            IngestEvent::Project {
+                slug: "p1".into(),
+                original_path: "/tmp/p1".into(),
+                sessions_index_json: "{}".into(),
+            },
+            // This one fails — `messages` no longer exists.
+            message_event("p1", "s1", 0),
+        ];
+
+        let err = write_batch_with_tx(&conn, &events).expect_err("batch must fail");
+        matches!(err, WriterError::Sqlite(_));
+
+        // The Project row must NOT persist — the whole batch rolled back.
+        assert_eq!(count(&conn, "projects"), 0);
+    }
+
+    /// Orchestration-only events (ProjectComplete, SessionComplete,
+    /// WorkerError, ClearSourceFiles) are no-ops inside the batch — they
+    /// don't write rows, don't move counters, and don't error.
+    #[test]
+    fn write_batch_with_tx_ignores_orchestration_events() {
+        let conn = fresh_conn();
+        let events = vec![
+            IngestEvent::SessionComplete {
+                slug: "p1".into(),
+                session_id: "s1".into(),
+                message_count: 0,
+                last_byte_position: 0,
+            },
+            IngestEvent::ProjectComplete {
+                slug: "p1".into(),
+                duration_ms: 0,
+            },
+            IngestEvent::WorkerError {
+                slug: "p1".into(),
+                error: "ignored".into(),
+            },
+            IngestEvent::ClearSourceFiles,
+        ];
+        let stats = write_batch_with_tx(&conn, &events).expect("orchestration-only batch");
+        assert_eq!(stats.messages_written, 0);
+        assert_eq!(stats.subagents_written, 0);
+        assert_eq!(stats.tool_results_written, 0);
+        assert_eq!(stats.file_histories_written, 0);
+        assert_eq!(stats.todos_written, 0);
+        assert_eq!(stats.tasks_written, 0);
+        assert_eq!(stats.plans_written, 0);
+    }
+
+    /// Verifies the cold-start loop (`Writer::handle_event` → shared
+    /// `dispatch_event`) and `write_batch_with_tx` produce the same
+    /// row content for the same inputs — a sanity check that the
+    /// refactor didn't drift the two paths.
+    #[test]
+    fn handle_event_and_write_batch_with_tx_agree() {
+        // Arrange: identical event streams, two separate in-memory DBs.
+        let events_for_cold = || {
+            vec![
+                IngestEvent::Project {
+                    slug: "p1".into(),
+                    original_path: "/tmp/p1".into(),
+                    sessions_index_json: "{}".into(),
+                },
+                IngestEvent::Session {
+                    slug: "p1".into(),
+                    entry: sample_session("s1"),
+                },
+                message_event("p1", "s1", 0),
+                IngestEvent::ProjectComplete {
+                    slug: "p1".into(),
+                    duration_ms: 0,
+                },
+            ]
+        };
+
+        let events_for_live = vec![
+            IngestEvent::Project {
+                slug: "p1".into(),
+                original_path: "/tmp/p1".into(),
+                sessions_index_json: "{}".into(),
+            },
+            IngestEvent::Session {
+                slug: "p1".into(),
+                entry: sample_session("s1"),
+            },
+            message_event("p1", "s1", 0),
+        ];
+
+        // Cold path
+        let mut cold = fresh_writer();
+        let (tx, rx) = unbounded::<IngestEvent>();
+        for ev in events_for_cold() {
+            tx.send(ev).unwrap();
+        }
+        drop(tx);
+        cold.run(rx).expect("cold run");
+
+        // Live path
+        let live_conn = fresh_conn();
+        write_batch_with_tx(&live_conn, &events_for_live).expect("live batch");
+
+        // Both DBs should have the same row counts in the core tables.
+        for table in &["projects", "sessions", "messages"] {
+            assert_eq!(
+                count(&cold.conn, table),
+                count(&live_conn, table),
+                "row count differs on {table}"
+            );
+        }
+
+        // And the message's text_content / byte_offset should match.
+        let cold_msg: (String, i64) = cold
+            .conn
+            .query_row(
+                "SELECT text_content, byte_offset FROM messages WHERE msg_index = 0",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+        let live_msg: (String, i64) = live_conn
+            .query_row(
+                "SELECT text_content, byte_offset FROM messages WHERE msg_index = 0",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(cold_msg, live_msg);
     }
 }

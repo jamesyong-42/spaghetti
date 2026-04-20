@@ -18,6 +18,10 @@ import type {
   TaskEntry,
   PlanFile,
 } from '../types/index.js';
+import type { Change } from '../live/change-events.js';
+import type { ParsedRow, ParsedRowCategory } from '../live/incremental-parser.js';
+import type { NativeAddon } from '../native.js';
+import type { IngestEngine } from '../settings.js';
 import type { SourceFingerprint } from './segment-types.js';
 import { initializeSchema } from './schema.js';
 
@@ -46,10 +50,35 @@ export interface IngestService extends ProjectParseSink {
   /** Re-enable FTS triggers, rebuild the FTS index, and restore PRAGMAs. */
   endBulkIngest(): void;
 
+  /**
+   * Write a batch of rows as a single live-update transaction.
+   * Used by LiveUpdates (C2.7) on the hot path after parsing a
+   * filesystem delta.
+   *
+   * Opens a BEGIN IMMEDIATE, dispatches each ParsedRow to the
+   * existing per-category `onX()` methods, commits, and returns
+   * the set of Change events the caller should emit.
+   *
+   * Each returned Change is stamped with `ts = Date.now()` and
+   * `seq = 0` as a placeholder — the store (`AgentDataStore.emit`)
+   * owns the monotonic `seq` counter and overwrites it on emit. See
+   * RFC 005 §Event sequence numbering and C3.1 for the rationale.
+   */
+  writeBatch(rows: ParsedRow[]): Promise<WriteResult>;
+
   // Maintenance
   vacuum(): void;
   rebuildFts(): void;
   deleteAllData(): void;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// PUBLIC RESULT TYPE
+// ═══════════════════════════════════════════════════════════════════════════
+
+export interface WriteResult {
+  changes: Change[];
+  durationMs: number;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -210,8 +239,34 @@ class IngestServiceImpl implements IngestService {
 
   private inTransaction = false;
 
-  constructor(sqliteServiceFactory: () => SqliteService) {
+  // RFC 005 C4.3: engine pin + native addon handle for the live-ingest
+  // native route. When `engine === 'rs'` and `native` is loaded,
+  // `writeBatch` dispatches through `native.liveIngestBatch(dbPath,
+  // rows)`; otherwise it stays on the TS path. `dbPath` is captured
+  // on `open()` so the native call can re-open its own short-lived
+  // connection against the same file.
+  private readonly engine: IngestEngine;
+  private readonly native: NativeAddon | null;
+  private dbPath: string | null = null;
+
+  /**
+   * Process-lifetime flag: after the first native live-ingest failure we
+   * log a one-shot warning and silently fall back to the TS path for
+   * subsequent batches. Keeps live-updates resilient to transient
+   * rusqlite hiccups without spamming the console.
+   */
+  private nativeFallbackLogged = false;
+
+  // NOTE(RFC 005 C3.1): the seq counter used to live here. It now
+  // belongs to `AgentDataStore` — the store owns fan-out and stamps
+  // every emitted Change on its way through `emit()`. `writeBatch`
+  // returns Changes with `seq: 0` as a placeholder; the live-updates
+  // writer loop passes them to `store.emit()`, which overwrites.
+
+  constructor(sqliteServiceFactory: () => SqliteService, options?: CreateIngestServiceOptions) {
     this.db = sqliteServiceFactory();
+    this.engine = options?.engine ?? 'ts';
+    this.native = options?.native ?? null;
   }
 
   open(dbPath: string): void {
@@ -223,6 +278,7 @@ class IngestServiceImpl implements IngestService {
     initializeSchema(this.db);
     this.prepareStatements();
     this.opened = true;
+    this.dbPath = dbPath;
   }
 
   close(): void {
@@ -597,6 +653,104 @@ class IngestServiceImpl implements IngestService {
   }
 
   // ─────────────────────────────────────────────────────────────────────────
+  // Live-updates write path (RFC 005 C2.6)
+  // ─────────────────────────────────────────────────────────────────────────
+
+  /**
+   * Write a batch of `ParsedRow`s as a single live-update transaction.
+   *
+   * Atomicity: wraps the whole batch in `BEGIN IMMEDIATE` (via the
+   * existing `beginTransaction`/`commitTransaction`/`rollbackTransaction`
+   * helpers) so either all rows land or none do. A throw mid-batch
+   * rolls back and rethrows — the checkpoint is not advanced by the
+   * caller so the orchestrator will retry.
+   *
+   * Dispatch: each row's `category` discriminates the union and
+   * routes to the matching `on*` method. TS narrows the variant so
+   * payload fields are read directly without any `as` casts.
+   *
+   * Change events: after commit we walk the rows again and translate
+   * each into the matching `Change` variant (see `live/change-events.ts`).
+   * `project_memory` + `session_index` rows mutate SQLite but emit no
+   * `Change` — the union has no matching variants (see RFC 005 §2.9).
+   * Each returned `Change` is stamped `ts = Date.now()` and `seq = 0`;
+   * the real monotonic `seq` is assigned inside `AgentDataStore.emit()`
+   * when the writer loop fans the change out. See RFC 005 §Event
+   * sequence numbering (counter is not persisted).
+   */
+  async writeBatch(rows: ParsedRow[]): Promise<WriteResult> {
+    const startedAt = Date.now();
+
+    // Empty batch: no-op. Do NOT open a transaction; callers hit this
+    // when the coalescing queue drains with nothing to write.
+    if (rows.length === 0) {
+      return { changes: [], durationMs: Date.now() - startedAt };
+    }
+
+    // RFC 005 C4.3: when this instance is pinned to the `rs` engine and
+    // the native addon loaded, dispatch through
+    // `native.liveIngestBatch` so the live path writes via the same
+    // Rust writer the cold-start engine uses. On any failure — native
+    // addon throws, DB locked, etc. — fall back to the TS path for
+    // *this* batch (same process, subsequent batches try native again
+    // if they were transient). We log once per process to keep the
+    // fallback visible without spamming.
+    if (this.engine === 'rs' && this.native && this.dbPath) {
+      try {
+        this.native.liveIngestBatch(this.dbPath, rows.map(parsedRowToNativeLiveRow));
+        return { changes: buildChangesFromRows(rows), durationMs: Date.now() - startedAt };
+      } catch (err) {
+        if (!this.nativeFallbackLogged) {
+          console.warn(
+            '[spaghetti-sdk] native live-ingest failed; falling back to TS writer. ' +
+              `Further native failures this session will be silent. Error: ${
+                err instanceof Error ? err.message : String(err)
+              }`,
+          );
+          this.nativeFallbackLogged = true;
+        }
+        // Fall through to the TS path.
+      }
+    }
+
+    // `BEGIN IMMEDIATE` equivalent: the shared `beginTransaction` uses
+    // `BEGIN TRANSACTION` (deferred by default in SQLite). For live-
+    // update semantics we want the write lock acquired up front so
+    // concurrent readers can't block the commit indefinitely. Use
+    // `BEGIN IMMEDIATE` directly when we're the first to open the tx.
+    const weOpenedTx = !this.inTransaction;
+    if (weOpenedTx) {
+      this.db.exec('BEGIN IMMEDIATE');
+      this.inTransaction = true;
+    }
+
+    try {
+      // Pass `this` directly as the RowWriteContext — IngestServiceImpl
+      // implements the context surface structurally, so no alias needed.
+      for (const row of rows) {
+        applyRowHandler(row, this);
+      }
+
+      if (weOpenedTx) {
+        this.db.exec('COMMIT');
+        this.inTransaction = false;
+      }
+    } catch (err) {
+      if (weOpenedTx && this.inTransaction) {
+        try {
+          this.db.exec('ROLLBACK');
+        } catch {
+          // Ignore — the tx may already be rolled back.
+        }
+        this.inTransaction = false;
+      }
+      throw err;
+    }
+
+    return { changes: buildChangesFromRows(rows), durationMs: Date.now() - startedAt };
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
   // Maintenance
   // ─────────────────────────────────────────────────────────────────────────
 
@@ -646,6 +800,335 @@ class IngestServiceImpl implements IngestService {
 // FACTORY
 // ═══════════════════════════════════════════════════════════════════════════
 
-export function createIngestService(sqliteServiceFactory: () => SqliteService): IngestService {
-  return new IngestServiceImpl(sqliteServiceFactory);
+export function createIngestService(
+  sqliteServiceFactory: () => SqliteService,
+  options?: CreateIngestServiceOptions,
+): IngestService {
+  return new IngestServiceImpl(sqliteServiceFactory, options);
+}
+
+/**
+ * Options accepted by {@link createIngestService}.
+ *
+ * Introduced in RFC 005 Phase 4 C4.3 to thread the engine pin + native
+ * addon handle into `IngestServiceImpl`. Both default to "no native
+ * routing" (`engine: 'ts'`, `native: null`) so call sites that don't
+ * opt in — tests, non-live paths — keep the existing TS-only behaviour.
+ */
+export interface CreateIngestServiceOptions {
+  /**
+   * Which engine this service was built for. Only `'rs'` enables the
+   * native live-ingest route in {@link IngestService.writeBatch}; any
+   * other value keeps the TS path.
+   */
+  engine?: IngestEngine;
+  /**
+   * The loaded native addon, or `null` when unavailable. When `engine
+   * === 'rs'` but `native === null` (addon missing on this platform),
+   * `writeBatch` stays on the TS path.
+   */
+  native?: NativeAddon | null;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// LIVE-PATH HELPERS (shared by TS + native write paths)
+// ═══════════════════════════════════════════════════════════════════════════
+
+/**
+ * Serialize a {@link ParsedRow} for the Rust live-ingest entry
+ * (`liveIngestBatch`).
+ *
+ * The wire contract is defined in `crates/spaghetti-napi/src/live_ingest.rs`
+ * — each `category` carries a `payload_json` whose shape matches the
+ * corresponding `IngestEvent` variant fields. For `message` we flatten a
+ * handful of projections (msgType / uuid / timestamp / token counters /
+ * ftsText) that the Rust side would otherwise have to re-derive from the
+ * raw JSONL — pre-extracting on the TS side keeps the Rust path a pure
+ * parameter bind.
+ */
+function parsedRowToNativeLiveRow(row: ParsedRow): {
+  category: string;
+  slug?: string;
+  sessionId?: string;
+  payloadJson: string;
+} {
+  switch (row.category) {
+    case 'message': {
+      // Mirrors the per-field extraction `onMessage` performs for the
+      // TS path — we compute once here so the Rust writer can bind
+      // directly without re-parsing the raw JSONL.
+      const msgType = extractMsgType(row.message);
+      const uuid = extractUuid(row.message);
+      const timestamp = extractTimestamp(row.message);
+      const tokens = extractTokens(row.message);
+      const ftsText = extractTextContent(row.message);
+      const payload = {
+        msgIndex: row.msgIndex,
+        byteOffset: row.byteOffset,
+        // Raw JSONL line isn't available on ParsedRow; the Rust writer
+        // stores `JSON.stringify(message)` into `messages.data`, matching
+        // what the TS writer does via `data = JSON.stringify(message)` in
+        // `onMessage`. Keeping the same stringifier means round-tripping
+        // produces identical bytes.
+        rawJson: JSON.stringify(row.message),
+        msgType,
+        uuid,
+        timestamp,
+        inputTokens: tokens.inputTokens,
+        outputTokens: tokens.outputTokens,
+        cacheCreationTokens: tokens.cacheCreationTokens,
+        cacheReadTokens: tokens.cacheReadTokens,
+        ftsText,
+      };
+      return {
+        category: 'message',
+        slug: row.slug,
+        sessionId: row.sessionId,
+        payloadJson: JSON.stringify(payload),
+      };
+    }
+    case 'subagent':
+      return {
+        category: 'subagent',
+        slug: row.slug,
+        sessionId: row.sessionId,
+        payloadJson: JSON.stringify(row.transcript),
+      };
+    case 'tool_result':
+      return {
+        category: 'tool_result',
+        slug: row.slug,
+        sessionId: row.sessionId,
+        payloadJson: JSON.stringify(row.result),
+      };
+    case 'file_history':
+      return {
+        category: 'file_history',
+        sessionId: row.sessionId,
+        payloadJson: JSON.stringify(row.history),
+      };
+    case 'todo':
+      return {
+        category: 'todo',
+        sessionId: row.sessionId,
+        payloadJson: JSON.stringify(row.todo),
+      };
+    case 'task':
+      return {
+        category: 'task',
+        sessionId: row.sessionId,
+        payloadJson: JSON.stringify(row.task),
+      };
+    case 'plan':
+      return {
+        category: 'plan',
+        slug: row.slug,
+        payloadJson: JSON.stringify(row.plan),
+      };
+    case 'project_memory':
+      return {
+        category: 'project_memory',
+        slug: row.slug,
+        payloadJson: JSON.stringify({ content: row.content }),
+      };
+    case 'session_index':
+      return {
+        category: 'session_index',
+        slug: row.slug,
+        payloadJson: JSON.stringify({
+          originalPath: row.originalPath,
+          sessionsIndex: row.sessionsIndex,
+        }),
+      };
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ROW HANDLER TABLE
+// ═══════════════════════════════════════════════════════════════════════════
+
+/**
+ * Subset of `IngestService` the row handlers need to write a row.
+ * Keeping this structural rather than passing the full implementation
+ * lets the table stay outside the class (no `this` capture) while the
+ * impl class still satisfies the shape via duck-typing.
+ *
+ * `session_index` reuses `onProject(slug, originalPath, sessionsIndex)`
+ * — that signature is identical to the `applySessionIndex` helper
+ * the live path used to call.
+ */
+interface RowWriteContext {
+  onMessage(slug: string, sessionId: string, message: SessionMessage, index: number, byteOffset: number): void;
+  onSubagent(slug: string, sessionId: string, transcript: SubagentTranscript): void;
+  onToolResult(slug: string, sessionId: string, toolResult: PersistedToolResult): void;
+  onFileHistory(sessionId: string, history: FileHistorySession): void;
+  onTodo(sessionId: string, todo: TodoFile): void;
+  onTask(sessionId: string, task: TaskEntry): void;
+  onPlan(slug: string, plan: PlanFile): void;
+  onProjectMemory(slug: string, content: string): void;
+  onProject(slug: string, originalPath: string, sessionsIndex: SessionsIndex): void;
+}
+
+/** Narrow a `ParsedRow` to the variant matching its `category`. */
+type RowOf<C extends ParsedRowCategory> = Extract<ParsedRow, { category: C }>;
+
+/**
+ * One entry per `ParsedRow.category`. `apply` drives the SQLite write
+ * via `RowWriteContext`; `toChange` builds the matching `Change`
+ * variant or returns `null` for SQLite-only rows that have no
+ * corresponding event (`project_memory`, `session_index`, plus
+ * `file_history` when the snapshot list is empty).
+ *
+ * Adding a new category means adding ONE entry here — the dispatch
+ * loop in `writeBatch` and the change-fan-out loop in
+ * `buildChangesFromRows` consult this table directly so neither needs
+ * a parallel switch.
+ */
+interface RowHandler<C extends ParsedRowCategory> {
+  apply(row: RowOf<C>, ctx: RowWriteContext): void;
+  toChange(row: RowOf<C>, ts: number): Change | null;
+}
+
+type RowHandlers = { [C in ParsedRowCategory]: RowHandler<C> };
+
+/**
+ * Identity helper that pins the per-category entry to its narrowed
+ * `RowHandler<C>` type. Without the helper, TypeScript widens each
+ * record value to the union over every category and the per-row
+ * field reads (`r.slug`, `r.sessionId`, …) lose their narrowing.
+ */
+function handler<C extends ParsedRowCategory>(h: RowHandler<C>): RowHandler<C> {
+  return h;
+}
+
+const ROW_HANDLERS: RowHandlers = {
+  message: handler<'message'>({
+    apply: (r, c) => c.onMessage(r.slug, r.sessionId, r.message, r.msgIndex, r.byteOffset),
+    toChange: (r, ts) => ({
+      type: 'session.message.added',
+      seq: 0,
+      ts,
+      slug: r.slug,
+      sessionId: r.sessionId,
+      message: r.message,
+      byteOffset: r.byteOffset,
+    }),
+  }),
+  subagent: handler<'subagent'>({
+    apply: (r, c) => c.onSubagent(r.slug, r.sessionId, r.transcript),
+    toChange: (r, ts) => ({
+      type: 'subagent.updated',
+      seq: 0,
+      ts,
+      slug: r.slug,
+      sessionId: r.sessionId,
+      agentId: r.transcript.agentId,
+      transcript: r.transcript,
+    }),
+  }),
+  tool_result: handler<'tool_result'>({
+    apply: (r, c) => c.onToolResult(r.slug, r.sessionId, r.result),
+    toChange: (r, ts) => ({
+      type: 'tool-result.added',
+      seq: 0,
+      ts,
+      slug: r.slug,
+      sessionId: r.sessionId,
+      toolUseId: r.result.toolUseId,
+    }),
+  }),
+  file_history: handler<'file_history'>({
+    apply: (r, c) => c.onFileHistory(r.sessionId, r.history),
+    toChange: (r, ts) => {
+      // Only fan out when there is at least one snapshot — empty
+      // arrays would surface a malformed `file-history.added` event.
+      const snap = r.history.snapshots[0];
+      if (!snap) return null;
+      return {
+        type: 'file-history.added',
+        seq: 0,
+        ts,
+        sessionId: r.sessionId,
+        hash: snap.hash,
+        version: snap.version,
+      };
+    },
+  }),
+  todo: handler<'todo'>({
+    apply: (r, c) => c.onTodo(r.sessionId, r.todo),
+    toChange: (r, ts) => ({
+      type: 'todo.updated',
+      seq: 0,
+      ts,
+      sessionId: r.sessionId,
+      agentId: r.todo.agentId,
+      items: r.todo.items,
+    }),
+  }),
+  task: handler<'task'>({
+    apply: (r, c) => c.onTask(r.sessionId, r.task),
+    toChange: (r, ts) => ({
+      type: 'task.updated',
+      seq: 0,
+      ts,
+      sessionId: r.sessionId,
+      task: r.task,
+    }),
+  }),
+  plan: handler<'plan'>({
+    apply: (r, c) => c.onPlan(r.slug, r.plan),
+    toChange: (r, ts) => ({
+      type: 'plan.upserted',
+      seq: 0,
+      ts,
+      slug: r.slug,
+      plan: r.plan,
+    }),
+  }),
+  project_memory: handler<'project_memory'>({
+    apply: (r, c) => c.onProjectMemory(r.slug, r.content),
+    // SQLite-only write, no Change emission (no matching union
+    // variant — see RFC 005 §2.9).
+    toChange: () => null,
+  }),
+  session_index: handler<'session_index'>({
+    // No public `onSessionIndex(slug, originalPath, sessionsIndex)` on
+    // `ProjectParseSink` — cold-start uses `onProject(slug,
+    // originalPath, sessionsIndex)` with the same signature, which
+    // is exactly what the live path needs too.
+    apply: (r, c) => c.onProject(r.slug, r.originalPath, r.sessionsIndex),
+    // SQLite-only write (ditto).
+    toChange: () => null,
+  }),
+};
+
+/**
+ * Dispatch one row to its handler. Index access into `ROW_HANDLERS`
+ * loses the discriminated-union → variant correspondence, so the
+ * `as never` widens the row to satisfy each variant's `apply`
+ * signature. Soundness comes from the `RowHandlers` type ensuring
+ * every category has a matching apply.
+ */
+function applyRowHandler(row: ParsedRow, ctx: RowWriteContext): void {
+  (ROW_HANDLERS[row.category] as RowHandler<typeof row.category>).apply(row as never, ctx);
+}
+
+/**
+ * Build the `Change[]` the subscriber registry should fan out after a
+ * successful batch. Shared between the TS and native paths so that
+ * subscribers see the exact same events regardless of engine.
+ *
+ * Each returned Change carries `seq: 0` — the store's `emit()` stamps
+ * the real monotonic counter on the way through fan-out. Doing it
+ * here would divorce the counter from fan-out order; see C3.1 for the
+ * history.
+ */
+function buildChangesFromRows(rows: ParsedRow[]): Change[] {
+  const changes: Change[] = [];
+  for (const row of rows) {
+    const ts = Date.now();
+    const change = (ROW_HANDLERS[row.category] as RowHandler<typeof row.category>).toChange(row as never, ts);
+    if (change !== null) changes.push(change);
+  }
+  return changes;
 }

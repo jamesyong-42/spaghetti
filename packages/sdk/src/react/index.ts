@@ -19,3 +19,12 @@ export { Badge } from './components/Badge.js';
 
 // Utilities
 export { formatTokenCount, formatRelativeTime, formatDuration, formatBytes } from './utils/formatters.js';
+
+// Live hooks (RFC 005 C3.5)
+export {
+  useLiveSessionMessages,
+  type UseLiveSessionMessagesResult,
+  useLiveSessionList,
+  useLiveSettings,
+  useLiveChanges,
+} from './live/index.js';

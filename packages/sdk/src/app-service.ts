@@ -14,6 +14,9 @@ import type {
   SubagentMessagePage,
 } from './api.js';
 import type { ClaudeCodeAgentDataService } from './data/agent-data-service.js';
+import type { LifecycleInternal } from './data/lifecycle-owner.js';
+import type { AgentDataStore } from './data/agent-data-store.js';
+import type { LiveUpdates } from './live/live-updates.js';
 import type {
   SearchQuery,
   SearchResultSet,
@@ -22,11 +25,22 @@ import type {
   SegmentChangeBatch,
 } from './data/segment-types.js';
 import type { SessionSummaryData, ProjectSummaryData } from './data/summary-types.js';
+import type { SpaghettiLive } from './live/spaghetti-live.js';
+import { createSpaghettiLive } from './live/spaghetti-live.js';
+import type { ErrorSink } from './io/error-sink.js';
 
 class SpaghettiAppService extends EventEmitter implements SpaghettiAPI {
   private dataService: ClaudeCodeAgentDataService;
 
-  constructor(dataService: ClaudeCodeAgentDataService) {
+  /**
+   * Public `api.live` handle — present only when the lifecycle owner
+   * was constructed with a live-updates orchestrator (i.e. the caller
+   * opted into `createSpaghettiService({ live: true })`). Wired up
+   * in the constructor so access is a simple field read.
+   */
+  readonly live?: SpaghettiLive;
+
+  constructor(dataService: ClaudeCodeAgentDataService, errorSink?: ErrorSink) {
     super();
     this.dataService = dataService;
 
@@ -34,6 +48,21 @@ class SpaghettiAppService extends EventEmitter implements SpaghettiAPI {
     this.dataService.on('ready', (data) => this.emit('ready', data));
     this.dataService.on('change', (data) => this.emit('change', data));
     this.dataService.on('error', (data) => this.emit('error', data));
+
+    // C3.4: build api.live if the underlying service implements the
+    // internal `LifecycleInternal` shape (only `LifecycleOwner` does
+    // today). Reaches the methods via structural typing so the public
+    // `ClaudeCodeAgentDataService` interface stays free of internal
+    // type leaks.
+    const internal = dataService as Partial<LifecycleInternal>;
+    const getStore = internal.getStore?.bind(internal) as (() => AgentDataStore) | undefined;
+    const getLiveUpdates = internal.getLiveUpdates?.bind(internal) as (() => LiveUpdates | undefined) | undefined;
+    if (getStore && getLiveUpdates) {
+      const liveUpdates = getLiveUpdates();
+      if (liveUpdates) {
+        this.live = createSpaghettiLive(getStore(), liveUpdates, errorSink);
+      }
+    }
   }
 
   async initialize(): Promise<void> {
@@ -42,6 +71,21 @@ class SpaghettiAppService extends EventEmitter implements SpaghettiAPI {
 
   shutdown(): void {
     this.dataService.shutdown();
+  }
+
+  /**
+   * C3.4: awaitable teardown. Delegates to `shutdownAsync` when the
+   * underlying data-service exposes it (always true for the default
+   * `LifecycleOwner` impl). Falls back to the sync `shutdown()` for
+   * custom services that predate RFC 005 Phase 3.
+   */
+  async dispose(): Promise<void> {
+    const async_ = this.dataService.shutdownAsync?.bind(this.dataService);
+    if (async_) {
+      await async_();
+    } else {
+      this.dataService.shutdown();
+    }
   }
 
   async rebuildIndex(): Promise<{ durationMs: number }> {
@@ -172,6 +216,9 @@ function toSessionListItem(data: SessionSummaryData): SessionListItem {
   };
 }
 
-export function createSpaghettiAppService(dataService: ClaudeCodeAgentDataService): SpaghettiAPI {
-  return new SpaghettiAppService(dataService);
+export function createSpaghettiAppService(
+  dataService: ClaudeCodeAgentDataService,
+  errorSink?: ErrorSink,
+): SpaghettiAPI {
+  return new SpaghettiAppService(dataService, errorSink);
 }

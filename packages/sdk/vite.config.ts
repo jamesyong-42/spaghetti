@@ -20,6 +20,8 @@ export default defineConfig({
     rollupOptions: {
       external: [
         'better-sqlite3',
+        '@parcel/watcher',
+        /^@parcel\/watcher-/,
         'chokidar',
         'ws',
         'react',
