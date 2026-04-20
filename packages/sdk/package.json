@@ -27,6 +27,7 @@
     "test": "node --import tsx --test src/__tests__/*.test.ts src/**/__tests__/*.test.ts"
   },
   "dependencies": {
+    "@parcel/watcher": "^2.5.0",
     "@vibecook/spaghetti-sdk-native": "workspace:*",
     "better-sqlite3": "^12.0.0",
     "chokidar": "^4.0.0",
