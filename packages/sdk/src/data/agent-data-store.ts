@@ -20,6 +20,7 @@ import type { PaginatedSegmentResult, SearchQuery, SearchResultSet } from './seg
 import type { ProjectSummaryData, SessionSummaryData } from './summary-types.js';
 import type { AgentAnalytic, AgentConfig, SessionMessage } from '../types/index.js';
 import type { QueryService } from './query-service.js';
+import type { Change, ChangeTopic, Dispose, SubscribeOptions } from '../live/change-events.js';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // INTERFACE
@@ -87,6 +88,36 @@ export interface AgentDataStore {
   /** True once both caches have been populated at least once. */
   hasConfig(): boolean;
   hasAnalytics(): boolean;
+
+  // ── Subscriber registry (RFC 005 phase 3 stub) ──────────────────────────
+  /**
+   * Publish a `Change` event to matching subscribers.
+   *
+   * TODO(RFC 005 phase 3): this is a no-op stub in C1.4. Phase 3 will
+   * implement topic matching, per-subscription throttling, and a
+   * monotonic in-memory `seq` counter driving `lastEmittedSeq()`. The
+   * signature is wired in now so `LiveUpdates` (phase 2) can type-check
+   * against the final contract while the registry is still inert.
+   */
+  emit(change: Change): void;
+  /**
+   * Register a listener for changes matching `topic` (undefined for the
+   * firehose).
+   *
+   * TODO(RFC 005 phase 3): returns a no-op `Dispose` today. Phase 3
+   * replaces this with `subscriber-registry.ts` (topic-matrix fan-out
+   * + throttle support).
+   */
+  subscribe(topic: ChangeTopic | undefined, listener: (e: Change) => void, options?: SubscribeOptions): Dispose;
+  /**
+   * Last `seq` the store has assigned to an emitted `Change` this
+   * process.
+   *
+   * TODO(RFC 005 phase 3): returns `0` today (counter lives in the
+   * real registry). Kept on the interface so phase-3 wiring can bump
+   * it without a signature change.
+   */
+  lastEmittedSeq(): number;
 }
 
 /**
@@ -226,6 +257,43 @@ export class AgentDataStoreImpl implements AgentDataStore {
 
   hasAnalytics(): boolean {
     return this.cachedAnalytics !== null;
+  }
+
+  // ── Subscriber registry (RFC 005 phase 3 stub) ───────────────────────────
+
+  /**
+   * Capture-only implementation: events drop into a private Set that is
+   * never read. This keeps the method side-effect-typed (phase-3 will
+   * add topic matching + fan-out) while letting `LiveUpdates` call
+   * `store.emit(change)` safely during phase 2.
+   *
+   * TODO(RFC 005 phase 3): replace with subscriber-registry dispatch
+   * (topic matching, throttle + `latest` coalescing, `seq` bump).
+   */
+  private readonly pendingChanges = new Set<Change>();
+
+  emit(change: Change): void {
+    // TODO(RFC 005 phase 3): route through subscriber-registry.ts and
+    // bump the seq counter. For now we only retain the change in a
+    // private Set so the call-site has stable semantics (no throw, no
+    // allocation surprises).
+    this.pendingChanges.add(change);
+  }
+
+  subscribe(_topic: ChangeTopic | undefined, _listener: (e: Change) => void, _options?: SubscribeOptions): Dispose {
+    // TODO(RFC 005 phase 3): register the listener under its topic key,
+    // apply throttle options, and return a dispose that removes it.
+    // For C1.4 we return a no-op dispose so callers can wire up the
+    // public `onChange` surface without any listeners actually firing.
+    return () => {
+      /* no-op until phase 3 */
+    };
+  }
+
+  lastEmittedSeq(): number {
+    // TODO(RFC 005 phase 3): return the in-memory monotonic counter
+    // incremented inside `emit()` once the real registry lands.
+    return 0;
   }
 }
 
