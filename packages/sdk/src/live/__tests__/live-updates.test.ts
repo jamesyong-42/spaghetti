@@ -867,3 +867,169 @@ describe('LiveUpdates plans/ scope (RFC 005 C5.4)', () => {
     dispose();
   });
 });
+
+describe('LiveUpdates settings/ scope (RFC 005 C5.5)', () => {
+  let tempRoot: string;
+  let claudeDir: string;
+  let dbPath: string;
+  let sqlite: SqliteService;
+  let queryService: QueryService;
+  let ingest: IngestService;
+  let store: AgentDataStore;
+  let live: LiveUpdates;
+  let errors: Error[];
+
+  before(async () => {
+    tempRoot = mkdtempSync(path.join(os.tmpdir(), 'spaghetti-live-settings-'));
+    tempRoot = realpathSync(tempRoot);
+    claudeDir = path.join(tempRoot, '.claude');
+    mkdirSync(claudeDir, { recursive: true });
+
+    dbPath = path.join(tempRoot, 'live.db');
+    sqlite = createSqliteService();
+    sqlite.open({ path: dbPath });
+    initializeSchema(sqlite);
+
+    const fileService = createFileService();
+    queryService = createQueryService(() => sqlite);
+    queryService.open(dbPath);
+    ingest = createIngestService(() => sqlite);
+    ingest.open(dbPath);
+    store = createAgentDataStore(queryService);
+
+    errors = [];
+    live = createLiveUpdates(
+      { fileService, ingestService: ingest, store },
+      {
+        claudeDir,
+        onError: (err) => {
+          errors.push(err);
+        },
+      },
+    );
+    await live.start();
+  });
+
+  after(async () => {
+    try {
+      await live.stop();
+    } catch {
+      /* ignore */
+    }
+    try {
+      ingest.close();
+    } catch {
+      /* ignore */
+    }
+    try {
+      if (sqlite.isOpen()) sqlite.close();
+    } catch {
+      /* ignore */
+    }
+    rmSync(tempRoot, { recursive: true, force: true });
+  });
+
+  test('settings.json write lands + emits settings.changed', { timeout: 10000 }, async () => {
+    const captured: Change[] = [];
+    const sub = store.subscribe({ kind: 'settings' }, (c) => {
+      captured.push(c);
+    });
+    const dispose = live.prewarm({ kind: 'settings' });
+    await new Promise((r) => setTimeout(r, 150));
+
+    const settingsPath = path.join(claudeDir, 'settings.json');
+    writeFileSync(settingsPath, JSON.stringify({ cleanupPeriodDays: 30, effortLevel: 'high' }));
+
+    const event = await pollUntil(() => {
+      const hit = captured.find((c) => c.type === 'settings.changed' && c.file === 'settings');
+      return hit ? hit : undefined;
+    });
+    assert.equal(event.type, 'settings.changed');
+    if (event.type === 'settings.changed') {
+      assert.equal(event.file, 'settings');
+      assert.equal((event.settings as { cleanupPeriodDays?: number }).cleanupPeriodDays, 30);
+    }
+
+    // Store should carry the parsed settings so `api.getConfig()` reflects the fresh value.
+    assert.strictEqual(store.hasConfig(), true);
+    const cfg = store.getConfig();
+    assert.equal((cfg.settings as { cleanupPeriodDays?: number }).cleanupPeriodDays, 30);
+
+    sub();
+    dispose();
+  });
+
+  test('atomic-rename write collapses to a single settings.changed event', { timeout: 10000 }, async () => {
+    const captured: Change[] = [];
+    const sub = store.subscribe({ kind: 'settings' }, (c) => {
+      captured.push(c);
+    });
+    const dispose = live.prewarm({ kind: 'settings' });
+    await new Promise((r) => setTimeout(r, 150));
+
+    const settingsPath = path.join(claudeDir, 'settings.json');
+    const tmpPath = `${settingsPath}.atomic`;
+    writeFileSync(tmpPath, JSON.stringify({ effortLevel: 'medium' }));
+    const startCount = captured.length;
+    // Simulate editor atomic-rename: drop the tmp over the target in one step.
+    (await import('node:fs')).renameSync(tmpPath, settingsPath);
+
+    // Give the 150ms coalescer room plus parcel's ~50ms FSEvents latency.
+    await new Promise((r) => setTimeout(r, 500));
+
+    const newEvents = captured.slice(startCount).filter((c) => c.type === 'settings.changed');
+    assert.equal(newEvents.length, 1, `expected exactly one settings.changed event, got ${newEvents.length}`);
+
+    sub();
+    dispose();
+  });
+
+  test('settings.local.json emits settings.changed with file="settings.local"', { timeout: 10000 }, async () => {
+    const captured: Change[] = [];
+    const sub = store.subscribe({ kind: 'settings' }, (c) => {
+      captured.push(c);
+    });
+    const dispose = live.prewarm({ kind: 'settings' });
+    await new Promise((r) => setTimeout(r, 150));
+
+    writeFileSync(path.join(claudeDir, 'settings.local.json'), JSON.stringify({ permissions: { allow: ['*'] } }));
+
+    const event = await pollUntil(() => {
+      const hit = captured.find((c) => c.type === 'settings.changed' && c.file === 'settings.local');
+      return hit ? hit : undefined;
+    });
+    assert.equal(event.type, 'settings.changed');
+    if (event.type === 'settings.changed') assert.equal(event.file, 'settings.local');
+
+    sub();
+    dispose();
+  });
+
+  test(
+    'corrupt settings.json never throws; no event fires until a valid parse lands',
+    {
+      timeout: 10000,
+    },
+    async () => {
+      const captured: Change[] = [];
+      const sub = store.subscribe({ kind: 'settings' }, (c) => {
+        captured.push(c);
+      });
+      const dispose = live.prewarm({ kind: 'settings' });
+      await new Promise((r) => setTimeout(r, 150));
+
+      const settingsPath = path.join(claudeDir, 'settings.json');
+      const startCount = captured.length;
+      writeFileSync(settingsPath, 'not json');
+
+      // Wait past the debounce plus a safety margin.
+      await new Promise((r) => setTimeout(r, QUIET_MS));
+
+      const corruptEvents = captured.slice(startCount).filter((c) => c.type === 'settings.changed');
+      assert.equal(corruptEvents.length, 0, 'corrupt write must not surface a settings.changed event');
+
+      sub();
+      dispose();
+    },
+  );
+});

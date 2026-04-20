@@ -28,7 +28,8 @@ import type { FileService } from '../io/file-service.js';
 import type { SqliteService } from '../io/sqlite-service.js';
 import type { IngestService } from './../data/ingest-service.js';
 import type { AgentDataStore } from './../data/agent-data-store.js';
-import type { ChangeTopic, Dispose } from './change-events.js';
+import type { Change, ChangeTopic, Dispose } from './change-events.js';
+import type { SettingsFile } from '../types/index.js';
 import { createIdleMaintenance, type IdleMaintenance } from '../data/idle-maintenance.js';
 
 import { createCheckpointStore, type Checkpoint, type CheckpointStore } from './checkpoints.js';
@@ -162,6 +163,16 @@ const DEFAULT_MAX_BATCH_ROWS = 200;
 const DEFAULT_DEBOUNCE_MS = 30;
 const DEFAULT_HARD_FLUSH_MS = 200;
 const DEFAULT_SATURATION_THRESHOLD_MS = 5000;
+/**
+ * Settings-file trailing-edge coalescer (RFC 005 C5.5). Editors often
+ * save via write-tmp + rename-over, which surfaces as
+ * `delete(settings.json) + create(settings.json)` within a few ms.
+ * 150 ms is the shortest window that reliably collapses the pair on
+ * macOS APFS + parcel-watcher into a single logical "file changed"
+ * event. Separate from `DEBOUNCE_MS` because the append-only JSONL
+ * path needs tighter timing.
+ */
+const DEFAULT_SETTINGS_DEBOUNCE_MS = 150;
 
 /**
  * Hard-ignore globs handed to the watcher. Mirrors `HARD_IGNORE_SEGMENTS`
@@ -366,6 +377,14 @@ export function createLiveUpdates(deps: LiveUpdatesDeps, options: LiveUpdatesOpt
   const debounceByPath = new Map<string, DebounceState>();
 
   /**
+   * Separate trailing-edge coalescer for settings files (RFC 005 C5.5).
+   * Settings bypass the CoalescingQueue / parser / writeBatch path
+   * entirely — their re-parse + in-memory cache update + `settings.changed`
+   * emit is handled directly on the 150 ms debounce timer below.
+   */
+  const settingsDebounceByPath = new Map<string, ReturnType<typeof setTimeout>>();
+
+  /**
    * Per-session `msg_index` high-water mark, so successive `update`
    * events on the same session JSONL continue the monotonic row index
    * the cold-start ingest established. Keyed by absolute file path so
@@ -389,6 +408,8 @@ export function createLiveUpdates(deps: LiveUpdatesDeps, options: LiveUpdatesOpt
       if (state.hardFlushTimer !== null) clearTimeout(state.hardFlushTimer);
     }
     debounceByPath.clear();
+    for (const timer of settingsDebounceByPath.values()) clearTimeout(timer);
+    settingsDebounceByPath.clear();
   }
 
   function enqueueNow(evtPath: string, reason: QueuedReason): void {
@@ -471,6 +492,15 @@ export function createLiveUpdates(deps: LiveUpdatesDeps, options: LiveUpdatesOpt
       const route: RouteResult = classify(event.path, claudeDir);
       if (route.category === 'ignored') continue;
 
+      // Settings (RFC 005 C5.5) bypass the SQLite path entirely: they
+      // re-parse into an in-memory AgentConfig and emit
+      // `settings.changed`. A 150 ms trailing coalescer absorbs the
+      // delete+create flicker common to atomic-rename saves.
+      if (route.category === 'settings' || route.category === 'settings_local') {
+        scheduleSettingsReparse(event.path, route.category);
+        continue;
+      }
+
       const enqueuePath = coalescePath(event.path, route);
 
       // create + delete are rare; enqueue immediately so priority
@@ -484,6 +514,109 @@ export function createLiveUpdates(deps: LiveUpdatesDeps, options: LiveUpdatesOpt
         scheduleDebouncedAppend(enqueuePath);
       }
     }
+  }
+
+  // ── settings handling (RFC 005 C5.5) ───────────────────────────────────
+
+  /**
+   * Schedule (or reschedule) a settings re-parse for `absPath`.
+   * Trailing-edge: any fresh event for the same path resets the
+   * timer, so write-tmp + rename-over bursts collapse to a single
+   * parse.
+   */
+  function scheduleSettingsReparse(absPath: string, category: 'settings' | 'settings_local'): void {
+    const existing = settingsDebounceByPath.get(absPath);
+    if (existing !== undefined) clearTimeout(existing);
+    const timer = setTimeout(() => {
+      settingsDebounceByPath.delete(absPath);
+      handleSettingsEvent(absPath, category);
+    }, DEFAULT_SETTINGS_DEBOUNCE_MS);
+    settingsDebounceByPath.set(absPath, timer);
+  }
+
+  /**
+   * Re-parse a settings file, refresh the in-memory AgentConfig on the
+   * store, and emit `settings.changed`. Never throws — corrupt
+   * mid-write JSON is logged via `onError` and discarded, so the next
+   * event retries.
+   *
+   * We read the file ourselves rather than going through
+   * `fileService.readJsonSync` because that helper emits `error` on its
+   * EventEmitter surface when JSON.parse fails, which surfaces as an
+   * unhandled `error` event in processes (like tests) that don't
+   * register a listener on the file service.
+   */
+  function handleSettingsEvent(absPath: string, category: 'settings' | 'settings_local'): void {
+    if (!running) return;
+    let parsed: SettingsFile;
+    try {
+      const content = fileService.readFileSync(absPath);
+      parsed = JSON.parse(content) as SettingsFile;
+    } catch (err) {
+      // Corrupt mid-write / missing / permission denied all land here.
+      // Swallow, surface via onError, let the next event retry.
+      onError(
+        err instanceof Error
+          ? new Error(`[LiveUpdates] failed to parse ${category} at ${absPath}: ${err.message}`)
+          : new Error(`[LiveUpdates] failed to parse ${category} at ${absPath}`),
+      );
+      return;
+    }
+
+    // `settings.json` populates AgentConfig.settings. If the store
+    // hasn't been seeded by cold-start yet (unit-test flow, or a
+    // live-only consumer), build a minimal AgentConfig so the new
+    // settings are queryable via `getConfig()` immediately.
+    // `settings.local.json` has no cold-start slot yet (see
+    // PARSER-UNPARSED-DATA.md §1.5); for now we emit the event with
+    // the parsed payload and leave the store cache alone — consumers
+    // still get the live data through the event. Extending
+    // AgentConfig with a `settingsLocal` field is a follow-up RFC.
+    if (category === 'settings') {
+      try {
+        const current = store.hasConfig() ? store.getConfig() : buildEmptyAgentConfig();
+        store.setConfig({ ...current, settings: parsed });
+      } catch (err) {
+        onError(err instanceof Error ? err : new Error(String(err)));
+      }
+    }
+
+    const change: Change = {
+      type: 'settings.changed',
+      seq: 0, // store.emit() stamps the real value
+      ts: Date.now(),
+      file: category === 'settings' ? 'settings' : 'settings.local',
+      settings: parsed,
+    };
+    try {
+      store.emit(change);
+    } catch (err) {
+      onError(err instanceof Error ? err : new Error(String(err)));
+    }
+  }
+
+  /**
+   * Minimal `AgentConfig` shape used as a seed when settings live-update
+   * lands before any cold-start has populated the store. Mirrors
+   * `ConfigParserImpl.empty()` in `parser/config-parser.ts` — kept
+   * inline to avoid a runtime dep from live/ into parser/.
+   */
+  function buildEmptyAgentConfig() {
+    return {
+      settings: { permissions: { allow: [] as string[] } },
+      plugins: {
+        installedPlugins: { version: 2 as const, plugins: {} },
+        knownMarketplaces: {},
+        installCountsCache: { version: 1 as const, fetchedAt: '', counts: [] },
+        cache: [],
+        marketplaces: [],
+      },
+      statsig: {},
+      ide: { lockFiles: [] },
+      shellSnapshots: { snapshots: [] },
+      cache: {},
+      statusLineCommand: null,
+    } as unknown as ReturnType<AgentDataStore['getConfig']>;
   }
 
   // ── writer loop ────────────────────────────────────────────────────────
@@ -614,10 +747,15 @@ export function createLiveUpdates(deps: LiveUpdatesDeps, options: LiveUpdatesOpt
     if (!watcher || !state.attachable) return;
     const subPath = SCOPE_SUBPATH[scope];
     const fullPath = path.join(claudeDir, subPath);
+    // Settings watches claudeDir itself non-recursively — recursive
+    // would pull the entire tree in and defeat the point of the rest
+    // of the lazy-attach system. All other scopes are isolated
+    // subtrees that want recursion.
+    const recursive = scope !== 'settings';
     try {
       const unsub = await watcher.subscribe(fullPath, handleWatchEvents, {
         ignore: WATCHER_IGNORE_GLOBS,
-        recursive: true,
+        recursive,
       });
       // If the refcount dropped back to zero during the attach
       // (prewarm + dispose raced faster than parcel could bind), tear
