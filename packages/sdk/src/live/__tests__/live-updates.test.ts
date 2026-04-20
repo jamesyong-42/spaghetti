@@ -698,3 +698,87 @@ describe('LiveUpdates tasks/ scope (RFC 005 C5.2)', () => {
     dispose();
   });
 });
+
+// ═══════════════════════════════════════════════════════════════════════════
+// SUITE: file-history/ live updates (RFC 005 C5.3)
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('LiveUpdates file-history/ scope (RFC 005 C5.3)', () => {
+  let tempRoot: string;
+  let claudeDir: string;
+  let dbPath: string;
+  let sqlite: SqliteService;
+  let queryService: QueryService;
+  let ingest: IngestService;
+  let store: AgentDataStore;
+  let live: LiveUpdates;
+
+  before(async () => {
+    tempRoot = mkdtempSync(path.join(os.tmpdir(), 'spaghetti-live-file-history-'));
+    tempRoot = realpathSync(tempRoot);
+    claudeDir = path.join(tempRoot, '.claude');
+    mkdirSync(path.join(claudeDir, 'file-history'), { recursive: true });
+
+    dbPath = path.join(tempRoot, 'live.db');
+    sqlite = createSqliteService();
+    sqlite.open({ path: dbPath });
+    initializeSchema(sqlite);
+
+    const fileService = createFileService();
+    queryService = createQueryService(() => sqlite);
+    queryService.open(dbPath);
+    ingest = createIngestService(() => sqlite);
+    ingest.open(dbPath);
+    store = createAgentDataStore(queryService);
+
+    live = createLiveUpdates({ fileService, ingestService: ingest, store }, { claudeDir });
+    await live.start();
+  });
+
+  after(async () => {
+    try {
+      await live.stop();
+    } catch {
+      /* ignore */
+    }
+    try {
+      ingest.close();
+    } catch {
+      /* ignore */
+    }
+    try {
+      if (sqlite.isOpen()) sqlite.close();
+    } catch {
+      /* ignore */
+    }
+    rmSync(tempRoot, { recursive: true, force: true });
+  });
+
+  test('file-history snapshot lands + emits file-history.added', { timeout: 10000 }, async () => {
+    const captured: Change[] = [];
+    const sub = store.subscribe({ kind: 'file-history', sessionId: 's1' }, (c) => {
+      captured.push(c);
+    });
+    const dispose = live.prewarm({ kind: 'file-history', sessionId: 's1' });
+    // Parcel attach is async — give it a tick.
+    await new Promise((r) => setTimeout(r, 150));
+
+    const historyDir = path.join(claudeDir, 'file-history', 's1');
+    mkdirSync(historyDir, { recursive: true });
+    writeFileSync(path.join(historyDir, 'abc@v1'), 'hello');
+
+    const event = await pollUntil(() => {
+      const hit = captured.find((c) => c.type === 'file-history.added');
+      return hit ? hit : undefined;
+    });
+    assert.equal(event.type, 'file-history.added');
+    if (event.type === 'file-history.added') {
+      assert.equal(event.hash, 'abc');
+      assert.equal(event.version, 1);
+      assert.equal(event.sessionId, 's1');
+    }
+
+    sub();
+    dispose();
+  });
+});
