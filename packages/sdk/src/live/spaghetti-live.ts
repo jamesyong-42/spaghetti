@@ -44,6 +44,7 @@ import type {
   SubscribeOptionsLatest,
 } from './change-events.js';
 import type { AgentDataStore } from '../data/agent-data-store.js';
+import type { ErrorSink } from '../io/error-sink.js';
 import type { LiveUpdates } from './live-updates.js';
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -97,6 +98,7 @@ class SpaghettiLiveImpl implements SpaghettiLive {
   constructor(
     private readonly store: AgentDataStore,
     private readonly liveUpdates: LiveUpdates,
+    private readonly errorSink: ErrorSink | undefined,
   ) {}
 
   onChange(listener: (e: Change) => void, options?: SubscribeOptionsLatest): Dispose;
@@ -197,8 +199,13 @@ class SpaghettiLiveImpl implements SpaghettiLive {
         if (onDrop) {
           try {
             onDrop(dropped);
-          } catch {
-            /* observer errors are their problem */
+          } catch (err) {
+            // Forward observer errors to the unified ErrorSink so a
+            // misbehaving onDrop can't go unnoticed (RFC 005).
+            // Falls through silently if no sink is wired.
+            this.errorSink?.error(err instanceof Error ? err : new Error(String(err)), {
+              component: 'SpaghettiLive.events.onDrop',
+            });
           }
         }
       }
@@ -246,6 +253,10 @@ class SpaghettiLiveImpl implements SpaghettiLive {
 // FACTORY
 // ═══════════════════════════════════════════════════════════════════════════
 
-export function createSpaghettiLive(store: AgentDataStore, liveUpdates: LiveUpdates): SpaghettiLive {
-  return new SpaghettiLiveImpl(store, liveUpdates);
+export function createSpaghettiLive(
+  store: AgentDataStore,
+  liveUpdates: LiveUpdates,
+  errorSink?: ErrorSink,
+): SpaghettiLive {
+  return new SpaghettiLiveImpl(store, liveUpdates, errorSink);
 }

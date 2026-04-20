@@ -29,6 +29,7 @@ import type {
   SubscribeOptionsLatest,
 } from '../live/change-events.js';
 import { createSubscriberRegistry, type SubscriberRegistry } from '../live/subscriber-registry.js';
+import type { ErrorSink } from '../io/error-sink.js';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // INTERFACE
@@ -368,12 +369,32 @@ export class AgentDataStoreImpl implements AgentDataStore {
  * database — the store does not manage the connection lifecycle.
  *
  * Pass a custom `SubscriberRegistry` via `options.registry` for tests
- * that want to spy on listener errors; defaults to a fresh registry
- * with no `onListenerError` sink.
+ * that want to spy on listener errors; otherwise pass `options.errorSink`
+ * to route subscriber listener errors through the unified
+ * `ErrorSink` (RFC 005) — `create.ts` does this so all live
+ * components share one sink.
  */
 export function createAgentDataStore(
   queryService: QueryService,
-  options?: { registry?: SubscriberRegistry },
+  options?: { registry?: SubscriberRegistry; errorSink?: ErrorSink },
 ): AgentDataStore {
-  return new AgentDataStoreImpl(queryService, options?.registry);
+  if (options?.registry) {
+    return new AgentDataStoreImpl(queryService, options.registry);
+  }
+  // Wrap the unified sink into the registry's
+  // `onListenerError(err, change)` shape — the registry needs the
+  // offending Change for context, but routes through the same sink
+  // so observers see "everything logged the same way".
+  const sink = options?.errorSink;
+  const registry = createSubscriberRegistry(
+    sink
+      ? {
+          onListenerError: (err, change) => {
+            const e = err instanceof Error ? err : new Error(String(err));
+            sink.error(e, { component: 'SubscriberRegistry', changeType: change.type });
+          },
+        }
+      : undefined,
+  );
+  return new AgentDataStoreImpl(queryService, registry);
 }

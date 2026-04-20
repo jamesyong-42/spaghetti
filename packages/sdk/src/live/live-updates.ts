@@ -29,6 +29,8 @@ import * as path from 'node:path';
 
 import type { FileService } from '../io/file-service.js';
 import type { SqliteService } from '../io/sqlite-service.js';
+import type { ErrorSink } from '../io/error-sink.js';
+import { errorSinkFromCallback } from '../io/error-sink.js';
 import type { IngestService } from './../data/ingest-service.js';
 import type { AgentDataStore } from './../data/agent-data-store.js';
 import type { ChangeTopic, Dispose } from './change-events.js';
@@ -69,8 +71,19 @@ export interface LiveUpdatesOptions {
    * Observed error sink. Errors from the watcher (e.g. "directory missing")
    * and from `writeBatch` (e.g. transient SQLite busy) land here; the
    * pipeline keeps running. When unset, errors are swallowed silently.
+   *
+   * Prefer `errorSink` for new code — it's the unified surface every
+   * live component uses (RFC 005). `onError` stays as a back-compat
+   * shim that's adapted to the same `ErrorSink` interface internally.
    */
   onError?: (err: Error) => void;
+  /**
+   * Unified error sink (RFC 005). When set, takes precedence over
+   * `onError` and is the surface every internal component routes
+   * through. The orchestrator stamps `context.component` so a single
+   * sink can format messages with the originating subsystem visible.
+   */
+  errorSink?: ErrorSink;
   /**
    * Watcher factory override — defaults to `createParcelWatcher()`.
    * Tests inject `createChokidarWatcher()` or a custom `Watcher` stub.
@@ -236,7 +249,28 @@ export function createLiveUpdates(deps: LiveUpdatesDeps, options: LiveUpdatesOpt
   const debounceMs = options.debounceMs ?? DEFAULT_DEBOUNCE_MS;
   const hardFlushMs = options.hardFlushMs ?? DEFAULT_HARD_FLUSH_MS;
   const saturationThresholdMs = options.saturationThresholdMs ?? DEFAULT_SATURATION_THRESHOLD_MS;
-  const onError = options.onError ?? (() => {});
+  // Unify on a single ErrorSink (RFC 005). `errorSink` wins; `onError`
+  // is adapted into one for back-compat. When neither is set, errors
+  // are swallowed silently — matches the pre-RFC behavior.
+  const errorSink: ErrorSink =
+    options.errorSink ?? (options.onError ? errorSinkFromCallback(options.onError) : { error: () => {} });
+  /**
+   * Component-stamped sink for the orchestrator's own error sites.
+   * Sub-modules (settings handler, scope attacher) carry their own
+   * stamped wrappers so a single sink can route by component name.
+   */
+  const liveErrorSink: ErrorSink = {
+    error: (err, ctx) => errorSink.error(err, { component: ctx?.component ?? 'LiveUpdates', ...ctx }),
+  };
+  /**
+   * Legacy `(err: Error) => void` shape consumed by sub-modules that
+   * still take the callback form. They each get a component-stamped
+   * variant so the unified sink sees `context.component` regardless
+   * of which subsystem surfaced the error.
+   */
+  const onError = (err: Error): void => liveErrorSink.error(err);
+  const settingsErrorCb = (err: Error): void => errorSink.error(err, { component: 'LiveUpdates.settings' });
+  const scopeErrorCb = (err: Error): void => errorSink.error(err, { component: 'LiveUpdates.scopeAttacher' });
 
   // ── internal state ─────────────────────────────────────────────────────
 
@@ -258,7 +292,7 @@ export function createLiveUpdates(deps: LiveUpdatesDeps, options: LiveUpdatesOpt
   const settingsHandler: SettingsHandler = createSettingsHandler({
     fileService,
     getStore: () => store,
-    onError,
+    onError: settingsErrorCb,
     isRunning: () => running,
   });
 
@@ -268,7 +302,7 @@ export function createLiveUpdates(deps: LiveUpdatesDeps, options: LiveUpdatesOpt
     isRunning: () => running,
     onEvents: (events) => handleWatchEvents(events),
     watcherIgnoreGlobs: WATCHER_IGNORE_GLOBS,
-    onError,
+    onError: scopeErrorCb,
   });
 
   /**
@@ -618,7 +652,7 @@ export function createLiveUpdates(deps: LiveUpdatesDeps, options: LiveUpdatesOpt
             ...(options.idleMaintenance?.checkIntervalMs !== undefined && {
               checkIntervalMs: options.idleMaintenance.checkIntervalMs,
             }),
-            onError,
+            onError: (err) => errorSink.error(err, { component: 'IdleMaintenance' }),
           },
         );
         idleMaintenance.start();

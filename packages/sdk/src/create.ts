@@ -8,6 +8,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { createFileService } from './io/file-service.js';
 import { createSqliteService } from './io/sqlite-service.js';
+import { createConsoleErrorSink, type ErrorSink } from './io/error-sink.js';
 import { createSpaghettiAppService } from './app-service.js';
 import { createClaudeCodeParser } from './parser/claude-code-parser.js';
 import { createQueryService } from './data/query-service.js';
@@ -48,6 +49,15 @@ export interface SpaghettiServiceOptions {
    * lands in Phase 3 via `api.live`.
    */
   live?: boolean;
+  /**
+   * Override the unified error sink (RFC 005). Every internal live
+   * component — `LiveUpdates`, `IdleMaintenance`, `SubscriberRegistry`,
+   * the `events()` `onDrop` swallow — routes through this sink so
+   * callers can install one telemetry pipe without threading multiple
+   * callbacks. Defaults to a console.warn variant prefixed with
+   * `[spaghetti-sdk]`.
+   */
+  errorSink?: ErrorSink;
 }
 
 /**
@@ -61,8 +71,14 @@ export interface SpaghettiServiceOptions {
  *   const projects = spaghetti.getProjectList();
  */
 export function createSpaghettiService(options?: SpaghettiServiceOptions): SpaghettiAPI {
+  // Unified error sink (RFC 005). Defaults to console.warn with the
+  // `[spaghetti-sdk]` prefix the four pre-extraction sites used to
+  // print on their own; callers can swap in their own telemetry pipe
+  // by passing `options.errorSink`.
+  const errorSink = options?.errorSink ?? createConsoleErrorSink('[spaghetti-sdk]');
+
   if (options?.dataService) {
-    return createSpaghettiAppService(options.dataService);
+    return createSpaghettiAppService(options.dataService, errorSink);
   }
 
   // Default wiring: create all services from scratch
@@ -94,7 +110,7 @@ export function createSpaghettiService(options?: SpaghettiServiceOptions): Spagh
   // own `QueryService` once the store owns `open()`/`close()`. Today we
   // pass the same instance into both `ingestService` and the store so
   // all writers + readers share one SQLite connection.
-  const store = createAgentDataStore(queryService);
+  const store = createAgentDataStore(queryService, { errorSink });
 
   const dataServiceOptions: AgentDataServiceOptions = {};
   if (options?.dbPath) dataServiceOptions.dbPath = options.dbPath;
@@ -126,12 +142,11 @@ export function createSpaghettiService(options?: SpaghettiServiceOptions): Spagh
         },
         {
           claudeDir: resolvedClaudeDir,
-          onError: (err) => {
-            // Surface via stderr so misconfiguration isn't silent. The
-            // public surface for wiring this into an app-level error
-            // channel lands in Phase 3 alongside `api.live`.
-            console.warn(`[spaghetti-sdk] LiveUpdates error: ${err.message}`);
-          },
+          // RFC 005: route every internal LiveUpdates error through
+          // the shared sink so log scrapers + telemetry pipes see one
+          // consistent surface across watcher / writer / settings /
+          // scope-attacher / idle-maintenance.
+          errorSink,
         },
       )
     : undefined;
@@ -152,7 +167,7 @@ export function createSpaghettiService(options?: SpaghettiServiceOptions): Spagh
     liveUpdates,
   );
 
-  return createSpaghettiAppService(dataService);
+  return createSpaghettiAppService(dataService, errorSink);
 }
 
 // Re-export the service factories for manual wiring

@@ -24,6 +24,7 @@ import type {
 import type { SessionSummaryData, ProjectSummaryData } from './data/summary-types.js';
 import type { SpaghettiLive } from './live/spaghetti-live.js';
 import { createSpaghettiLive } from './live/spaghetti-live.js';
+import type { ErrorSink } from './io/error-sink.js';
 
 class SpaghettiAppService extends EventEmitter implements SpaghettiAPI {
   private dataService: ClaudeCodeAgentDataService;
@@ -36,7 +37,7 @@ class SpaghettiAppService extends EventEmitter implements SpaghettiAPI {
    */
   readonly live?: SpaghettiLive;
 
-  constructor(dataService: ClaudeCodeAgentDataService) {
+  constructor(dataService: ClaudeCodeAgentDataService, errorSink?: ErrorSink) {
     super();
     this.dataService = dataService;
 
@@ -53,7 +54,7 @@ class SpaghettiAppService extends EventEmitter implements SpaghettiAPI {
     if (getStore && getLiveUpdates) {
       const liveUpdates = getLiveUpdates();
       if (liveUpdates) {
-        this.live = createSpaghettiLive(getStore(), liveUpdates);
+        this.live = createSpaghettiLive(getStore(), liveUpdates, errorSink);
       }
     }
   }
@@ -209,6 +210,9 @@ function toSessionListItem(data: SessionSummaryData): SessionListItem {
   };
 }
 
-export function createSpaghettiAppService(dataService: ClaudeCodeAgentDataService): SpaghettiAPI {
-  return new SpaghettiAppService(dataService);
+export function createSpaghettiAppService(
+  dataService: ClaudeCodeAgentDataService,
+  errorSink?: ErrorSink,
+): SpaghettiAPI {
+  return new SpaghettiAppService(dataService, errorSink);
 }
