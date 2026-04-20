@@ -4,13 +4,16 @@
  * Seventh and final component of RFC 005 Phase 2 (C2.7). Composes the
  * Watcher, CheckpointStore, CoalescingQueue, IncrementalParser, Router,
  * and IngestService.writeBatch into a single end-to-end live-update
- * pipeline keyed on `~/.claude/projects/` and `~/.claude/todos/`.
+ * pipeline keyed on `~/.claude/projects/`, `~/.claude/todos/`, and the
+ * Phase 5 scopes (`tasks/`, `file-history/`, `plans/`, settings).
  *
- * Phase 2 contract: events flow through, SQLite gets updated, but
- * `store.emit()` is still a no-op stub — subscribers don't receive
- * `Change` events until Phase 3 lands `subscriber-registry.ts`. This
- * module is designed so Phase 3 only changes the `store.emit` site,
- * not the pipeline topology.
+ * Two responsibilities are extracted into sibling modules to keep this
+ * file focused on the writer-loop topology:
+ *
+ *   - `settings-handler.ts` owns the settings re-parse / cache refresh
+ *     / `settings.changed` emit path (RFC 005 C5.5).
+ *   - `scope-attacher.ts` owns the ref-counted scope attach/detach
+ *     state machine (RFC 005 C3.2).
  *
  * Flow per event:
  *
@@ -28,8 +31,7 @@ import type { FileService } from '../io/file-service.js';
 import type { SqliteService } from '../io/sqlite-service.js';
 import type { IngestService } from './../data/ingest-service.js';
 import type { AgentDataStore } from './../data/agent-data-store.js';
-import type { Change, ChangeTopic, Dispose } from './change-events.js';
-import type { SettingsFile } from '../types/index.js';
+import type { ChangeTopic, Dispose } from './change-events.js';
 import { createIdleMaintenance, type IdleMaintenance } from '../data/idle-maintenance.js';
 
 import { createCheckpointStore, type Checkpoint, type CheckpointStore } from './checkpoints.js';
@@ -41,13 +43,9 @@ import {
   type ParsedRowCategory,
 } from './incremental-parser.js';
 import { classify, type Category, type RouteResult } from './router.js';
-import {
-  createParcelWatcher,
-  createChokidarWatcher,
-  type Watcher,
-  type WatchEvent,
-  type Unsubscribe,
-} from './watcher.js';
+import { createParcelWatcher, createChokidarWatcher, type Watcher, type WatchEvent } from './watcher.js';
+import { createSettingsHandler, type SettingsHandler } from './settings-handler.js';
+import { createScopeAttacher, topicToScopes, type ScopeAttacher } from './scope-attacher.js';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // PUBLIC TYPES
@@ -163,16 +161,6 @@ const DEFAULT_MAX_BATCH_ROWS = 200;
 const DEFAULT_DEBOUNCE_MS = 30;
 const DEFAULT_HARD_FLUSH_MS = 200;
 const DEFAULT_SATURATION_THRESHOLD_MS = 5000;
-/**
- * Settings-file trailing-edge coalescer (RFC 005 C5.5). Editors often
- * save via write-tmp + rename-over, which surfaces as
- * `delete(settings.json) + create(settings.json)` within a few ms.
- * 150 ms is the shortest window that reliably collapses the pair on
- * macOS APFS + parcel-watcher into a single logical "file changed"
- * event. Separate from `DEBOUNCE_MS` because the append-only JSONL
- * path needs tighter timing.
- */
-const DEFAULT_SETTINGS_DEBOUNCE_MS = 150;
 
 /**
  * Hard-ignore globs handed to the watcher. Mirrors `HARD_IGNORE_SEGMENTS`
@@ -199,10 +187,11 @@ const WATCHER_IGNORE_GLOBS = [
  * Map a router `Category` onto the parser's `ParsedRowCategory`. The
  * two enums match for every live category except `session` (router
  * says "session", parser says "message"), and the router's
- * `settings` / `settings_local` buckets are Phase 5 and skipped here.
+ * `settings` / `settings_local` buckets are handled by the settings
+ * handler outside the writer loop.
  *
- * Returns `null` for categories the Phase 2 pipeline does not yet
- * handle — those events drop on the floor.
+ * Returns `null` for categories the writer-loop pipeline does not
+ * handle directly.
  */
 function routerCategoryToParserCategory(category: Category): ParsedRowCategory | null {
   switch (category) {
@@ -235,79 +224,6 @@ function routerCategoryToParserCategory(category: Category): ParsedRowCategory |
 // FACTORY
 // ═══════════════════════════════════════════════════════════════════════════
 
-/**
- * Canonical string key for a watch scope (a particular `~/.claude/`
- * subtree). A ref-count map is keyed on these so "sessions in slug
- * foo" and "sessions in slug foo, sessionId bar" collapse onto the
- * same projects/-root watcher in Phase 2/3.
- */
-type WatchScopeKey =
-  | 'projects' // projects/**: covers session / subagent / tool-result / project-memory / session-index
-  | 'todos' // todos/** (flat)
-  | 'tasks' // tasks/** (Phase 5)
-  | 'file-history' // file-history/** (Phase 5)
-  | 'plans' // plans/** (Phase 5)
-  | 'settings'; // settings.json + settings.local.json (Phase 5)
-
-/** Per-scope ref-count state. */
-interface ScopeState {
-  /**
-   * Number of live `prewarm` / subscription refs holding this scope.
-   * Attach fires on 0 → 1, detach fires on 1 → 0.
-   */
-  refCount: number;
-  /**
-   * Live `Unsubscribe` handle for the current watcher attach — unset
-   * while the attach is in-flight (pending promise) or the scope is
-   * Phase 5-only. Carries the responsibility of tearing down the
-   * parcel/chokidar subscription when the ref count drops back to 0.
-   */
-  unsubscribe: Unsubscribe | null;
-  /**
-   * In-flight attach promise. Serialised against disposes so a
-   * refcount bounce (0 → 1 → 0) during a slow attach cleanly tears
-   * down once the attach lands.
-   */
-  pending: Promise<void> | null;
-  /**
-   * `true` for scopes whose Phase 2/3 wiring actually attaches a
-   * watcher (projects/, todos/). `false` for scopes whose attachment
-   * defers to Phase 5 — we still track the ref count so callers can
-   * prewarm a future-proof `{ kind: 'task' }` topic today.
-   */
-  attachable: boolean;
-}
-
-/**
- * Map a `ChangeTopic` onto the watch scopes it depends on. Every topic
- * today resolves to exactly one scope, but the return type is an
- * array so a future topic that spans subtrees (e.g. a firehose-ish
- * "all sessions across all projects plus their tool-results") doesn't
- * require a signature change.
- *
- * Note: `project-memory` isn't exposed as a ChangeTopic kind — it's
- * emitted as a lower-level SQLite-only mutation, so there's no
- * caller-facing topic for it. The projects/ scope subsumes it anyway.
- */
-function topicToScopes(topic: ChangeTopic): WatchScopeKey[] {
-  switch (topic.kind) {
-    case 'session':
-    case 'subagent':
-    case 'tool-result':
-      return ['projects'];
-    case 'todo':
-      return ['todos'];
-    case 'task':
-      return ['tasks'];
-    case 'file-history':
-      return ['file-history'];
-    case 'plan':
-      return ['plans'];
-    case 'settings':
-      return ['settings'];
-  }
-}
-
 export function createLiveUpdates(deps: LiveUpdatesDeps, options: LiveUpdatesOptions): LiveUpdates {
   const { fileService, ingestService } = deps;
   let store: AgentDataStore = deps.store;
@@ -337,32 +253,23 @@ export function createLiveUpdates(deps: LiveUpdatesDeps, options: LiveUpdatesOpt
    */
   let idleMaintenance: IdleMaintenance | null = null;
 
-  /** Per-scope ref-count + attachment state (RFC 005 C3.2). */
-  const scopes = new Map<WatchScopeKey, ScopeState>();
+  // ── extracted modules ──────────────────────────────────────────────────
 
-  /**
-   * Which scopes Phase 2/3/5 wires to real watchers. Phase 5 rolled in
-   * `tasks`, `file-history`, `plans`, and `settings`; all six scopes
-   * now attach real watchers on the first ref and detach on the last.
-   */
-  const ATTACHABLE_SCOPES: ReadonlySet<WatchScopeKey> = new Set([
-    'projects',
-    'todos',
-    'tasks',
-    'file-history',
-    'plans',
-    'settings',
-  ]);
+  const settingsHandler: SettingsHandler = createSettingsHandler({
+    fileService,
+    getStore: () => store,
+    onError,
+    isRunning: () => running,
+  });
 
-  /** Subpath under claudeDir for each attachable scope. */
-  const SCOPE_SUBPATH: Record<WatchScopeKey, string> = {
-    projects: 'projects',
-    todos: 'todos',
-    tasks: 'tasks',
-    'file-history': 'file-history',
-    plans: 'plans',
-    settings: '.',
-  };
+  const scopeAttacher: ScopeAttacher = createScopeAttacher({
+    claudeDir,
+    getWatcher: () => watcher,
+    isRunning: () => running,
+    onEvents: (events) => handleWatchEvents(events),
+    watcherIgnoreGlobs: WATCHER_IGNORE_GLOBS,
+    onError,
+  });
 
   /**
    * Per-path trailing-edge debounce for `append` events. On every
@@ -375,14 +282,6 @@ export function createLiveUpdates(deps: LiveUpdatesDeps, options: LiveUpdatesOpt
     hardFlushTimer: ReturnType<typeof setTimeout> | null;
   };
   const debounceByPath = new Map<string, DebounceState>();
-
-  /**
-   * Separate trailing-edge coalescer for settings files (RFC 005 C5.5).
-   * Settings bypass the CoalescingQueue / parser / writeBatch path
-   * entirely — their re-parse + in-memory cache update + `settings.changed`
-   * emit is handled directly on the 150 ms debounce timer below.
-   */
-  const settingsDebounceByPath = new Map<string, ReturnType<typeof setTimeout>>();
 
   /**
    * Per-session `msg_index` high-water mark, so successive `update`
@@ -408,8 +307,7 @@ export function createLiveUpdates(deps: LiveUpdatesDeps, options: LiveUpdatesOpt
       if (state.hardFlushTimer !== null) clearTimeout(state.hardFlushTimer);
     }
     debounceByPath.clear();
-    for (const timer of settingsDebounceByPath.values()) clearTimeout(timer);
-    settingsDebounceByPath.clear();
+    settingsHandler.stop();
   }
 
   function enqueueNow(evtPath: string, reason: QueuedReason): void {
@@ -494,10 +392,11 @@ export function createLiveUpdates(deps: LiveUpdatesDeps, options: LiveUpdatesOpt
 
       // Settings (RFC 005 C5.5) bypass the SQLite path entirely: they
       // re-parse into an in-memory AgentConfig and emit
-      // `settings.changed`. A 150 ms trailing coalescer absorbs the
-      // delete+create flicker common to atomic-rename saves.
+      // `settings.changed`. The handler owns the 150 ms trailing
+      // coalescer that absorbs the delete+create flicker common to
+      // atomic-rename saves.
       if (route.category === 'settings' || route.category === 'settings_local') {
-        scheduleSettingsReparse(event.path, route.category);
+        settingsHandler.handle(event.path, route.category);
         continue;
       }
 
@@ -514,109 +413,6 @@ export function createLiveUpdates(deps: LiveUpdatesDeps, options: LiveUpdatesOpt
         scheduleDebouncedAppend(enqueuePath);
       }
     }
-  }
-
-  // ── settings handling (RFC 005 C5.5) ───────────────────────────────────
-
-  /**
-   * Schedule (or reschedule) a settings re-parse for `absPath`.
-   * Trailing-edge: any fresh event for the same path resets the
-   * timer, so write-tmp + rename-over bursts collapse to a single
-   * parse.
-   */
-  function scheduleSettingsReparse(absPath: string, category: 'settings' | 'settings_local'): void {
-    const existing = settingsDebounceByPath.get(absPath);
-    if (existing !== undefined) clearTimeout(existing);
-    const timer = setTimeout(() => {
-      settingsDebounceByPath.delete(absPath);
-      handleSettingsEvent(absPath, category);
-    }, DEFAULT_SETTINGS_DEBOUNCE_MS);
-    settingsDebounceByPath.set(absPath, timer);
-  }
-
-  /**
-   * Re-parse a settings file, refresh the in-memory AgentConfig on the
-   * store, and emit `settings.changed`. Never throws — corrupt
-   * mid-write JSON is logged via `onError` and discarded, so the next
-   * event retries.
-   *
-   * We read the file ourselves rather than going through
-   * `fileService.readJsonSync` because that helper emits `error` on its
-   * EventEmitter surface when JSON.parse fails, which surfaces as an
-   * unhandled `error` event in processes (like tests) that don't
-   * register a listener on the file service.
-   */
-  function handleSettingsEvent(absPath: string, category: 'settings' | 'settings_local'): void {
-    if (!running) return;
-    let parsed: SettingsFile;
-    try {
-      const content = fileService.readFileSync(absPath);
-      parsed = JSON.parse(content) as SettingsFile;
-    } catch (err) {
-      // Corrupt mid-write / missing / permission denied all land here.
-      // Swallow, surface via onError, let the next event retry.
-      onError(
-        err instanceof Error
-          ? new Error(`[LiveUpdates] failed to parse ${category} at ${absPath}: ${err.message}`)
-          : new Error(`[LiveUpdates] failed to parse ${category} at ${absPath}`),
-      );
-      return;
-    }
-
-    // `settings.json` populates AgentConfig.settings. If the store
-    // hasn't been seeded by cold-start yet (unit-test flow, or a
-    // live-only consumer), build a minimal AgentConfig so the new
-    // settings are queryable via `getConfig()` immediately.
-    // `settings.local.json` has no cold-start slot yet (see
-    // PARSER-UNPARSED-DATA.md §1.5); for now we emit the event with
-    // the parsed payload and leave the store cache alone — consumers
-    // still get the live data through the event. Extending
-    // AgentConfig with a `settingsLocal` field is a follow-up RFC.
-    if (category === 'settings') {
-      try {
-        const current = store.hasConfig() ? store.getConfig() : buildEmptyAgentConfig();
-        store.setConfig({ ...current, settings: parsed });
-      } catch (err) {
-        onError(err instanceof Error ? err : new Error(String(err)));
-      }
-    }
-
-    const change: Change = {
-      type: 'settings.changed',
-      seq: 0, // store.emit() stamps the real value
-      ts: Date.now(),
-      file: category === 'settings' ? 'settings' : 'settings.local',
-      settings: parsed,
-    };
-    try {
-      store.emit(change);
-    } catch (err) {
-      onError(err instanceof Error ? err : new Error(String(err)));
-    }
-  }
-
-  /**
-   * Minimal `AgentConfig` shape used as a seed when settings live-update
-   * lands before any cold-start has populated the store. Mirrors
-   * `ConfigParserImpl.empty()` in `parser/config-parser.ts` — kept
-   * inline to avoid a runtime dep from live/ into parser/.
-   */
-  function buildEmptyAgentConfig() {
-    return {
-      settings: { permissions: { allow: [] as string[] } },
-      plugins: {
-        installedPlugins: { version: 2 as const, plugins: {} },
-        knownMarketplaces: {},
-        installCountsCache: { version: 1 as const, fetchedAt: '', counts: [] },
-        cache: [],
-        marketplaces: [],
-      },
-      statsig: {},
-      ide: { lockFiles: [] },
-      shellSnapshots: { snapshots: [] },
-      cache: {},
-      statusLineCommand: null,
-    } as unknown as ReturnType<AgentDataStore['getConfig']>;
   }
 
   // ── writer loop ────────────────────────────────────────────────────────
@@ -647,8 +443,8 @@ export function createLiveUpdates(deps: LiveUpdatesDeps, options: LiveUpdatesOpt
 
     // Delete is side-effect-only; surface via dropPath so the writer
     // loop can tear state down after any in-flight batch settles.
-    // Phase 5 may promote this to a `session.rewritten` emit; today it's
-    // purely local cleanup.
+    // TODO(future): promote this to a `session.rewritten` emit; today
+    // it's purely local cleanup.
     if (reason === 'delete') {
       return { ...empty, dropPath: evtPath };
     }
@@ -771,104 +567,6 @@ export function createLiveUpdates(deps: LiveUpdatesDeps, options: LiveUpdatesOpt
     }
   }
 
-  // ── scope ref-count + attach/detach ────────────────────────────────────
-
-  function getOrCreateScope(scope: WatchScopeKey): ScopeState {
-    let state = scopes.get(scope);
-    if (!state) {
-      state = {
-        refCount: 0,
-        unsubscribe: null,
-        pending: null,
-        attachable: ATTACHABLE_SCOPES.has(scope),
-      };
-      scopes.set(scope, state);
-    }
-    return state;
-  }
-
-  async function attachScope(scope: WatchScopeKey, state: ScopeState): Promise<void> {
-    if (!watcher || !state.attachable) return;
-    const subPath = SCOPE_SUBPATH[scope];
-    const fullPath = path.join(claudeDir, subPath);
-    // Settings watches claudeDir itself non-recursively — recursive
-    // would pull the entire tree in and defeat the point of the rest
-    // of the lazy-attach system. All other scopes are isolated
-    // subtrees that want recursion.
-    const recursive = scope !== 'settings';
-    try {
-      const unsub = await watcher.subscribe(fullPath, handleWatchEvents, {
-        ignore: WATCHER_IGNORE_GLOBS,
-        recursive,
-      });
-      // If the refcount dropped back to zero during the attach
-      // (prewarm + dispose raced faster than parcel could bind), tear
-      // down immediately instead of retaining a watcher nobody wants.
-      if (state.refCount === 0) {
-        try {
-          await unsub();
-        } catch {
-          /* best-effort */
-        }
-        return;
-      }
-      state.unsubscribe = unsub;
-    } catch (err) {
-      onError(
-        err instanceof Error
-          ? new Error(`[LiveUpdates] failed to attach watcher on ${scope}/ (${fullPath}): ${err.message}`)
-          : new Error(`[LiveUpdates] failed to attach watcher on ${scope}/ (${fullPath}): ${String(err)}`),
-      );
-    }
-  }
-
-  async function detachScope(state: ScopeState): Promise<void> {
-    const unsub = state.unsubscribe;
-    state.unsubscribe = null;
-    if (unsub) {
-      try {
-        await unsub();
-      } catch {
-        /* best-effort — watcher may already be torn down */
-      }
-    }
-  }
-
-  /**
-   * Bump the ref count for one scope. On 0 → 1 we kick off an attach;
-   * the promise is stored on the scope state so `stop()` and the
-   * dispose path can serialise against in-flight attaches.
-   */
-  function acquireScope(scope: WatchScopeKey): void {
-    const state = getOrCreateScope(scope);
-    state.refCount += 1;
-    if (state.refCount !== 1) return;
-    if (!state.attachable) return; // Phase 5: just track the ref.
-    if (!running || !watcher) return; // start() will attach on its own.
-    const pending = attachScope(scope, state).finally(() => {
-      if (state.pending === pending) state.pending = null;
-    });
-    state.pending = pending;
-  }
-
-  /**
-   * Drop one ref from a scope. On 1 → 0 we detach. Runs async (we
-   * return the detach promise via a fire-and-forget pattern — the
-   * caller keeps using the sync `Dispose` handle; `stop()` separately
-   * awaits any remaining work).
-   */
-  function releaseScope(scope: WatchScopeKey): void {
-    const state = scopes.get(scope);
-    if (!state || state.refCount <= 0) return;
-    state.refCount -= 1;
-    if (state.refCount !== 0) return;
-    if (!state.attachable) return;
-    // If a pending attach is still in flight, let it see refCount=0
-    // and tear itself down. Otherwise detach right now.
-    if (state.pending) return;
-    void detachScope(state);
-  }
-
   // ── public surface ─────────────────────────────────────────────────────
 
   return {
@@ -934,14 +632,7 @@ export function createLiveUpdates(deps: LiveUpdatesDeps, options: LiveUpdatesOpt
       // If any scopes were prewarm()'d before start() resolved
       // (exotic, but legal — we accept bumps at any time), bring them
       // online now.
-      for (const [scope, state] of scopes) {
-        if (state.attachable && state.refCount > 0 && !state.unsubscribe && !state.pending) {
-          const pending = attachScope(scope, state).finally(() => {
-            if (state.pending === pending) state.pending = null;
-          });
-          state.pending = pending;
-        }
-      }
+      scopeAttacher.attachPending();
     },
 
     async stop(): Promise<void> {
@@ -955,22 +646,9 @@ export function createLiveUpdates(deps: LiveUpdatesDeps, options: LiveUpdatesOpt
         idleMaintenance = null;
       }
 
-      // Let any in-flight attaches resolve (so their unsub handles
-      // land on state.unsubscribe), then detach every scope. This is
-      // the C3.2 equivalent of the old `unsubscribes[]` teardown.
-      const pendings = Array.from(scopes.values())
-        .map((s) => s.pending)
-        .filter((p): p is Promise<void> => p !== null);
-      if (pendings.length > 0) {
-        try {
-          await Promise.all(pendings);
-        } catch {
-          /* errors already routed via onError during attach */
-        }
-      }
-      for (const state of scopes.values()) {
-        await detachScope(state);
-      }
+      // Detach every scope (awaits any in-flight attach so unsub
+      // handles land before we drop the watcher reference).
+      await scopeAttacher.detachAll();
       // Leave the ref-count entries in place — callers can re-acquire
       // after a re-start. Just drop the watcher handle.
       watcher = null;
@@ -1015,12 +693,12 @@ export function createLiveUpdates(deps: LiveUpdatesDeps, options: LiveUpdatesOpt
 
     prewarm(topic: ChangeTopic): Dispose {
       const acquired = topicToScopes(topic);
-      for (const scope of acquired) acquireScope(scope);
+      for (const scope of acquired) scopeAttacher.acquire(scope);
       let disposed = false;
       return () => {
         if (disposed) return;
         disposed = true;
-        for (const scope of acquired) releaseScope(scope);
+        for (const scope of acquired) scopeAttacher.release(scope);
       };
     },
 
@@ -1028,6 +706,8 @@ export function createLiveUpdates(deps: LiveUpdatesDeps, options: LiveUpdatesOpt
       // Retain a reference. The writer loop closes over `store` via
       // the enclosing `let`, so reassignment here is all that's
       // needed for future emits to go through the attached store.
+      // The settings handler reads the same `store` via the
+      // `getStore` dep so it picks up the swap automatically.
       store = next;
     },
   };
