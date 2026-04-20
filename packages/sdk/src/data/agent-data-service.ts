@@ -875,7 +875,7 @@ export class AgentDataServiceImpl extends EventEmitter implements ClaudeCodeAgen
    */
   private hasProjectsWithMissingMessages(): boolean {
     try {
-      const summaries = this.queryService.getProjectSummaries();
+      const summaries = this.store.getProjectSummaries();
       for (const summary of summaries) {
         if (summary.sessionCount > 0 && summary.messageCount === 0) {
           // Verify there are actually JSONL files on disk for this project
@@ -981,11 +981,11 @@ export class AgentDataServiceImpl extends EventEmitter implements ClaudeCodeAgen
   }
 
   // ─────────────────────────────────────────────────────────────────────────
-  // Project queries (delegate to QueryService)
+  // Project queries (delegate to AgentDataStore)
   // ─────────────────────────────────────────────────────────────────────────
 
   getProjectSlugs(): string[] {
-    return this.queryService.getProjectSlugs();
+    return this.store.getProjectSlugs();
   }
 
   getProject(_slug: string): Segment<Project> | null {
@@ -1005,9 +1005,13 @@ export class AgentDataServiceImpl extends EventEmitter implements ClaudeCodeAgen
     limit: number,
     offset: number,
   ): PaginatedSegmentResult<SessionMessage> {
-    const result = this.queryService.getSessionMessages(slug, sessionId, limit, offset);
+    const result = this.store.getSessionMessages(slug, sessionId, limit, offset);
 
-    // Wrap in Segment<SessionMessage> for backward compat with app-service
+    // Wrap in Segment<SessionMessage> for backward compat with app-service.
+    // The store returns the raw `{ messages, total, ... }` shape; the
+    // segment wrapper lives here because it's a presentation concern
+    // tied to the public `PaginatedSegmentResult<SessionMessage>`
+    // contract, not to how data is fetched.
     const segments: Segment<SessionMessage>[] = result.messages.map((msg, i) => ({
       key: `message:${slug}/${sessionId}/${offset + i}`,
       type: 'message' as SegmentType,
@@ -1050,46 +1054,46 @@ export class AgentDataServiceImpl extends EventEmitter implements ClaudeCodeAgen
   }
 
   // ─────────────────────────────────────────────────────────────────────────
-  // Summaries (delegate to QueryService — SQL aggregation)
+  // Summaries (delegate to AgentDataStore — SQL aggregation underneath)
   // ─────────────────────────────────────────────────────────────────────────
 
   getProjectSummaries(): ProjectSummaryData[] {
-    return this.queryService.getProjectSummaries();
+    return this.store.getProjectSummaries();
   }
 
   getSessionSummaries(projectSlug: string): SessionSummaryData[] {
-    return this.queryService.getSessionSummaries(projectSlug);
+    return this.store.getSessionSummaries(projectSlug);
   }
 
   // ─────────────────────────────────────────────────────────────────────────
-  // Detail queries
+  // Detail queries (delegate to AgentDataStore)
   // ─────────────────────────────────────────────────────────────────────────
 
   getProjectMemory(slug: string): string | null {
-    return this.queryService.getProjectMemory(slug);
+    return this.store.getProjectMemory(slug);
   }
 
   getSessionTodos(slug: string, sessionId: string): unknown[] {
-    return this.queryService.getSessionTodos(slug, sessionId);
+    return this.store.getSessionTodos(slug, sessionId);
   }
 
   getSessionPlan(slug: string, sessionId: string): unknown | null {
-    return this.queryService.getSessionPlan(slug, sessionId);
+    return this.store.getSessionPlan(slug, sessionId);
   }
 
   getSessionTask(slug: string, sessionId: string): unknown | null {
-    return this.queryService.getSessionTask(slug, sessionId);
+    return this.store.getSessionTask(slug, sessionId);
   }
 
   getPersistedToolResult(slug: string, sessionId: string, toolUseId: string): string | null {
-    return this.queryService.getToolResult(slug, sessionId, toolUseId);
+    return this.store.getToolResult(slug, sessionId, toolUseId);
   }
 
   getSessionSubagents(
     slug: string,
     sessionId: string,
   ): Array<{ agentId: string; agentType: string; messageCount: number }> {
-    return this.queryService.getSessionSubagents(slug, sessionId);
+    return this.store.getSessionSubagents(slug, sessionId);
   }
 
   getSubagentMessages(
@@ -1099,7 +1103,7 @@ export class AgentDataServiceImpl extends EventEmitter implements ClaudeCodeAgen
     limit: number,
     offset: number,
   ): PaginatedSegmentResult<SessionMessage> {
-    const result = this.queryService.getSubagentMessages(slug, sessionId, agentId, limit, offset);
+    const result = this.store.getSubagentMessages(slug, sessionId, agentId, limit, offset);
 
     const segments: Segment<SessionMessage>[] = result.messages.map((msg, i) => ({
       key: `subagent:${slug}/${sessionId}/${agentId}/${offset + i}`,
@@ -1118,11 +1122,11 @@ export class AgentDataServiceImpl extends EventEmitter implements ClaudeCodeAgen
   }
 
   // ─────────────────────────────────────────────────────────────────────────
-  // Search
+  // Search (delegate to AgentDataStore)
   // ─────────────────────────────────────────────────────────────────────────
 
   search(query: SearchQuery): SearchResultSet {
-    return this.queryService.search(query);
+    return this.store.search(query);
   }
 
   // ─────────────────────────────────────────────────────────────────────────
