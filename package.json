@@ -3,7 +3,7 @@
   "version": "0.5.12",
   "private": true,
   "type": "module",
-  "description": "Untangle your Claude Code history — browse, search, and analyze all your conversations from the terminal",
+  "description": "Local-first Claude Code explorer for searching sessions, browsing agent artifacts, and querying your history from the terminal",
   "license": "MIT",
   "author": "James Yong",
   "repository": {
