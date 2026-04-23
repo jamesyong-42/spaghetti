@@ -63,6 +63,15 @@ export interface IngestService extends ProjectParseSink {
    * `seq = 0` as a placeholder — the store (`AgentDataStore.emit`)
    * owns the monotonic `seq` counter and overwrites it on emit. See
    * RFC 005 §Event sequence numbering and C3.1 for the rationale.
+   *
+   * **Not safe to call concurrently on the same instance.** The
+   * underlying `better-sqlite3` handle is synchronous and `writeBatch`
+   * manages transaction state via a boolean flag on the impl; two
+   * overlapping calls would silently nest and the outer one could
+   * persist rows outside the transaction opened by the inner. The
+   * live-update writer loop in `LiveUpdates` awaits each call
+   * serially, which is the only production caller today — external
+   * consumers must do the same.
    */
   writeBatch(rows: ParsedRow[]): Promise<WriteResult>;
 
@@ -1040,8 +1049,15 @@ const ROW_HANDLERS: RowHandlers = {
   file_history: handler<'file_history'>({
     apply: (r, c) => c.onFileHistory(r.sessionId, r.history),
     toChange: (r, ts) => {
-      // Only fan out when there is at least one snapshot — empty
-      // arrays would surface a malformed `file-history.added` event.
+      // `apply` persists every snapshot in the ParsedRow to SQLite,
+      // but this `toChange` emits only ONE `file-history.added` event
+      // — for `snapshots[0]`. Multi-snapshot rows (produced by
+      // cold-start / rewrite re-ingest) therefore surface a single
+      // event referencing the first snapshot; the other snapshots
+      // are persisted silently. This matches pre-dispatch-table
+      // behavior and the common case from live-tail (one snapshot
+      // per ParsedRow). Fanning out one event per snapshot is a
+      // follow-up when consumers need per-snapshot granularity.
       const snap = r.history.snapshots[0];
       if (!snap) return null;
       return {
