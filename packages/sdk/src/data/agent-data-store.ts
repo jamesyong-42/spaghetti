@@ -149,6 +149,16 @@ export interface AgentDataStore {
    * Useful for tests + instrumentation; never persisted.
    */
   lastEmittedSeq(): number;
+
+  /**
+   * Tear down the underlying subscriber registry — clears pending
+   * throttle timers and marks straggling entries as no-ops. Optional
+   * because not every store implementation owns a registry; the
+   * default `AgentDataStoreImpl` always provides it. Called by
+   * `LifecycleOwner.shutdownAsync()` after `liveUpdates.stop()` so no
+   * more events can race a half-disposed registry.
+   */
+  disposeRegistry?(): void;
 }
 
 /**
@@ -349,11 +359,10 @@ export class AgentDataStoreImpl implements AgentDataStore {
   }
 
   /**
-   * Tear down the subscriber registry. Not part of `AgentDataStore` —
-   * only the lifecycle owner needs to call this on shutdown so
-   * straggling listeners stop receiving events. Kept on the concrete
-   * class so callers must reach through a typed handle (no public
-   * escape hatch on the interface).
+   * Tear down the subscriber registry. Declared optional on
+   * `AgentDataStore` so alternative implementations without a
+   * registry can omit it; `LifecycleOwner.shutdownAsync()` calls it
+   * after stopping the live pipeline.
    */
   disposeRegistry(): void {
     this.registry.dispose();
