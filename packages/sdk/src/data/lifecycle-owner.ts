@@ -687,11 +687,18 @@ export class LifecycleOwner extends EventEmitter implements ClaudeCodeAgentDataS
     // appended new messages), do incremental parsing instead of full re-parse.
     // We also handle new files by doing a full parse of just those sessions.
     if (changedFiles.length === 0 && removedFiles.length === 0) {
-      // Only grown + new files — incremental warm start
-      const totalFiles = grownFiles.length + newFiles.length;
+      // Dedupe new JSONL files by project slug — `parseProjectStreaming`
+      // walks a whole project slug at once (sessions-index + all
+      // sessions + memory + subagents + tool-results), so if a new
+      // project has three new JSONL files we only need ONE call per
+      // slug, not three. The writer is upsert-by-PK so running it
+      // against a partially-populated project (e.g. existing project,
+      // one new session) is idempotent.
+      const newProjectSlugs = this.collectNewProjectSlugs(newFiles);
+      const totalFiles = grownFiles.length + newProjectSlugs.length;
       this.emitProgress(
         'parsing',
-        `Incremental update: ${grownFiles.length} grown, ${newFiles.length} new files...`,
+        `Incremental update: ${grownFiles.length} grown files, ${newProjectSlugs.length} new projects...`,
         0,
         totalFiles,
       );
@@ -707,11 +714,17 @@ export class LifecycleOwner extends EventEmitter implements ClaudeCodeAgentDataS
           this.emitProgress('parsing', `Incremental: ${path.basename(gf.path)}`, processed, totalFiles);
         }
 
-        // Fully parse new files (these are sessions we haven't seen before)
-        for (const filePath of newFiles) {
-          this.fullParseNewJsonl(filePath);
+        // New JSONL files get the full parser pass per project slug so
+        // `onProject` + `onSession` + `onMessage` all land. The previous
+        // path (`fullParseNewJsonl`) only emitted `onMessage`, leaving
+        // orphaned rows with no `projects`/`sessions` parent — projects
+        // never appeared in the UI even though their messages were
+        // ingested.
+        for (const slug of newProjectSlugs) {
+          this.parser.parseProjectStreaming(this.claudeDir, slug, this.ingestService);
+          this.ingestService.onProjectComplete(slug);
           processed++;
-          this.emitProgress('parsing', `New: ${path.basename(filePath)}`, processed, totalFiles);
+          this.emitProgress('parsing', `New: ${slug}`, processed, totalFiles);
         }
 
         this.ingestService.commitTransaction();
@@ -759,8 +772,16 @@ export class LifecycleOwner extends EventEmitter implements ClaudeCodeAgentDataS
       for (const gf of grownFiles) {
         this.incrementalParseJsonl(gf.path, gf.oldBytePosition);
       }
-      for (const filePath of newFiles) {
-        this.fullParseNewJsonl(filePath);
+      // New JSONL files: parse per unique project slug via the full
+      // parser so new projects get their `projects` + `sessions` rows
+      // (`fullParseNewJsonl` only wrote `messages` and left the parent
+      // rows missing). Skip slugs already covered by `affectedSlugs`
+      // above — those just got a full re-parse.
+      const affected = new Set(affectedSlugs);
+      const newProjectSlugs = this.collectNewProjectSlugs(newFiles).filter((s) => !affected.has(s));
+      for (const slug of newProjectSlugs) {
+        this.parser.parseProjectStreaming(this.claudeDir, slug, this.ingestService);
+        this.ingestService.onProjectComplete(slug);
       }
 
       this.ingestService.commitTransaction();
@@ -873,32 +894,23 @@ export class LifecycleOwner extends EventEmitter implements ClaudeCodeAgentDataS
   }
 
   /**
-   * Fully parse a new JSONL file that we haven't seen before.
+   * Collect unique project slugs from a list of new-JSONL paths.
+   *
+   * Used by the incremental warm-start path to route new files through
+   * `parser.parseProjectStreaming(slug)` once per project instead of
+   * per file — that full-project pass emits `onProject` + `onSession`
+   * + `onMessage` in one go, which is what brand-new projects need
+   * (and is a no-op upsert for existing ones). The previous per-file
+   * path (`fullParseNewJsonl`) only emitted `onMessage`, leaving the
+   * `projects` and `sessions` rows missing — invisible in the UI.
    */
-  private fullParseNewJsonl(filePath: string): void {
-    const info = this.extractProjectInfo(filePath);
-    if (!info) return;
-    const { slug, sessionId } = info;
-
-    let messageCount = 0;
-    let lastBytePosition = 0;
-    try {
-      const streamResult = this.fileService.readJsonlStreaming<SessionMessage>(
-        filePath,
-        (message, index, byteOffset) => {
-          this.ingestService.onMessage(slug, sessionId, message, index, byteOffset);
-          messageCount++;
-          lastBytePosition = byteOffset;
-        },
-      );
-      lastBytePosition = streamResult.finalBytePosition;
-    } catch {
-      // File read failed — skip
+  private collectNewProjectSlugs(newFiles: string[]): string[] {
+    const slugs = new Set<string>();
+    for (const filePath of newFiles) {
+      const info = this.extractProjectInfo(filePath);
+      if (info) slugs.add(info.slug);
     }
-
-    if (messageCount > 0) {
-      this.ingestService.onSessionComplete(slug, sessionId, messageCount, lastBytePosition);
-    }
+    return [...slugs];
   }
 
   /**
