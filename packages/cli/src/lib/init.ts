@@ -93,7 +93,7 @@ export async function initService(opts?: InitOptions): Promise<SpaghettiAPI> {
     dbPath: opts?.dbPath,
   });
 
-  _service = service;
+  registerService(service);
 
   const showProgress = !opts?.silent && isTTY();
   const progress = new ProgressDisplay(showProgress);
@@ -120,9 +120,38 @@ export async function initService(opts?: InitOptions): Promise<SpaghettiAPI> {
   return service;
 }
 
+/**
+ * Register an externally-constructed service (e.g. the TUI in `bin.ts`)
+ * so it participates in `disposeService()` / `shutdownService()`. The
+ * SIGINT handler can then tear down the live pipeline cleanly without
+ * needing every entry point to wire up its own signal handler.
+ *
+ * Replaces any previously-registered service — only one is tracked at
+ * a time, matching the single-service-per-process assumption baked
+ * into `_service` since the file's inception.
+ */
+export function registerService(service: SpaghettiAPI): void {
+  _service = service;
+}
+
 export function shutdownService(): void {
   if (_service) {
     _service.shutdown();
     _service = null;
+  }
+}
+
+/**
+ * Awaitable teardown — preferred over `shutdownService()` whenever the
+ * caller can `await`. Routes through `SpaghettiAPI.dispose()` so the
+ * live pipeline stops, the writer loop drains, and SQLite closes in
+ * the right order. SIGINT in `bin.ts` calls this before
+ * `process.exit` so checkpoint state is never lost on Ctrl-C.
+ */
+export async function disposeService(): Promise<void> {
+  if (_service) {
+    const svc = _service;
+    _service = null;
+    await svc.dispose();
   }
 }
