@@ -22,6 +22,13 @@ export interface QueryService {
   getProjectSlugs(): string[];
   getProjectSummaries(): ProjectSummaryData[];
   getSessionSummaries(projectSlug: string): SessionSummaryData[];
+  /**
+   * Distinct `project_slug` values present in `messages` but absent
+   * from `projects`. Used by warm-start recovery to detect orphaned
+   * rows left behind by older code paths that emitted messages
+   * without their parent `projects`/`sessions` rows.
+   */
+  getOrphanedMessageProjectSlugs(): string[];
 
   // Messages (paginated)
   getSessionMessages(
@@ -194,6 +201,16 @@ class QueryServiceImpl implements QueryService {
   getProjectSlugs(): string[] {
     const rows = this.db.all<ProjectSlugRow>('SELECT slug FROM projects ORDER BY slug');
     return rows.map((r) => r.slug);
+  }
+
+  getOrphanedMessageProjectSlugs(): string[] {
+    const rows = this.db.all<{ project_slug: string }>(
+      `SELECT DISTINCT m.project_slug
+         FROM messages m
+         LEFT JOIN projects p ON m.project_slug = p.slug
+        WHERE p.slug IS NULL`,
+    );
+    return rows.map((r) => r.project_slug);
   }
 
   getProjectSummaries(): ProjectSummaryData[] {

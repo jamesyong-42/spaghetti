@@ -665,9 +665,23 @@ export class LifecycleOwner extends EventEmitter implements ClaudeCodeAgentDataS
     // messages.  This happens when a previous cold start silently failed
     // to parse JSONL files (e.g. stale sessions-index.json).  If we find
     // any, force a full re-parse to recover the lost data.
+    //
+    // Separate recovery check: detect ORPHANED message rows — messages
+    // whose `project_slug` has no matching row in `projects`. That
+    // shape was created by the pre-fix `fullParseNewJsonl` (now
+    // removed) which emitted `onMessage` without `onProject` /
+    // `onSession`. Those orphans need a targeted `parseProjectStreaming`
+    // per slug to materialise the missing parent rows. We treat them
+    // like `newFiles` so they flow through the incremental path
+    // alongside legitimately new projects.
+    const orphanedSlugs = this.detectOrphanedProjectSlugs();
     let needsRecovery = false;
     const hasNoChanges =
-      changedFiles.length === 0 && removedFiles.length === 0 && grownFiles.length === 0 && newFiles.length === 0;
+      changedFiles.length === 0 &&
+      removedFiles.length === 0 &&
+      grownFiles.length === 0 &&
+      newFiles.length === 0 &&
+      orphanedSlugs.length === 0;
     if (hasNoChanges) {
       needsRecovery = this.hasProjectsWithMissingMessages();
       if (!needsRecovery) {
@@ -683,6 +697,13 @@ export class LifecycleOwner extends EventEmitter implements ClaudeCodeAgentDataS
       return;
     }
 
+    if (orphanedSlugs.length > 0) {
+      this.emitProgress(
+        'reconciling',
+        `Recovering ${orphanedSlugs.length} project(s) with orphaned messages (no parent project row)...`,
+      );
+    }
+
     // If only JSONL files grew (most common warm-start scenario: active session
     // appended new messages), do incremental parsing instead of full re-parse.
     // We also handle new files by doing a full parse of just those sessions.
@@ -693,8 +714,10 @@ export class LifecycleOwner extends EventEmitter implements ClaudeCodeAgentDataS
       // project has three new JSONL files we only need ONE call per
       // slug, not three. The writer is upsert-by-PK so running it
       // against a partially-populated project (e.g. existing project,
-      // one new session) is idempotent.
-      const newProjectSlugs = this.collectNewProjectSlugs(newFiles);
+      // one new session) is idempotent. Orphaned slugs (messages with
+      // no parent `projects` row) ride the same path — one pass
+      // materialises their missing parent + session rows.
+      const newProjectSlugs = [...new Set([...this.collectNewProjectSlugs(newFiles), ...orphanedSlugs])];
       const totalFiles = grownFiles.length + newProjectSlugs.length;
       this.emitProgress(
         'parsing',
@@ -772,13 +795,15 @@ export class LifecycleOwner extends EventEmitter implements ClaudeCodeAgentDataS
       for (const gf of grownFiles) {
         this.incrementalParseJsonl(gf.path, gf.oldBytePosition);
       }
-      // New JSONL files: parse per unique project slug via the full
-      // parser so new projects get their `projects` + `sessions` rows
-      // (`fullParseNewJsonl` only wrote `messages` and left the parent
-      // rows missing). Skip slugs already covered by `affectedSlugs`
-      // above — those just got a full re-parse.
+      // New JSONL files + orphaned slugs: parse per unique project
+      // slug via the full parser so new projects get their `projects`
+      // + `sessions` rows (`fullParseNewJsonl` only wrote `messages`
+      // and left the parent rows missing). Skip slugs already covered
+      // by `affectedSlugs` above — those just got a full re-parse.
       const affected = new Set(affectedSlugs);
-      const newProjectSlugs = this.collectNewProjectSlugs(newFiles).filter((s) => !affected.has(s));
+      const newProjectSlugs = [...new Set([...this.collectNewProjectSlugs(newFiles), ...orphanedSlugs])].filter(
+        (s) => !affected.has(s),
+      );
       for (const slug of newProjectSlugs) {
         this.parser.parseProjectStreaming(this.claudeDir, slug, this.ingestService);
         this.ingestService.onProjectComplete(slug);
@@ -890,6 +915,29 @@ export class LifecycleOwner extends EventEmitter implements ClaudeCodeAgentDataS
           bytePosition: stats.size,
         });
       }
+    }
+  }
+
+  /**
+   * Return project slugs that have rows in `messages` but no row in
+   * `projects`. This shape was left behind by the pre-fix
+   * `fullParseNewJsonl` path (which emitted `onMessage` without
+   * `onProject`/`onSession`) — the messages exist but the parent row
+   * needed by `getProjectSummaries()` is missing, so the project is
+   * invisible in the UI. The warm-start path treats each orphan slug
+   * like a new project and re-runs `parseProjectStreaming` to
+   * materialise the missing parent rows (upsert on hit, create on
+   * miss, idempotent either way).
+   *
+   * Cheap probe via a single LEFT JOIN on the indexed slug columns —
+   * runs every warm-start, returns `[]` once historical orphans have
+   * been healed.
+   */
+  private detectOrphanedProjectSlugs(): string[] {
+    try {
+      return this.queryService.getOrphanedMessageProjectSlugs();
+    } catch {
+      return [];
     }
   }
 
