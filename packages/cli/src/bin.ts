@@ -39,12 +39,29 @@ async function main(): Promise<void> {
       const { Shell } = await import('./views/shell.js');
       const { createSpaghettiService } = await import('@vibecook/spaghetti-sdk');
 
+      // Enter the alternate screen BEFORE Ink's first render. If we
+      // let Shell's `useAlternateScreen` hook do it via useEffect, the
+      // first-paint output lands on the main screen and the alt-screen
+      // switch-over wipes it — producing a blank canvas until the next
+      // state update (often after warm-start completes, i.e. never on
+      // a fast machine). Restore on exit via the handler below.
+      process.stdout.write('\x1b[?1049h');
+      const leaveAlt = (): void => {
+        try {
+          process.stdout.write('\x1b[?1049l');
+        } catch {
+          // stdout may already be closed on abrupt exit
+        }
+      };
+      process.on('exit', leaveAlt);
+
       const service = createSpaghettiService();
       // Don't initialize here — let Shell handle it with BootView
       const { waitUntilExit } = render(React.createElement(Shell, { api: service }), { exitOnCtrlC: true });
 
       await waitUntilExit();
       service.shutdown();
+      leaveAlt();
       return;
     } else {
       // Piped: output summary JSON

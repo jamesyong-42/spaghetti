@@ -122,14 +122,18 @@ export function useTerminalSize(): { cols: number; rows: number } {
 // ─── useAlternateScreen ────────────────────────────────────────────────
 
 /**
- * Enters the terminal alternate screen buffer on mount, restores on unmount.
- * This gives a clean canvas (like vim/htop) that prevents residual characters.
+ * Alternate-screen management moved to `bin.ts` so the terminal switches
+ * into the alt buffer BEFORE Ink's first render. When we owned it here
+ * via `useEffect`, the boot-view's first paint landed on the main screen
+ * and the subsequent alt-screen switch produced a blank canvas until the
+ * next state change — invisible on fast warm-starts where initialize()
+ * completed before any further render fired.
+ *
+ * Kept as a no-op hook so call-sites don't need to change. `bin.ts`
+ * registers a `process.on('exit')` handler to restore the main screen.
  */
 export function useAlternateScreen(): void {
   useEffect(() => {
-    process.stdout.write('\x1b[?1049h'); // enter alt screen
-    return () => {
-      process.stdout.write('\x1b[?1049l'); // leave alt screen
-    };
+    // intentional no-op; see JSDoc above
   }, []);
 }
