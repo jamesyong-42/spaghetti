@@ -82,7 +82,7 @@ export class ProjectParserImpl implements ProjectParser {
 
     try {
       const projectPaths = this.fileService.scanDirectorySync(projectsDir, {
-        includeDirectories: true,
+        directoriesOnly: true,
       });
 
       for (const projectPath of projectPaths) {
@@ -112,7 +112,7 @@ export class ProjectParserImpl implements ProjectParser {
 
     try {
       const projectPaths = this.fileService.scanDirectorySync(projectsDir, {
-        includeDirectories: true,
+        directoriesOnly: true,
       });
 
       for (const projectPath of projectPaths) {

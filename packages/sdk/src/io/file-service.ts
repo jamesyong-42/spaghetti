@@ -69,6 +69,8 @@ export interface ScanOptions {
   pattern?: string;
   recursive?: boolean;
   includeDirectories?: boolean;
+  /** Return directories only — skips stray files like .DS_Store. Implies includeDirectories. */
+  directoriesOnly?: boolean;
   maxDepth?: number;
 }
 
@@ -462,7 +464,7 @@ export class FileServiceImpl extends EventEmitter implements FileService {
       const fullPath = join(path, entry.name);
 
       if (entry.isDirectory()) {
-        if (options?.includeDirectories) {
+        if (options?.includeDirectories || options?.directoriesOnly) {
           if (!options.pattern || this.matchPattern(entry.name, options.pattern)) {
             results.push(fullPath);
           }
@@ -470,7 +472,7 @@ export class FileServiceImpl extends EventEmitter implements FileService {
         if (options?.recursive) {
           results.push(...this.scanDirectorySync(fullPath, options, currentDepth + 1));
         }
-      } else {
+      } else if (!options?.directoriesOnly) {
         if (!options?.pattern || this.matchPattern(entry.name, options.pattern)) {
           results.push(fullPath);
         }

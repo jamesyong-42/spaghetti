@@ -124,7 +124,9 @@ function buildFilterChips(filters: FilterState): string {
 // ─── Line builders (item → terminal rows as strings) ──────────────────
 
 function buildAccentBar(cols: number, color: number): string {
-  return `${fg256(color)}${'\u2500'.repeat(cols)}${RESET}`;
+  // Zero-width panes (headless ptys, extreme resizes) report cols <= 0;
+  // String.repeat throws on negative counts.
+  return `${fg256(color)}${'\u2500'.repeat(Math.max(0, cols))}${RESET}`;
 }
 
 function buildUserLines(msg: SessionMessage, bodyLines: string[], cols: number, selected: boolean): string[] {
