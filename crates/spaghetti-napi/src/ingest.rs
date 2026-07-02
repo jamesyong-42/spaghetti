@@ -328,6 +328,33 @@ pub(crate) fn run_ingest(
         )
         .map_err(IngestInternalError::Io)?;
 
+    // Emit the global plans index first — mirrors the TS engine, which
+    // sends every `plans/*.md` through `sink.onPlan` before the project
+    // loop (project-parser.ts `parseAllProjectsStreaming`). All plan
+    // events ride one pseudo-slug transaction that we close explicitly:
+    // the writer commits on `ProjectComplete` and rolls back any
+    // transaction still open at channel close, so without the marker a
+    // plans-only ingest (zero projects) would lose every plan.
+    let plans = crate::project_parser::parse_plans(&resolved.claude_dir);
+    if !plans.is_empty() {
+        const PLANS_TX_SLUG: &str = "<plans>";
+        for plan in plans {
+            if sender
+                .send(IngestEvent::Plan {
+                    slug: PLANS_TX_SLUG.to_owned(),
+                    plan,
+                })
+                .is_err()
+            {
+                break; // writer died; join below surfaces the error
+            }
+        }
+        let _ = sender.send(IngestEvent::ProjectComplete {
+            slug: PLANS_TX_SLUG.to_owned(),
+            duration_ms: 0,
+        });
+    }
+
     // Parse projects in parallel via a dedicated rayon pool. Using a
     // local pool (not the global one) means we control the thread count
     // precisely and don't contend with whatever else might be using the

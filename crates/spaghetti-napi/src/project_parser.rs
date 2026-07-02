@@ -27,7 +27,7 @@ use crate::fts_text;
 use crate::jsonl_reader::read_jsonl_streaming;
 use crate::parse_sink::IngestEvent;
 use crate::types::{
-    FileHistorySession, FileHistorySnapshotFile, PersistedToolResult, SessionIndexEntry,
+    FileHistorySession, FileHistorySnapshotFile, PersistedToolResult, PlanFile, SessionIndexEntry,
     SessionMessage, SessionsIndex, SubagentTranscript, SubagentType, TaskEntry, TodoFile, TodoItem,
 };
 
@@ -841,6 +841,61 @@ fn peek_first_user_prompt(path: &Path) -> Option<String> {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
+// Plans — <claude_dir>/plans/*.md (global, not per-project)
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// First markdown heading — the TS side's `/^#\s+(.+)$/m` in `buildPlanIndex`.
+static PLAN_TITLE: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"(?m)^#\s+(.+)$").expect("PLAN_TITLE regex compiles"));
+
+/// Parse every plan file under `<claude_dir>/plans/` — the port of
+/// `ProjectParserImpl.buildPlanIndex` (project-parser.ts): slug is the
+/// file stem, title the first `# ` heading (else the slug), size the
+/// on-disk byte length. Unreadable / non-`.md` entries are skipped like
+/// the TS per-file `try/catch`. Sorted by slug for deterministic emission.
+pub(crate) fn parse_plans(claude_dir: &Path) -> Vec<PlanFile> {
+    let plans_dir = claude_dir.join("plans");
+    let mut plans: Vec<PlanFile> = Vec::new();
+
+    let entries = match std::fs::read_dir(&plans_dir) {
+        Ok(entries) => entries,
+        Err(_) => return plans, // plans dir doesn't exist
+    };
+
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if !path.is_file() || path.extension().and_then(|e| e.to_str()) != Some("md") {
+            continue;
+        }
+        let Some(slug) = path.file_stem().and_then(|s| s.to_str()).map(str::to_owned) else {
+            continue;
+        };
+        let Ok(content) = std::fs::read_to_string(&path) else {
+            continue;
+        };
+        let size = entry
+            .metadata()
+            .map(|m| m.len())
+            .unwrap_or(content.len() as u64);
+        let title = PLAN_TITLE
+            .captures(&content)
+            .and_then(|c| c.get(1))
+            .map(|m| m.as_str().to_owned())
+            .unwrap_or_else(|| slug.clone());
+
+        plans.push(PlanFile {
+            slug,
+            title,
+            content,
+            size,
+        });
+    }
+
+    plans.sort_by(|a, b| a.slug.cmp(&b.slug));
+    plans
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
 // Tests
 // ═══════════════════════════════════════════════════════════════════════════
 
@@ -1133,5 +1188,40 @@ mod tests {
             _ => None,
         });
         assert_eq!(fts.as_deref(), Some("hi u1"));
+    }
+
+    // ── Plans ─────────────────────────────────────────────────────────────
+
+    #[test]
+    fn parse_plans_reads_title_content_size_and_skips_junk() {
+        let dir = mk_tempdir();
+        let plans_dir = dir.path().join("plans");
+        fs::create_dir_all(&plans_dir).unwrap();
+
+        fs::write(
+            plans_dir.join("zesty-plan.md"),
+            "# Zesty Title\n\nBody text.\n",
+        )
+        .unwrap();
+        fs::write(plans_dir.join("headless-plan.md"), "no heading here\n").unwrap();
+        fs::write(plans_dir.join("notes.txt"), "not a plan").unwrap();
+        fs::write(plans_dir.join(".DS_Store"), "junk").unwrap();
+
+        let plans = parse_plans(dir.path());
+
+        assert_eq!(plans.len(), 2);
+        // Sorted by slug for deterministic emission.
+        assert_eq!(plans[0].slug, "headless-plan");
+        assert_eq!(plans[0].title, "headless-plan"); // falls back to slug
+        assert_eq!(plans[1].slug, "zesty-plan");
+        assert_eq!(plans[1].title, "Zesty Title");
+        assert_eq!(plans[1].content, "# Zesty Title\n\nBody text.\n");
+        assert_eq!(plans[1].size, plans[1].content.len() as u64);
+    }
+
+    #[test]
+    fn parse_plans_missing_dir_is_empty() {
+        let dir = mk_tempdir();
+        assert!(parse_plans(dir.path()).is_empty());
     }
 }

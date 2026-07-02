@@ -267,31 +267,20 @@ pub struct TodoItem {
     pub active_form: Option<String>,
 }
 
-/// TS `toolUseResult?: string | ToolUseResultObject`.
+/// TS `toolUseResult?: string | object`.
+///
+/// The object half varies per tool — Read emits `{type, file:{...}}`,
+/// Bash emits `{stdout, stderr, interrupted, ...}`, Edit emits diff
+/// shapes, and so on. Nothing downstream introspects it, so it stays
+/// opaque. An earlier strict struct here (Read's shape only) made typed
+/// deserialization fail for ANY session line whose tool result didn't
+/// match it, which nulled that message's FTS text — search over tool
+/// output silently missed on the Rust engine (2026-07 audit).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum ToolUseResult {
     Text(String),
-    Object(ToolUseResultObject),
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ToolUseResultObject {
-    /// TS literal `'text'`; kept as `String` for forward compat.
-    #[serde(rename = "type")]
-    pub kind: String,
-    pub file: ToolUseResultFile,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ToolUseResultFile {
-    pub file_path: String,
-    pub content: String,
-    pub num_lines: u64,
-    pub start_line: u64,
-    pub total_lines: u64,
+    Object(Value),
 }
 
 // ─────────────────────────────────────────────────────────────────────────
