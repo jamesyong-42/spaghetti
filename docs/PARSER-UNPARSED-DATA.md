@@ -138,7 +138,18 @@ Severity uses this scale:
 
 ## 3. Covered in TS, absent in Rust (pure drift)
 
-The Rust crate is intentionally scoped to project-sessions ingest (RFC 003). Until parity work lands, using the Rust engine loses everything below. Table form for density:
+The Rust crate is intentionally scoped to project-sessions ingest (RFC 003). **Scope note (verified by the 2026-07-02 engine-flow audit):** the SDK always parses config + analytics on the TS side regardless of engine (`lifecycle-owner.ts` `initialize()` runs `parseSync({ skipProjects: true })` after either ingest), so rows below marked "Not parsed" in Rust still reach `AgentConfig`/`AgentAnalytic` identically on both engines — the table describes crate scope, not production data loss. The production-visible rs-engine losses are the **DB-resident** items: `plans/` (0 rows on rs vs 35 on ts against real data) and the FTS `text_content` narrowing listed below.
+
+### 3.1 Engine-flow audit findings (2026-07-02, real ~/.claude: 1.4 GB, 126 projects, 304k messages)
+
+- **Cold parity**: `scripts/ingest-diff.ts` cold mode — zero diffs on both fixtures; real-data table counts match modulo the items below. rs cold 13.5 s vs ts cold 35.2 s (2.6×).
+- **Live-batch parity**: zero diffs after fixing the harness (it sent a malformed `session_index` payload that Rust correctly rejected — 178 bogus diffs masked the gate; real on-disk `sessions-index.json` files deserialize fine).
+- **FTS recall drift (HIGH)**: Rust `fts_text.rs` does not extract text from `tool_result` blocks inside `user` messages; TS does. Real-data probe: `registerService` → 12 hits (ts) vs 5 (rs); rs has ~28k more empty `text_content` rows. Searching tool output / diffs silently misses on the default (rs) engine.
+- **`.DS_Store` project row (MEDIUM, ts-side)**: TS cold start treats stray files under `projects/` as project slugs (127 vs 126 projects); Rust's `scan_project_slugs` correctly skips non-directories.
+- **Warm-start asymmetry (MEDIUM)**: rs warm is all-or-nothing — any changed file falls through to a full re-ingest (11.6 s on real data; unchanged tree short-circuits fast). ts warm is incremental (0.98 s) but its fingerprint store undersaved (264 rows vs ~600 session files on disk) and missed real session growth in the audit while rs picked it up. Needs a dedicated repro + fix on the ts side.
+- **Everything above the DB is engine-agnostic**: `getTeams()`, config, analytics, CLI one-off outputs (`projects/sessions/todos/plan/subagents/search/stats --json`) byte-identical across engines; TUI (incl. the Team tab) drives correctly on both.
+
+Table form for density:
 
 | Data | TS parser | Rust status | Severity |
 |---|---|---|---|
@@ -184,7 +195,9 @@ Keep for institutional memory:
 
 1. ~~**Critical** — Add `teams/` parser~~ — **done (TS cold start, 2026-07)**. Remaining: live-watch `teams/`, FTS over inbox text, Rust port with the config sprint (item 8).
 2. **High** — Parse `settings.local.json` and merge into effective settings.
-3. **High** — Fix Rust `plans/` — add `read_plan` call-site that emits the existing `IngestEvent::Plan`.
+3. **High** — Fix Rust `plans/` — add `read_plan` call-site that emits the existing `IngestEvent::Plan`. Proven end-to-end 2026-07-02: 35 plan rows (ts) vs 0 (rs) on real data; Plan tab/API empty on the default engine.
+3b. **High** — Rust FTS extraction: include `tool_result` block text in `fts_text.rs` so search over tool output matches the TS engine (see §3.1).
+3c. **Medium** — TS warm-start freshness: fingerprint store undersaves (264 rows vs ~600 session files) and missed real session growth; also stop ingesting `.DS_Store` as a project slug (see §3.1).
 4. **High** — Promote session-JSONL new fields (`isSidechain`, `parentUuid`, `entrypoint`, nested `attachment`) to dedicated columns / writer fields.
 5. **High** — First-class hook matchers from `settings.json.hooks[]`.
 6. **Medium** — Subagent `.meta.json` sidecar reader (both pipelines).
