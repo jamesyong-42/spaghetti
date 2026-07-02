@@ -68,10 +68,11 @@ import {
   initializeSchema,
 } from '../packages/sdk/dist/index.js';
 
-// `@vibecook/spaghetti-sdk-native` is a workspace dep of the SDK, so it's
-// already installed in node_modules — but `createRequire` lets us reach it
-// from an ESM script without wrestling with module specifiers.
-const require = createRequire(import.meta.url);
+// `@vibecook/spaghetti-sdk-native` is a workspace dep of the SDK — not of
+// the repo root — so under pnpm's isolated layout it is only resolvable
+// from the SDK's own node_modules. Anchor the require there (the SDK dist
+// entry we import from above) instead of at this script's path.
+const require = createRequire(new URL('../packages/sdk/dist/index.js', import.meta.url));
 
 // ─── CLI ────────────────────────────────────────────────────────────────────
 
@@ -250,6 +251,10 @@ interface LiveBatchRow {
 function buildLiveBatchRows(lines: number): LiveBatchRow[] {
   const rows: LiveBatchRow[] = [];
   // Seed the project. session_index rows reuse `onProject` underneath.
+  // The payload must match the typed `SessionsIndex` shape — the Rust
+  // deserializer requires `version` (and `entries`, not `sessions`);
+  // the TS writer is lenient and would accept malformed values that
+  // Rust correctly rejects, wedging the whole batch.
   rows.push({
     category: 'session_index',
     slug: LIVE_SLUG,
@@ -257,7 +262,28 @@ function buildLiveBatchRows(lines: number): LiveBatchRow[] {
     // Match the inline handler signature.
     ...({
       originalPath: LIVE_PROJECT_PATH,
-      sessionsIndex: { sessions: [{ sessionId: LIVE_SESSION_ID, fullPath: '/tmp/x.jsonl' }] },
+      // Carry every SessionIndexEntry field, like real on-disk indexes do.
+      // The Rust writer round-trips entries through its typed struct and
+      // materializes `#[serde(default)]` fields; a sparse entry here would
+      // diff against the TS writer's verbatim pass-through.
+      sessionsIndex: {
+        version: 1,
+        entries: [
+          {
+            sessionId: LIVE_SESSION_ID,
+            fullPath: '/tmp/x.jsonl',
+            fileMtime: 0,
+            firstPrompt: '',
+            summary: '',
+            messageCount: 0,
+            created: '',
+            modified: '',
+            gitBranch: '',
+            projectPath: '',
+            isSidechain: false,
+          },
+        ],
+      },
     } as unknown as Record<string, unknown>),
   });
   for (let i = 0; i < lines; i++) {
