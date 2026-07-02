@@ -28,6 +28,7 @@ classDiagram
       +getSubagentMessages(slug, sid, agentId, limit, offset)
       +search(query) SearchResultSet
       +getStats() StoreStats
+      +getTeams() TeamDirectory[]
       +onProgress(cb) / onReady(cb) / onChange(cb)
       +dispose() Promise
       +live? SpaghettiLive
@@ -119,6 +120,7 @@ classDiagram
       -parseStatsig() / parseIde()
       -parseShellSnapshots() / parseCache()
       -parseStatusLine()
+      -parseTeams() / parseTeamInboxes()
     }
     class AnalyticsParserImpl {
       +parseAnalytics(dir) AgentAnalytic

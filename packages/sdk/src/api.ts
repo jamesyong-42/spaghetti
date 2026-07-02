@@ -10,7 +10,7 @@ import type {
   SegmentChangeBatch,
 } from './data/segment-types.js';
 import type { TokenUsageSummary } from './data/summary-types.js';
-import type { SessionMessage } from './types/index.js';
+import type { SessionMessage, TeamDirectory } from './types/index.js';
 import type { SpaghettiLive } from './live/spaghetti-live.js';
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -130,6 +130,13 @@ export interface SpaghettiAPI {
 
   /** Get store statistics */
   getStats(): StoreStats;
+
+  /**
+   * Agent teams parsed from `~/.claude/teams/` (experimental agent-teams
+   * feature). Empty array when the feature is unused. `config` is null
+   * for orphaned team dirs that only have inboxes on disk.
+   */
+  getTeams(): TeamDirectory[];
 
   /** Subscribe to init progress events */
   onProgress(cb: (progress: InitProgress) => void): () => void;

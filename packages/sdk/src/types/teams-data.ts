@@ -6,7 +6,7 @@
 // Team configuration (config.json in each team directory)
 export interface TeamConfig {
   name: string;
-  description: string;
+  description?: string;
   createdAt: number;
   leadAgentId: string;
   leadSessionId: string;
@@ -14,14 +14,17 @@ export interface TeamConfig {
 }
 
 export interface TeamMember {
+  /** `{name}@{team}` */
   agentId: string;
   name: string;
+  /** Set on the lead ('team-lead'); absent on spawned members */
   agentType?: string;
-  model: string;
+  model?: string;
   prompt?: string;
   color?: string;
   planModeRequired?: boolean;
   joinedAt: number;
+  /** '' | 'leader' | 'in-process' | a real tmux pane id */
   tmuxPaneId: string;
   cwd: string;
   subscriptions: string[];

@@ -25,6 +25,7 @@ import type {
   SegmentChangeBatch,
 } from './data/segment-types.js';
 import type { SessionSummaryData, ProjectSummaryData } from './data/summary-types.js';
+import type { TeamDirectory } from './types/index.js';
 import type { SpaghettiLive } from './live/spaghetti-live.js';
 import { createSpaghettiLive } from './live/spaghetti-live.js';
 import type { ErrorSink } from './io/error-sink.js';
@@ -164,6 +165,10 @@ class SpaghettiAppService extends EventEmitter implements SpaghettiAPI {
 
   getStats(): StoreStats {
     return this.dataService.getStoreStats();
+  }
+
+  getTeams(): TeamDirectory[] {
+    return this.dataService.getConfig().teams;
   }
 
   onProgress(cb: (progress: InitProgress) => void): () => void {

@@ -1,7 +1,7 @@
 # Unparsed `.claude/` Data
 
 **Status:** Gap inventory for the spaghetti parsing library.
-**Updated:** 2026-04-19
+**Updated:** 2026-07-02
 **Scope:** `~/.claude/` on-disk state written by Claude Code that the spaghetti library does **not** currently ingest (or ingests incompletely). Separate doc: `PARSER-PIPELINE.md` for what *is* parsed.
 
 Two axes are tracked per entry:
@@ -21,14 +21,15 @@ Severity uses this scale:
 ## 1. Directories / files with zero coverage
 
 ### 1.1 `~/.claude/teams/` — agent-teams infrastructure
-- **Severity:** Critical (new product area).
+- **Severity:** ~~Critical~~ → residual Medium (TS cold-start coverage landed 2026-07; Rust + live-watch remain).
 - **Gated by:** `settings.json.env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1`.
 - **Shape:**
-  - `teams/{team-name}/config.json`: `{ name, description, createdAt, leadAgentId, leadSessionId, members[] }`. Each `member` has `{ agentId, name, agentType, model, prompt, color, planModeRequired, joinedAt, tmuxPaneId, cwd, subscriptions[], backendType }`.
-  - `teams/{team-name}/inboxes/{agent-name}.json`: per-agent message queue (JSONL-shaped).
-- **TS status:** Types exist at `packages/sdk/src/types/teams-data.ts` (`TeamDirectory`, `TeamConfig`, `TeamMember`) but **no parser** wires them. `config-parser.ts` does not walk `teams/`.
-- **RS status:** No types, no parser.
-- **Impact:** Agent team membership, per-agent prompts, inbox message history — entirely invisible.
+  - `teams/{team-name}/config.json`: `{ name, description?, createdAt, leadAgentId, leadSessionId, members[] }`. Each `member` has `{ agentId, name, agentType?, model?, prompt?, color?, planModeRequired?, joinedAt, tmuxPaneId, cwd, subscriptions[], backendType? }` — `description`/`model` absent in most real files; the lead often carries `agentType` but no `model`.
+  - `teams/{team-name}/inboxes/{agent-name}.json`: per-agent message queue — a single JSON **array** of `{ from, text, summary?, timestamp, color?, read }` (not JSONL). `text` may itself contain embedded JSON (idle notifications, task assignments); parse leaves it as a raw string.
+  - Orphaned team dirs exist in the wild: `inboxes/` present with no `config.json` (surfaced as `config: null`).
+- **TS status:** **Parsed** (cold start). `config-parser.ts` walks `teams/` into `AgentConfig.teams: TeamDirectory[]`; in-memory config domain, not in SQLite/FTS. Live-updates does not yet watch `teams/`.
+- **RS status:** No types, no parser (config domain is TS-only by design; revisit with the Rust config sprint).
+- **Impact (remaining):** No FTS over inbox text; no live change events on team membership/inbox writes.
 
 ### 1.2 `~/.claude/backups/` — `.claude.json` state snapshots
 - **Severity:** Medium.
@@ -181,7 +182,7 @@ Keep for institutional memory:
 
 ## 6. Prioritized fix list
 
-1. **Critical** — Add `teams/` parser (TS first: wire `teams-data.ts` types into `config-parser.ts`; then port to Rust).
+1. ~~**Critical** — Add `teams/` parser~~ — **done (TS cold start, 2026-07)**. Remaining: live-watch `teams/`, FTS over inbox text, Rust port with the config sprint (item 8).
 2. **High** — Parse `settings.local.json` and merge into effective settings.
 3. **High** — Fix Rust `plans/` — add `read_plan` call-site that emits the existing `IngestEvent::Plan`.
 4. **High** — Promote session-JSONL new fields (`isSidechain`, `parentUuid`, `entrypoint`, nested `attachment`) to dedicated columns / writer fields.
