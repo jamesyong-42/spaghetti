@@ -145,8 +145,8 @@ The Rust crate is intentionally scoped to project-sessions ingest (RFC 003). **S
 - **Cold parity**: `scripts/ingest-diff.ts` cold mode — zero diffs on both fixtures; real-data table counts match modulo the items below. rs cold 13.5 s vs ts cold 35.2 s (2.6×).
 - **Live-batch parity**: zero diffs after fixing the harness (it sent a malformed `session_index` payload that Rust correctly rejected — 178 bogus diffs masked the gate; real on-disk `sessions-index.json` files deserialize fine).
 - **FTS recall drift (HIGH)**: Rust `fts_text.rs` does not extract text from `tool_result` blocks inside `user` messages; TS does. Real-data probe: `registerService` → 12 hits (ts) vs 5 (rs); rs has ~28k more empty `text_content` rows. Searching tool output / diffs silently misses on the default (rs) engine.
-- **`.DS_Store` project row (MEDIUM, ts-side)**: TS cold start treats stray files under `projects/` as project slugs (127 vs 126 projects); Rust's `scan_project_slugs` correctly skips non-directories.
-- **Warm-start asymmetry (MEDIUM)**: rs warm is all-or-nothing — any changed file falls through to a full re-ingest (11.6 s on real data; unchanged tree short-circuits fast). ts warm is incremental (0.98 s) but its fingerprint store undersaved (264 rows vs ~600 session files on disk) and missed real session growth in the audit while rs picked it up. Needs a dedicated repro + fix on the ts side.
+- **`.DS_Store` project row (ts-side)**: ~~TS cold start treats stray files under `projects/` as project slugs~~ **fixed 2026-07-02** — project scans use `directoriesOnly` (`ScanOptions.directoriesOnly`), matching Rust's `scan_project_slugs`.
+- **Warm-start msg_index corruption (ts-side, was CRITICAL)**: ~~ts warm missed real session growth~~ — root cause found and **fixed 2026-07-02**: the streaming reader's line index restarts at 0 on resumed reads and `messages` upserts on `(session_id, msg_index)`, so the grown-file incremental path wrote appended messages over the HEAD of active sessions (and the live tailer had the same hole on the first post-restart append). Fixed by basing indexes at `MAX(msg_index)+1`; fingerprints now stamp from a pre-parse stat snapshot (TOCTOU); a one-shot `schema_meta` heal (`heal_msg_index_v1`) full-reparses old DBs to restore clobbered rows. rs warm remains all-or-nothing (any change → full re-ingest) — coarse but correct.
 - **Everything above the DB is engine-agnostic**: `getTeams()`, config, analytics, CLI one-off outputs (`projects/sessions/todos/plan/subagents/search/stats --json`) byte-identical across engines; TUI (incl. the Team tab) drives correctly on both.
 
 Table form for density:
@@ -197,7 +197,7 @@ Keep for institutional memory:
 2. **High** — Parse `settings.local.json` and merge into effective settings.
 3. **High** — Fix Rust `plans/` — add `read_plan` call-site that emits the existing `IngestEvent::Plan`. Proven end-to-end 2026-07-02: 35 plan rows (ts) vs 0 (rs) on real data; Plan tab/API empty on the default engine.
 3b. **High** — Rust FTS extraction: include `tool_result` block text in `fts_text.rs` so search over tool output matches the TS engine (see §3.1).
-3c. **Medium** — TS warm-start freshness: fingerprint store undersaves (264 rows vs ~600 session files) and missed real session growth; also stop ingesting `.DS_Store` as a project slug (see §3.1).
+3c. ~~**Medium** — TS warm-start freshness + `.DS_Store` project slug~~ — **done (2026-07-02)**: msg_index rebasing + snapshot fingerprints + one-shot heal; `directoriesOnly` project scans (see §3.1).
 4. **High** — Promote session-JSONL new fields (`isSidechain`, `parentUuid`, `entrypoint`, nested `attachment`) to dedicated columns / writer fields.
 5. **High** — First-class hook matchers from `settings.json.hooks[]`.
 6. **Medium** — Subagent `.meta.json` sidecar reader (both pipelines).

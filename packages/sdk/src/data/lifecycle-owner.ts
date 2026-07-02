@@ -182,6 +182,13 @@ function getDefaultDbPath(engine: IngestEngine): string {
 // IMPLEMENTATION
 // ═══════════════════════════════════════════════════════════════════════════
 
+/** Point-in-time stat of one fingerprintable source file (see `snapshotSourceStats`). */
+interface SourceStatSnapshot {
+  mtimeMs: number;
+  size: number;
+  isJsonl: boolean;
+}
+
 export class LifecycleOwner extends EventEmitter implements ClaudeCodeAgentDataService, LifecycleInternal {
   private fileService: FileService;
   private parser: ClaudeCodeParser;
@@ -349,6 +356,12 @@ export class LifecycleOwner extends EventEmitter implements ClaudeCodeAgentDataS
   }
 
   /**
+   * schema_meta marker for the one-shot msg_index heal. Present on every
+   * DB born or repaired after the incremental-index fix landed.
+   */
+  private static readonly MSG_INDEX_HEAL_KEY = 'heal_msg_index_v1';
+
+  /**
    * Fallback TS-ingest path. Used when the native addon isn't installed
    * or when `SPAG_NATIVE_INGEST=0`.
    */
@@ -362,6 +375,16 @@ export class LifecycleOwner extends EventEmitter implements ClaudeCodeAgentDataS
 
     if (isColdStart) {
       await this.performColdStart();
+      this.ingestService.setMeta(LifecycleOwner.MSG_INDEX_HEAL_KEY, '1');
+    } else if (this.ingestService.getMeta(LifecycleOwner.MSG_INDEX_HEAL_KEY) === null) {
+      // One-shot heal: releases before the incremental msg_index fix
+      // overwrote the head of active sessions with appended messages
+      // (the streaming reader's line index restarts at 0 on resumed
+      // reads and messages upsert on (session_id, msg_index)). The
+      // JSONL on disk is intact, so one full re-parse restores every
+      // clobbered row; the marker keeps this from ever running again.
+      await this.warmStartFullReparse('Healing message indexes from a previous version...');
+      this.ingestService.setMeta(LifecycleOwner.MSG_INDEX_HEAL_KEY, '1');
     } else {
       await this.performWarmStart(fingerprints);
     }
@@ -409,6 +432,13 @@ export class LifecycleOwner extends EventEmitter implements ClaudeCodeAgentDataS
   }
 
   private async performColdStart(): Promise<void> {
+    // Snapshot source-file stats BEFORE parsing. Fingerprints must
+    // record at most what the parser could have consumed — stat-ing at
+    // save time instead would stamp bytes appended mid-parse as
+    // "already ingested" and silently skip them on every later warm
+    // start (TOCTOU).
+    const snapshot = this.snapshotSourceStats();
+
     // Discover project slugs to decide on parallel vs sequential
     const slugs = this.discoverProjectSlugs();
 
@@ -437,7 +467,7 @@ export class LifecycleOwner extends EventEmitter implements ClaudeCodeAgentDataS
 
     // Save fingerprints for all session JSONL files we can find
     this.emitProgress('storing', 'Saving file fingerprints...');
-    this.saveAllFingerprints();
+    this.saveAllFingerprints(snapshot);
 
     this.emitProgress('indexing', 'Cold start complete.');
   }
@@ -594,7 +624,7 @@ export class LifecycleOwner extends EventEmitter implements ClaudeCodeAgentDataS
     const projectsDir = path.join(this.claudeDir, 'projects');
     try {
       const projectPaths = this.fileService.scanDirectorySync(projectsDir, {
-        includeDirectories: true,
+        directoriesOnly: true,
       });
       return projectPaths.map((p) => path.basename(p));
     } catch {
@@ -606,6 +636,11 @@ export class LifecycleOwner extends EventEmitter implements ClaudeCodeAgentDataS
     existingFingerprints: Array<{ path: string; mtimeMs: number; size: number; bytePosition?: number }>,
   ): Promise<void> {
     this.emitProgress('reconciling', 'Warm start: checking for changes...');
+
+    // Stat snapshot BEFORE any parsing — fingerprints saved at the end
+    // of this pass stamp these values, never fresher ones (see
+    // performColdStart for the TOCTOU rationale).
+    const snapshot = this.snapshotSourceStats();
 
     // Build a lookup map from path → fingerprint for efficient access
     const fpMap = new Map<string, { path: string; mtimeMs: number; size: number; bytePosition?: number }>();
@@ -644,7 +679,7 @@ export class LifecycleOwner extends EventEmitter implements ClaudeCodeAgentDataS
     const newFiles: string[] = [];
     const projectsDir = path.join(this.claudeDir, 'projects');
     try {
-      const projectPaths = this.fileService.scanDirectorySync(projectsDir, { includeDirectories: true });
+      const projectPaths = this.fileService.scanDirectorySync(projectsDir, { directoriesOnly: true });
       for (const projectPath of projectPaths) {
         try {
           const files = this.fileService.scanDirectorySync(projectPath, { pattern: '*.jsonl' });
@@ -693,7 +728,7 @@ export class LifecycleOwner extends EventEmitter implements ClaudeCodeAgentDataS
 
     if (needsRecovery) {
       // Full re-parse needed for recovery
-      await this.warmStartFullReparse('Recovery re-parse: fixing projects with missing messages...');
+      await this.warmStartFullReparse('Recovery re-parse: fixing projects with missing messages...', snapshot);
       return;
     }
 
@@ -757,7 +792,7 @@ export class LifecycleOwner extends EventEmitter implements ClaudeCodeAgentDataS
       }
 
       // Update fingerprints for changed files
-      this.saveAllFingerprints();
+      this.saveAllFingerprints(snapshot);
       this.emitProgress('indexing', 'Incremental warm start complete.');
       return;
     }
@@ -769,6 +804,7 @@ export class LifecycleOwner extends EventEmitter implements ClaudeCodeAgentDataS
       // Edge case: changed files couldn't be mapped to projects. Do full re-parse.
       await this.warmStartFullReparse(
         `Re-parsing: ${changedFiles.length} changed, ${removedFiles.length} removed files...`,
+        snapshot,
       );
       return;
     }
@@ -815,15 +851,22 @@ export class LifecycleOwner extends EventEmitter implements ClaudeCodeAgentDataS
       throw error;
     }
 
-    this.saveAllFingerprints();
+    this.saveAllFingerprints(snapshot);
     this.emitProgress('indexing', 'Warm start complete.');
   }
 
   /**
    * Full re-parse of all projects — used as fallback for recovery or when
    * changes can't be handled incrementally. Uses parallel workers when available.
+   *
+   * `snapshot` is the pre-parse stat snapshot to stamp fingerprints from;
+   * callers that haven't taken one yet (e.g. the one-shot heal) get a
+   * fresh snapshot taken before any parsing starts.
    */
-  private async warmStartFullReparse(message: string): Promise<void> {
+  private async warmStartFullReparse(
+    message: string,
+    snapshot: Map<string, SourceStatSnapshot> = this.snapshotSourceStats(),
+  ): Promise<void> {
     this.emitProgress('parsing', message);
 
     const slugs = this.discoverProjectSlugs();
@@ -837,7 +880,7 @@ export class LifecycleOwner extends EventEmitter implements ClaudeCodeAgentDataS
       if (slugs.length >= 4 && isWorkerThreadsAvailable()) {
         try {
           await this.coldStartParallel(slugs);
-          this.saveAllFingerprints();
+          this.saveAllFingerprints(snapshot);
           this.emitProgress('indexing', 'Warm start full re-parse complete.');
           return;
         } catch {
@@ -866,7 +909,7 @@ export class LifecycleOwner extends EventEmitter implements ClaudeCodeAgentDataS
       this.ingestService.endBulkIngest();
     }
 
-    this.saveAllFingerprints();
+    this.saveAllFingerprints(snapshot);
   }
 
   /**
@@ -884,37 +927,29 @@ export class LifecycleOwner extends EventEmitter implements ClaudeCodeAgentDataS
 
   /**
    * Incrementally parse new lines appended to a JSONL file from a given byte position.
+   *
+   * The streaming reader's line index restarts at 0 when resuming from a
+   * byte position, and `messages` upserts on `(session_id, msg_index)` —
+   * so appended rows MUST be based at the session's next index or they
+   * overwrite the head of the session. Fingerprints are stamped by the
+   * caller's end-of-pass `saveAllFingerprints(snapshot)`, never here.
    */
   private incrementalParseJsonl(filePath: string, fromBytePosition: number): void {
     const info = this.extractProjectInfo(filePath);
     if (!info) return;
     const { slug, sessionId } = info;
 
-    let messageCount = 0;
+    const baseIndex = this.ingestService.getNextMessageIndex(sessionId);
     try {
       this.fileService.readJsonlStreaming<SessionMessage>(
         filePath,
         (message, index, byteOffset) => {
-          this.ingestService.onMessage(slug, sessionId, message, index, byteOffset);
-          messageCount++;
+          this.ingestService.onMessage(slug, sessionId, message, baseIndex + index, byteOffset);
         },
         { fromBytePosition },
       );
     } catch {
       // File read failed — skip
-    }
-
-    if (messageCount > 0) {
-      // Update the session's byte position fingerprint
-      const stats = this.fileService.getStats(filePath);
-      if (stats) {
-        this.ingestService.upsertFingerprint({
-          path: filePath,
-          mtimeMs: stats.mtimeMs,
-          size: stats.size,
-          bytePosition: stats.size,
-        });
-      }
     }
   }
 
@@ -1010,13 +1045,20 @@ export class LifecycleOwner extends EventEmitter implements ClaudeCodeAgentDataS
     return false;
   }
 
-  private saveAllFingerprints(): void {
+  /**
+   * Stat every fingerprintable source file (top-level session `*.jsonl`
+   * plus `sessions-index.json` per project). Taken BEFORE a parse pass;
+   * `saveAllFingerprints` stamps these values so a fingerprint never
+   * claims bytes the parser could not have consumed. Files that appear
+   * after the snapshot stay unfingerprintd and are picked up as "new"
+   * on the next warm start.
+   */
+  private snapshotSourceStats(): Map<string, SourceStatSnapshot> {
+    const snapshot = new Map<string, SourceStatSnapshot>();
     const projectsDir = path.join(this.claudeDir, 'projects');
 
     try {
-      const projectPaths = this.fileService.scanDirectorySync(projectsDir, {
-        includeDirectories: true,
-      });
+      const projectPaths = this.fileService.scanDirectorySync(projectsDir, { directoriesOnly: true });
 
       for (const projectPath of projectPaths) {
         try {
@@ -1024,26 +1066,14 @@ export class LifecycleOwner extends EventEmitter implements ClaudeCodeAgentDataS
           for (const filePath of files) {
             const stats = this.fileService.getStats(filePath);
             if (stats) {
-              // Save file size as bytePosition so incremental parsing can
-              // resume from where we left off on the next warm start.
-              this.ingestService.upsertFingerprint({
-                path: filePath,
-                mtimeMs: stats.mtimeMs,
-                size: stats.size,
-                bytePosition: stats.size,
-              });
+              snapshot.set(filePath, { mtimeMs: stats.mtimeMs, size: stats.size, isJsonl: true });
             }
           }
 
-          // Also fingerprint the sessions-index.json
           const indexPath = path.join(projectPath, 'sessions-index.json');
           const indexStats = this.fileService.getStats(indexPath);
           if (indexStats) {
-            this.ingestService.upsertFingerprint({
-              path: indexPath,
-              mtimeMs: indexStats.mtimeMs,
-              size: indexStats.size,
-            });
+            snapshot.set(indexPath, { mtimeMs: indexStats.mtimeMs, size: indexStats.size, isJsonl: false });
           }
         } catch {
           // skip bad project directory
@@ -1051,6 +1081,21 @@ export class LifecycleOwner extends EventEmitter implements ClaudeCodeAgentDataS
       }
     } catch {
       // projects dir doesn't exist
+    }
+
+    return snapshot;
+  }
+
+  private saveAllFingerprints(snapshot: Map<string, SourceStatSnapshot>): void {
+    for (const [filePath, stat] of snapshot) {
+      // For JSONL files the size doubles as bytePosition so incremental
+      // parsing can resume where this pass left off on the next warm start.
+      this.ingestService.upsertFingerprint({
+        path: filePath,
+        mtimeMs: stat.mtimeMs,
+        size: stat.size,
+        bytePosition: stat.isJsonl ? stat.size : undefined,
+      });
     }
   }
 
@@ -1312,6 +1357,9 @@ export class LifecycleOwner extends EventEmitter implements ClaudeCodeAgentDataS
   async rebuild(): Promise<void> {
     this.ready = false;
 
+    // Snapshot before parsing — see performColdStart for the TOCTOU rationale.
+    const snapshot = this.snapshotSourceStats();
+
     // Delete all data and re-parse from scratch
     this.ingestService.deleteAllData();
 
@@ -1326,7 +1374,7 @@ export class LifecycleOwner extends EventEmitter implements ClaudeCodeAgentDataS
       throw error;
     }
 
-    this.saveAllFingerprints();
+    this.saveAllFingerprints(snapshot);
 
     // Re-parse config & analytics
     const fullData = this.parser.parseSync({

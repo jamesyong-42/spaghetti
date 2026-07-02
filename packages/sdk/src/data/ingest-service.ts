@@ -39,6 +39,20 @@ export interface IngestService extends ProjectParseSink {
   upsertFingerprint(fp: SourceFingerprint): void;
   deleteFingerprint(path: string): void;
 
+  /**
+   * Next `msg_index` for a session — `MAX(msg_index) + 1`, or 0 for a
+   * session with no rows. Incremental appenders (warm-start grown-file
+   * path, live tailer) MUST base their indexes here: the streaming
+   * reader's line index restarts at 0 when resuming from a byte
+   * position, and messages upsert on `(session_id, msg_index)` — an
+   * unbased index overwrites the head of the session.
+   */
+  getNextMessageIndex(sessionId: string): number;
+
+  // Schema meta — small key/value markers (one-shot heals, migrations)
+  getMeta(key: string): string | null;
+  setMeta(key: string, value: string): void;
+
   // Transactions
   beginTransaction(): void;
   commitTransaction(): void;
@@ -555,6 +569,27 @@ class IngestServiceImpl implements IngestService {
 
   deleteFingerprint(filePath: string): void {
     this.db.run('DELETE FROM source_files WHERE path = ?', filePath);
+  }
+
+  getNextMessageIndex(sessionId: string): number {
+    const row = this.db.get<{ next: number }>(
+      'SELECT COALESCE(MAX(msg_index) + 1, 0) AS next FROM messages WHERE session_id = ?',
+      sessionId,
+    );
+    return row?.next ?? 0;
+  }
+
+  getMeta(key: string): string | null {
+    const row = this.db.get<{ value: string }>('SELECT value FROM schema_meta WHERE key = ?', key);
+    return row?.value ?? null;
+  }
+
+  setMeta(key: string, value: string): void {
+    this.db.run(
+      'INSERT INTO schema_meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value',
+      key,
+      value,
+    );
   }
 
   // ─────────────────────────────────────────────────────────────────────────

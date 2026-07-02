@@ -476,7 +476,13 @@ export function createLiveUpdates(deps: LiveUpdatesDeps, options: LiveUpdatesOpt
     }
 
     const priorCheckpoint: Checkpoint | undefined = checkpoints.get(evtPath);
-    const startMsgIndex = nextMsgIndexByPath.get(evtPath) ?? 0;
+    // First event for a file in this process: the in-memory high-water
+    // is empty, but a persisted checkpoint may resume the tail mid-file.
+    // Seed from the DB (MAX(msg_index) + 1) or the appended rows would
+    // be written at index 0 and overwrite the head of the session.
+    const startMsgIndex =
+      nextMsgIndexByPath.get(evtPath) ??
+      (parserCategory === 'message' && route.sessionId ? ingestService.getNextMessageIndex(route.sessionId) : 0);
 
     const parseResult = await parser.parseFileDelta({
       path: evtPath,
