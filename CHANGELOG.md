@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.5.13](https://github.com/jamesyong-42/spaghetti/compare/spaghetti-v0.5.12...spaghetti-v0.5.13) (2026-07-02)
+
+
+### Features
+
+* **napi:** emit plans in cold ingest + accept arbitrary toolUseResult shapes ([#44](https://github.com/jamesyong-42/spaghetti/issues/44)) ([3a50336](https://github.com/jamesyong-42/spaghetti/commit/3a503364c34af584deb87ed71587c8eefac32add))
+* parse ~/.claude/teams/ + Team tab in the session TUI ([#41](https://github.com/jamesyong-42/spaghetti/issues/41)) ([dc87c34](https://github.com/jamesyong-42/spaghetti/commit/dc87c34135f172edc7506e6578ba66c1052e5f44))
+
+
+### Bug Fixes
+
+* **cli,sdk:** warm-start boot screen + orphaned-project recovery ([#39](https://github.com/jamesyong-42/spaghetti/issues/39)) ([fe531ad](https://github.com/jamesyong-42/spaghetti/commit/fe531ad72b73a95f5348e49a42c2e57763cc5070))
+* **scripts:** repair the ingest-diff parity harness + record engine-flow audit ([#42](https://github.com/jamesyong-42/spaghetti/issues/42)) ([78ab81b](https://github.com/jamesyong-42/spaghetti/commit/78ab81b8f257b6df9f1d4c5c6985a63055624171))
+* **sdk,cli:** warm-start msg_index corruption + fingerprint TOCTOU + stray-file projects + accent-bar crash ([#43](https://github.com/jamesyong-42/spaghetti/issues/43)) ([df08ef7](https://github.com/jamesyong-42/spaghetti/commit/df08ef766a69b8cf6b2294a46f11da9058ddb8c3))
+
 ## [0.5.12](https://github.com/jamesyong-42/spaghetti/compare/spaghetti-v0.5.11...spaghetti-v0.5.12) (2026-04-18)
 
 
