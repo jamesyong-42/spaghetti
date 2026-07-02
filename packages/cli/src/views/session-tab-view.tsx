@@ -1,24 +1,32 @@
 /**
- * SessionTabView — Tab container showing Messages + Todos + Plan + Subagents for a session
+ * SessionTabView — Tab container showing Messages + Todos + Plan + Subagents + Team for a session
  *
- * Wraps MessagesView (tab 0) and inline content panels for Todos, Plan, Subagents (tabs 1-3).
+ * Wraps MessagesView (tab 0) and inline content panels for Todos, Plan, Subagents, Team (tabs 1-4).
+ * The Team tab lists members of the team(s) this session leads (matched via config.leadSessionId,
+ * with teamId fallbacks for orphan dirs and session-{8hex} scaffolds); Enter opens a member's inbox.
  * Left/Right arrows switch tabs. Esc pops back to the sessions list.
  */
 
 import React, { useState, useMemo } from 'react';
 import { Box, Text, useInput, useStdout } from 'ink';
-import type { ProjectListItem, SessionListItem, SubagentListItem } from '@vibecook/spaghetti-sdk';
+import type {
+  ProjectListItem,
+  SessionListItem,
+  SubagentListItem,
+  TeamDirectory,
+  InboxMessage,
+} from '@vibecook/spaghetti-sdk';
 import { useViewNav } from './context.js';
 import { useApi } from './shell.js';
 import { TabBar } from './tab-bar.js';
 import { HRule } from './chrome.js';
 import { MessagesView } from './messages-view.js';
-import { formatNumber } from '../lib/format.js';
+import { formatNumber, formatRelativeTime } from '../lib/format.js';
 import type { ViewEntry } from './types.js';
 
 // ─── Constants ────────────────────────────────────────────────────────
 
-const TABS = ['Messages', 'Todos', 'Plan', 'Subagents'] as const;
+const TABS = ['Messages', 'Todos', 'Plan', 'Subagents', 'Team'] as const;
 
 // ─── Todo Helpers ─────────────────────────────────────────────────────
 
@@ -228,6 +236,228 @@ function SubagentsPanel({
   );
 }
 
+// ─── Team Helpers ─────────────────────────────────────────────────────
+
+/**
+ * Teams a session is bound to. `leadSessionId` is the primary key;
+ * the two teamId fallbacks catch config-less orphan dirs written under
+ * the lead session UUID and the implicit `session-{8hex}` scaffolds.
+ */
+function matchTeamsForSession(all: TeamDirectory[], sessionId: string): TeamDirectory[] {
+  return all.filter(
+    (t) =>
+      t.config?.leadSessionId === sessionId ||
+      t.teamId === sessionId ||
+      t.teamId === `session-${sessionId.slice(0, 8)}`,
+  );
+}
+
+interface TeamMemberRow {
+  teamName: string;
+  memberName: string;
+  agentId: string;
+  model?: string;
+  color?: string;
+  isLead: boolean;
+  inbox: InboxMessage[];
+}
+
+function buildTeamRows(teams: TeamDirectory[]): TeamMemberRow[] {
+  const rows: TeamMemberRow[] = [];
+
+  for (const team of teams) {
+    const teamName = team.config?.name ?? team.teamId;
+    const seen = new Set<string>();
+
+    for (const member of team.config?.members ?? []) {
+      seen.add(member.name);
+      rows.push({
+        teamName,
+        memberName: member.name,
+        agentId: member.agentId,
+        model: member.model,
+        color: member.color,
+        isLead: member.agentId === team.config?.leadAgentId,
+        inbox: team.inboxes[member.name] ?? [],
+      });
+    }
+
+    // Inbox files without a roster entry (departed members, orphan dirs).
+    for (const [name, messages] of Object.entries(team.inboxes)) {
+      if (seen.has(name)) continue;
+      rows.push({
+        teamName,
+        memberName: name,
+        agentId: `${name}@${teamName}`,
+        isLead: false,
+        inbox: messages,
+      });
+    }
+  }
+
+  return rows;
+}
+
+// ─── TeamPanel ────────────────────────────────────────────────────────
+
+interface TeamPanelProps {
+  teams: TeamDirectory[];
+  rows: TeamMemberRow[];
+  scrollOffset: number;
+  selectedIndex: number;
+  viewportHeight: number;
+}
+
+function TeamPanelCard({ row, selected }: { row: TeamMemberRow; selected: boolean }): React.ReactElement {
+  const nameColor = row.color ?? 'magenta';
+  const lead = row.isLead ? ' (lead)' : '';
+  const detail = [row.model, `${formatNumber(row.inbox.length)} inbox message${row.inbox.length === 1 ? '' : 's'}`]
+    .filter(Boolean)
+    .join(' · ');
+
+  return (
+    <Box flexDirection="column">
+      <Text>
+        {selected ? <Text color="magenta">{'▎'}</Text> : ' '}{' '}
+        {selected ? (
+          <Text bold color="white">
+            {row.memberName}
+          </Text>
+        ) : (
+          <Text color={nameColor}>{row.memberName}</Text>
+        )}
+        {'  '}
+        <Text dimColor>
+          {row.agentId}
+          {lead}
+        </Text>
+      </Text>
+      <Text>
+        {'    '}
+        <Text dimColor>{detail}</Text>
+      </Text>
+      <Text> </Text>
+    </Box>
+  );
+}
+
+function TeamPanel({ teams, rows, scrollOffset, selectedIndex, viewportHeight }: TeamPanelProps): React.ReactElement {
+  if (rows.length === 0) {
+    return (
+      <Box flexDirection="column" paddingLeft={2}>
+        <Text dimColor>No team in this session.</Text>
+      </Box>
+    );
+  }
+
+  const first = teams[0];
+  const totalMessages = rows.reduce((sum, r) => sum + r.inbox.length, 0);
+  const headerName = teams.length === 1 ? (first.config?.name ?? first.teamId) : `${teams.length} teams`;
+  const description = teams.length === 1 ? first.config?.description : undefined;
+
+  const viewportItems = Math.max(1, Math.floor((viewportHeight - 2) / 3));
+  const visibleRows = rows.slice(scrollOffset, scrollOffset + viewportItems);
+
+  return (
+    <Box flexDirection="column">
+      <Text>
+        {' '}
+        <Text bold>{headerName}</Text>
+        <Text dimColor>
+          {' · '}
+          {rows.length} member{rows.length === 1 ? '' : 's'}
+          {' · '}
+          {formatNumber(totalMessages)} inbox message{totalMessages === 1 ? '' : 's'}
+        </Text>
+        {description ? (
+          <Text dimColor>
+            {' '}
+            {'—'} {description}
+          </Text>
+        ) : null}
+      </Text>
+      <Text> </Text>
+      {visibleRows.map((row, i) => {
+        const actualIndex = scrollOffset + i;
+        return (
+          <TeamPanelCard key={`${row.teamName}/${row.memberName}`} row={row} selected={actualIndex === selectedIndex} />
+        );
+      })}
+    </Box>
+  );
+}
+
+// ─── TeamInboxView ────────────────────────────────────────────────────
+
+function TeamInboxView({ row }: { row: TeamMemberRow }): React.ReactElement {
+  const nav = useViewNav();
+  const { stdout } = useStdout();
+  const termRows = stdout?.rows ?? 24;
+  const viewportHeight = Math.max(termRows - 8, 5);
+
+  const [scroll, setScroll] = useState(0);
+
+  const lines = useMemo(() => {
+    const out: React.ReactElement[] = [];
+    row.inbox.forEach((msg, m) => {
+      out.push(
+        <Text key={`${m}-h`}>
+          {' '}
+          {!msg.read && <Text color="yellow">{'● '}</Text>}
+          <Text color={msg.color ?? 'cyan'}>{msg.from}</Text>
+          <Text dimColor>
+            {' '}
+            {'·'} {formatRelativeTime(msg.timestamp)}
+          </Text>
+        </Text>,
+      );
+      if (msg.summary) {
+        out.push(
+          <Text key={`${m}-s`} bold>
+            {'   '}
+            {msg.summary}
+          </Text>,
+        );
+      }
+      msg.text.split('\n').forEach((line, l) => {
+        out.push(
+          <Text key={`${m}-t${l}`} dimColor={line.trim() === ''}>
+            {'   '}
+            {line}
+          </Text>,
+        );
+      });
+      out.push(<Text key={`${m}-b`}> </Text>);
+    });
+    return out;
+  }, [row.inbox]);
+
+  const maxScroll = Math.max(0, lines.length - viewportHeight);
+
+  useInput(
+    (_input, key) => {
+      if (key.upArrow) {
+        setScroll((prev) => Math.max(0, prev - 1));
+      } else if (key.downArrow) {
+        setScroll((prev) => Math.min(maxScroll, prev + 1));
+      } else if (key.escape) {
+        nav.pop();
+      }
+    },
+    { isActive: !nav.searchMode },
+  );
+
+  if (row.inbox.length === 0) {
+    return (
+      <Box flexDirection="column" paddingLeft={2} marginTop={1}>
+        <Text dimColor>Inbox for {row.memberName} is empty.</Text>
+      </Box>
+    );
+  }
+
+  return <Box flexDirection="column">{lines.slice(scroll, scroll + viewportHeight)}</Box>;
+}
+
 // ─── SessionTabView ───────────────────────────────────────────────────
 
 export interface SessionTabViewProps {
@@ -244,13 +474,15 @@ export function SessionTabView({ project, session, sessionIndex }: SessionTabVie
 
   const [activeTab, setActiveTab] = useState(0);
 
-  // Scroll state for tabs 1-3 (Todos, Plan, Subagents)
+  // Scroll state for tabs 1-4 (Todos, Plan, Subagents, Team)
   const [todosScroll, setTodosScroll] = useState(0);
   const [planScroll, setPlanScroll] = useState(0);
   const [subagentsScroll, setSubagentsScroll] = useState(0);
   const [subagentsSelected, setSubagentsSelected] = useState(0);
+  const [teamScroll, setTeamScroll] = useState(0);
+  const [teamSelected, setTeamSelected] = useState(0);
 
-  // Compute max scroll values for tabs 1-3
+  // Compute max scroll values for tabs 1-4
   const viewportHeight = Math.max(termRows - 8, 5);
 
   const rawTodos = useMemo(
@@ -275,6 +507,12 @@ export function SessionTabView({ project, session, sessionIndex }: SessionTabVie
   const subagentsCount = subagents.length;
   const subagentsViewportItems = Math.max(1, Math.floor(viewportHeight / 3));
   const subagentsMaxScroll = Math.max(0, subagentsCount - subagentsViewportItems);
+
+  const sessionTeams = useMemo(() => matchTeamsForSession(api.getTeams(), session.sessionId), [api, session.sessionId]);
+  const teamRows = useMemo(() => buildTeamRows(sessionTeams), [sessionTeams]);
+  const teamRowCount = teamRows.length;
+  const teamViewportItems = Math.max(1, Math.floor((viewportHeight - 2) / 3));
+  const teamMaxScroll = Math.max(0, teamRowCount - teamViewportItems);
 
   // Tab switching — always active (works on all tabs including Messages)
   useInput(
@@ -345,6 +583,39 @@ export function SessionTabView({ project, session, sessionIndex }: SessionTabVie
         } else if (key.escape) {
           nav.pop();
         }
+      } else if (activeTab === 4) {
+        // Team tab — member list navigation + Enter for inbox
+        if (key.upArrow) {
+          setTeamSelected((prev) => {
+            const next = Math.max(0, prev - 1);
+            if (next < teamScroll) {
+              setTeamScroll(next);
+            }
+            return next;
+          });
+        } else if (key.downArrow) {
+          setTeamSelected((prev) => {
+            const next = Math.min(teamRowCount - 1, prev + 1);
+            if (next >= teamScroll + teamViewportItems) {
+              setTeamScroll(Math.min(teamMaxScroll, teamScroll + 1));
+            }
+            return next;
+          });
+        } else if (key.return) {
+          if (teamRowCount === 0) return;
+          const row = teamRows[teamSelected];
+          if (!row) return;
+
+          const entry: ViewEntry = {
+            type: 'detail',
+            component: () => <TeamInboxView row={row} />,
+            breadcrumb: `${row.memberName} inbox`,
+            hints: '↑↓ scroll · Esc back',
+          };
+          nav.push(entry);
+        } else if (key.escape) {
+          nav.pop();
+        }
       }
     },
     { isActive: activeTab !== 0 && !nav.searchMode },
@@ -380,6 +651,15 @@ export function SessionTabView({ project, session, sessionIndex }: SessionTabVie
           sessionId={session.sessionId}
           scrollOffset={subagentsScroll}
           selectedIndex={subagentsSelected}
+          viewportHeight={viewportHeight}
+        />
+      )}
+      {activeTab === 4 && (
+        <TeamPanel
+          teams={sessionTeams}
+          rows={teamRows}
+          scrollOffset={teamScroll}
+          selectedIndex={teamSelected}
           viewportHeight={viewportHeight}
         />
       )}
