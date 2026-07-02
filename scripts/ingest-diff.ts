@@ -381,6 +381,8 @@ interface TableSpec {
   name: string;
   /** `ORDER BY` clause that gives a deterministic row ordering for diffing. */
   orderBy: string;
+  /** Optional `WHERE` clause to exclude engine-local rows from the diff. */
+  where?: string;
   /** Columns whose values are JSON strings; parse them before comparing. */
   jsonColumns?: string[];
   /** Columns to skip (e.g. updated_at, mtimeMs that both sides set to now()). */
@@ -388,7 +390,13 @@ interface TableSpec {
 }
 
 const TABLE_SPECS: TableSpec[] = [
-  { name: 'schema_meta', orderBy: 'key' },
+  {
+    name: 'schema_meta',
+    orderBy: 'key',
+    // `heal_msg_index_v1` is a TS-engine-local marker (the one-shot
+    // msg_index heal never applies to Rust-built DBs) — exclude it.
+    where: "key <> 'heal_msg_index_v1'",
+  },
   {
     name: 'projects',
     orderBy: 'slug',
@@ -464,7 +472,8 @@ const TABLE_SPECS: TableSpec[] = [
 type Row = Record<string, unknown>;
 
 function dumpTable(db: Database.Database, spec: TableSpec): Row[] {
-  const rows = db.prepare(`SELECT * FROM ${spec.name} ORDER BY ${spec.orderBy}`).all() as Row[];
+  const where = spec.where ? ` WHERE ${spec.where}` : '';
+  const rows = db.prepare(`SELECT * FROM ${spec.name}${where} ORDER BY ${spec.orderBy}`).all() as Row[];
   return rows.map((row) => normaliseRow(row, spec));
 }
 
