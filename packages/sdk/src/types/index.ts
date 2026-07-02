@@ -49,6 +49,7 @@ import type { TelemetryDirectory } from './telemetry-data.js';
 import type { DebugLogFile, DebugLatestSymlink } from './debug.js';
 import type { PasteCacheDirectory } from './paste-cache-data.js';
 import type { SessionEnvDirectory } from './session-env.js';
+import type { TeamDirectory } from './teams-data.js';
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // CLAUDE CODE AGENT — top-level aggregation
@@ -111,6 +112,7 @@ export interface AgentConfig {
   shellSnapshots: ShellSnapshotsDirectory;
   cache: CacheDirectory;
   statusLineCommand: StatusLineCommandFile | null;
+  teams: TeamDirectory[];
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════

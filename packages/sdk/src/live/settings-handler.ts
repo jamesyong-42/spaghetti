@@ -204,5 +204,6 @@ function buildEmptyAgentConfig(): AgentConfig {
     shellSnapshots: { snapshots: [] },
     cache: {},
     statusLineCommand: null,
+    teams: [],
   };
 }

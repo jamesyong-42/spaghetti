@@ -23,6 +23,9 @@ import type {
   ShellSnapshotFile,
   CacheDirectory,
   StatusLineCommandFile,
+  TeamDirectory,
+  TeamConfig,
+  InboxMessage,
 } from '../types/index.js';
 
 export interface ConfigParserOptions {
@@ -46,6 +49,7 @@ export class ConfigParserImpl implements ConfigParser {
       shellSnapshots: this.parseShellSnapshots(claudeDir, options?.allShellSnapshots ?? false),
       cache: this.parseCache(claudeDir),
       statusLineCommand: this.parseStatusLineCommand(claudeDir),
+      teams: this.parseTeams(claudeDir),
     };
   }
 
@@ -64,6 +68,7 @@ export class ConfigParserImpl implements ConfigParser {
       shellSnapshots: { snapshots: [] },
       cache: {},
       statusLineCommand: null,
+      teams: [],
     };
   }
 
@@ -281,6 +286,61 @@ export class ConfigParserImpl implements ConfigParser {
     } catch {
       return null;
     }
+  }
+
+  private parseTeams(claudeDir: string): TeamDirectory[] {
+    const teams: TeamDirectory[] = [];
+    const teamsDir = path.join(claudeDir, 'teams');
+
+    try {
+      const entryPaths = this.fileService.scanDirectorySync(teamsDir, { includeDirectories: true });
+
+      for (const teamPath of entryPaths) {
+        // Filters out stray files like .DS_Store; a directory is a team
+        // even when config.json is missing or corrupt (observed in the wild).
+        if (!this.fileService.getStats(teamPath)?.isDirectory) continue;
+
+        let config: TeamConfig | null = null;
+        try {
+          config = this.fileService.readJsonSync<TeamConfig>(path.join(teamPath, 'config.json'));
+        } catch {
+          /* corrupt config.json — surface the team with config: null */
+        }
+
+        teams.push({
+          teamId: path.basename(teamPath),
+          config,
+          inboxes: this.parseTeamInboxes(teamPath),
+        });
+      }
+    } catch {
+      // teams dir doesn't exist
+    }
+
+    return teams.sort((a, b) => a.teamId.localeCompare(b.teamId));
+  }
+
+  private parseTeamInboxes(teamPath: string): Record<string, InboxMessage[]> {
+    const inboxes: Record<string, InboxMessage[]> = {};
+
+    try {
+      const inboxPaths = this.fileService.scanDirectorySync(path.join(teamPath, 'inboxes'), { pattern: '*.json' });
+
+      for (const inboxPath of inboxPaths) {
+        try {
+          const messages = this.fileService.readJsonSync<InboxMessage[]>(inboxPath);
+          if (Array.isArray(messages)) {
+            inboxes[path.basename(inboxPath, '.json')] = messages;
+          }
+        } catch {
+          /* skip bad inbox file */
+        }
+      }
+    } catch {
+      // inboxes dir doesn't exist
+    }
+
+    return inboxes;
   }
 
   private parseCache(claudeDir: string): CacheDirectory {
