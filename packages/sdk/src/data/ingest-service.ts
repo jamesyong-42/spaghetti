@@ -182,6 +182,16 @@ function extractTextContent(message: SessionMessage): string {
   } else if (msgType === 'summary') {
     const summary = msg.summary as string | undefined;
     if (summary) textParts.push(summary);
+  } else if (msgType === 'ai-title') {
+    // The model-generated session title — searchable so a query can
+    // find a session by its title.
+    const aiTitle = msg.aiTitle as string | undefined;
+    if (aiTitle) textParts.push(aiTitle);
+  } else if (msgType === 'system') {
+    // Several system subtypes carry prose (away_summary recap,
+    // local_command, compact boundaries); index whatever `content` holds.
+    const content = msg.content as string | undefined;
+    if (content) textParts.push(content);
   }
 
   return truncate(textParts.join('\n'));
