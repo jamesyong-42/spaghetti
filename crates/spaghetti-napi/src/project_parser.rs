@@ -28,8 +28,8 @@ use crate::jsonl_reader::read_jsonl_streaming;
 use crate::parse_sink::IngestEvent;
 use crate::types::{
     FileHistorySession, FileHistorySnapshotFile, PersistedToolResult, PlanFile, SessionIndexEntry,
-    SessionMessage, SessionsIndex, SubagentTranscript, SubagentType, TaskEntry, TodoFile, TodoItem,
-    WorkflowRun,
+    SessionMessage, SessionsIndex, SubagentMeta, SubagentTranscript, SubagentType, TaskEntry,
+    TodoFile, TodoItem, WorkflowRun,
 };
 
 // ─── Regex patterns — copied verbatim from project-parser.ts ────────────────
@@ -562,12 +562,16 @@ fn read_one_subagent(path: &Path, name: &str, workflow_id: &str) -> SubagentTran
             messages.push(msg);
         }
     });
+    // Sibling `agent-{id}.meta.json` carries the real agent type + description.
+    let meta = std::fs::read_to_string(path.with_extension("meta.json"))
+        .ok()
+        .and_then(|raw| serde_json::from_str::<SubagentMeta>(&raw).ok());
     SubagentTranscript {
         agent_id: extract_agent_id(name),
         agent_type: infer_agent_type(name),
         file_name: name.to_owned(),
         messages,
-        meta: None,
+        meta,
         workflow_id: workflow_id.to_owned(),
     }
 }

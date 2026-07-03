@@ -84,7 +84,13 @@ pub struct SubagentTranscript {
 #[serde(rename_all = "camelCase")]
 pub struct SubagentMeta {
     pub agent_type: String,
-    pub description: String,
+    // Absent on nested workflow metas — must be optional or their parse fails.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub spawn_depth: Option<f64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub worktree_path: Option<String>,
 }

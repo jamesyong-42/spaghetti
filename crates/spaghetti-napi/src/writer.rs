@@ -738,11 +738,16 @@ pub fn dispatch_event(conn: &Connection, ev: &IngestEvent) -> Result<DispatchCou
         } => {
             let now = now_ms();
             let messages_json = serde_json::to_string(&transcript.messages)?;
-            let agent_type = serde_json::to_string(&transcript.agent_type)?;
-            // `to_string` on the enum produces `"task"` (with quotes).
-            // SQLite stores it that way; we strip the quotes to match
-            // the TS convention of storing the bare string.
-            let agent_type = agent_type.trim_matches('"').to_string();
+            // Prefer the sidecar's real agent type (general-purpose, Explore, …)
+            // over the filename-inferred enum kind. `to_string` on the enum
+            // produces `"task"` (with quotes) — strip them to store the bare
+            // string, matching the TS convention.
+            let agent_type = match transcript.meta.as_ref() {
+                Some(meta) => meta.agent_type.clone(),
+                None => serde_json::to_string(&transcript.agent_type)?
+                    .trim_matches('"')
+                    .to_string(),
+            };
             let message_count = transcript.messages.len() as i64;
             conn.execute(
                 SQL_INSERT_SUBAGENT,
