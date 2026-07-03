@@ -243,10 +243,17 @@ export class AnalyticsParserImpl implements AnalyticsParser {
   private parseSessionEnv(claudeDir: string): SessionEnvDirectory {
     try {
       const envDir = path.join(claudeDir, 'session-env');
-      const dirPaths = this.fileService.scanDirectorySync(envDir, { includeDirectories: true });
+      // directoriesOnly: each entry is a session dir we then scan for
+      // scripts — a stray file (e.g. .DS_Store) would make that per-dir
+      // scan throw ENOTDIR.
+      const dirPaths = this.fileService.scanDirectorySync(envDir, { directoriesOnly: true });
 
       const entries: SessionEnvEntry[] = dirPaths.map((dirPath) => ({
         sessionId: path.basename(dirPath),
+        scripts: this.fileService
+          .scanDirectorySync(dirPath, { pattern: '*.sh' })
+          .map((p) => path.basename(p))
+          .sort(),
       }));
       return { entries };
     } catch {
