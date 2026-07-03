@@ -8,6 +8,7 @@ import type {
   SessionMessage,
   SubagentTranscript,
   SubagentType,
+  SubagentMeta,
   PersistedToolResult,
   ProjectMemory,
   FileHistorySession,
@@ -491,12 +492,17 @@ export class ProjectParserImpl implements ProjectParser {
     try {
       const fileName = path.basename(filePath);
       const result = this.fileService.readJsonlSync<SessionMessage>(filePath);
+      // Sibling `agent-{id}.meta.json` carries the real (free-form) agent
+      // type + description; the filename regex only distinguishes
+      // task/prompt_suggestion/compact.
+      const meta = this.fileService.readJsonSync<SubagentMeta>(filePath.replace(/\.jsonl$/, '.meta.json'));
       return {
         agentId: this.extractAgentId(fileName),
         agentType: this.inferAgentType(fileName),
         fileName,
         messages: result.entries,
         workflowId,
+        ...(meta ? { meta } : {}),
       };
     } catch {
       return null;

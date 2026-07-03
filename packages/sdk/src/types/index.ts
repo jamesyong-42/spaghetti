@@ -118,8 +118,12 @@ export interface WorkflowRun {
 
 /** Subagent metadata from agent-{id}.meta.json files */
 export interface SubagentMeta {
+  /** Free-form agent type (e.g. 'general-purpose', 'Explore', 'agent-workflow'). */
   agentType: string;
-  description: string;
+  /** Present on flat subagent metas; absent on nested workflow metas. */
+  description?: string;
+  name?: string;
+  spawnDepth?: number;
   worktreePath?: string;
 }
 

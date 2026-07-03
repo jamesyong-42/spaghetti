@@ -525,11 +525,14 @@ class IngestServiceImpl implements IngestService {
 
   onSubagent(slug: string, sessionId: string, transcript: SubagentTranscript): void {
     const now = Date.now();
+    // Prefer the sidecar's real agent type (general-purpose, Explore, …)
+    // over the filename-inferred kind (task/prompt_suggestion/compact).
+    const agentType = transcript.meta?.agentType ?? transcript.agentType;
     this.stmtInsertSubagent.run(
       slug,
       sessionId,
       transcript.agentId,
-      transcript.agentType,
+      agentType,
       transcript.fileName,
       JSON.stringify(transcript.messages),
       transcript.messages.length,
