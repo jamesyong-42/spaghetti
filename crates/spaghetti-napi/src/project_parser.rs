@@ -29,6 +29,7 @@ use crate::parse_sink::IngestEvent;
 use crate::types::{
     FileHistorySession, FileHistorySnapshotFile, PersistedToolResult, PlanFile, SessionIndexEntry,
     SessionMessage, SessionsIndex, SubagentTranscript, SubagentType, TaskEntry, TodoFile, TodoItem,
+    WorkflowRun,
 };
 
 // ─── Regex patterns — copied verbatim from project-parser.ts ────────────────
@@ -233,12 +234,21 @@ fn parse_one_session(
         }
     }
 
-    // Subagents
+    // Subagents (incl. nested workflow transcripts, tagged by workflow_id)
     for transcript in read_subagents(project_dir, &session_id) {
         events.send(IngestEvent::Subagent {
             slug: slug.to_owned(),
             session_id: session_id.clone(),
             transcript,
+        })?;
+    }
+
+    // Workflow run records (agent-orchestration analytics)
+    for workflow in read_workflows(project_dir, &session_id) {
+        events.send(IngestEvent::Workflow {
+            slug: slug.to_owned(),
+            session_id: session_id.clone(),
+            workflow,
         })?;
     }
 
@@ -497,6 +507,74 @@ fn read_project_memory(project_dir: &Path) -> Option<String> {
 
 fn read_subagents(project_dir: &Path, session_id: &str) -> Vec<SubagentTranscript> {
     let dir = project_dir.join(session_id).join("subagents");
+    let mut out = Vec::new();
+
+    // Top-level subagent transcripts (not associated with a workflow).
+    if let Ok(read_dir) = std::fs::read_dir(&dir) {
+        for entry in read_dir.flatten() {
+            let file_name = entry.file_name();
+            let Some(name) = file_name.to_str() else {
+                continue;
+            };
+            if !name.ends_with(".jsonl") {
+                continue;
+            }
+            out.push(read_one_subagent(&entry.path(), name, ""));
+        }
+    }
+
+    // Nested workflow subagent transcripts:
+    //   subagents/workflows/{wf_id}/agent-*.jsonl  (journal.jsonl is skipped
+    //   by the `agent-` prefix). Prior to this the parser only walked the
+    //   flat subagents/ dir, so workflow-orchestrated transcripts were
+    //   invisible. Grouped to their run via `workflow_id`.
+    if let Ok(wf_dirs) = std::fs::read_dir(dir.join("workflows")) {
+        for wf_entry in wf_dirs.flatten() {
+            if !wf_entry.file_type().map(|t| t.is_dir()).unwrap_or(false) {
+                continue;
+            }
+            let wf_name = wf_entry.file_name();
+            let Some(workflow_id) = wf_name.to_str() else {
+                continue;
+            };
+            if let Ok(agent_dir) = std::fs::read_dir(wf_entry.path()) {
+                for entry in agent_dir.flatten() {
+                    let file_name = entry.file_name();
+                    let Some(name) = file_name.to_str() else {
+                        continue;
+                    };
+                    if !name.starts_with("agent-") || !name.ends_with(".jsonl") {
+                        continue;
+                    }
+                    out.push(read_one_subagent(&entry.path(), name, workflow_id));
+                }
+            }
+        }
+    }
+
+    out
+}
+
+fn read_one_subagent(path: &Path, name: &str, workflow_id: &str) -> SubagentTranscript {
+    let mut messages: Vec<SessionMessage> = Vec::new();
+    let _ = read_jsonl_streaming(path, 0, |line, _idx, _off| {
+        if let Ok(msg) = serde_json::from_str::<SessionMessage>(line) {
+            messages.push(msg);
+        }
+    });
+    SubagentTranscript {
+        agent_id: extract_agent_id(name),
+        agent_type: infer_agent_type(name),
+        file_name: name.to_owned(),
+        messages,
+        meta: None,
+        workflow_id: workflow_id.to_owned(),
+    }
+}
+
+/// Parse workflow run records under `projects/{slug}/{sid}/workflows/`.
+fn read_workflows(project_dir: &Path, session_id: &str) -> Vec<WorkflowRun> {
+    let dir = project_dir.join(session_id).join("workflows");
     let Ok(read_dir) = std::fs::read_dir(&dir) else {
         return Vec::new();
     };
@@ -507,29 +585,86 @@ fn read_subagents(project_dir: &Path, session_id: &str) -> Vec<SubagentTranscrip
         let Some(name) = file_name.to_str() else {
             continue;
         };
-        if !name.ends_with(".jsonl") {
+        if !name.starts_with("wf_") || !name.ends_with(".json") {
             continue;
         }
+        let Ok(raw) = std::fs::read_to_string(entry.path()) else {
+            continue;
+        };
+        let Ok(data) = serde_json::from_str::<Value>(&raw) else {
+            continue;
+        };
 
-        let agent_id = extract_agent_id(name);
-        let agent_type = infer_agent_type(name);
-        let path = entry.path();
+        let workflow_id = data
+            .get("runId")
+            .and_then(|v| v.as_str())
+            .map(str::to_owned)
+            .unwrap_or_else(|| name.trim_end_matches(".json").to_owned());
+        let num = |k: &str| data.get(k).and_then(|v| v.as_f64()).unwrap_or(0.0);
+        let name_field = data
+            .get("workflowName")
+            .and_then(|v| v.as_str())
+            .unwrap_or(&workflow_id)
+            .to_owned();
+        let status = data
+            .get("status")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_owned();
+        let subagent_count = count_workflow_subagents(project_dir, session_id, &workflow_id) as f64;
+        let journal = read_workflow_journal(project_dir, session_id, &workflow_id);
 
-        let mut messages: Vec<SessionMessage> = Vec::new();
-        let _ = read_jsonl_streaming(&path, 0, |line, _idx, _off| {
-            if let Ok(msg) = serde_json::from_str::<SessionMessage>(line) {
-                messages.push(msg);
-            }
-        });
-
-        out.push(SubagentTranscript {
-            agent_id,
-            agent_type,
-            file_name: name.to_owned(),
-            messages,
-            meta: None,
+        out.push(WorkflowRun {
+            name: name_field,
+            status,
+            agent_count: num("agentCount"),
+            total_tokens: num("totalTokens"),
+            total_tool_calls: num("totalToolCalls"),
+            duration_ms: num("durationMs"),
+            subagent_count,
+            data,
+            journal,
+            workflow_id,
         });
     }
+
+    out.sort_by(|a, b| a.workflow_id.cmp(&b.workflow_id));
+    out
+}
+
+fn count_workflow_subagents(project_dir: &Path, session_id: &str, workflow_id: &str) -> usize {
+    let dir = project_dir
+        .join(session_id)
+        .join("subagents")
+        .join("workflows")
+        .join(workflow_id);
+    std::fs::read_dir(dir)
+        .map(|rd| {
+            rd.flatten()
+                .filter(|e| {
+                    e.file_name()
+                        .to_str()
+                        .map(|n| n.starts_with("agent-") && n.ends_with(".jsonl"))
+                        .unwrap_or(false)
+                })
+                .count()
+        })
+        .unwrap_or(0)
+}
+
+fn read_workflow_journal(project_dir: &Path, session_id: &str, workflow_id: &str) -> Vec<Value> {
+    let path = project_dir
+        .join(session_id)
+        .join("subagents")
+        .join("workflows")
+        .join(workflow_id)
+        .join("journal.jsonl");
+    let mut out = Vec::new();
+    let _ = read_jsonl_streaming(&path, 0, |line, _idx, _off| {
+        if let Ok(v) = serde_json::from_str::<Value>(line) {
+            out.push(v);
+        }
+    });
     out
 }
 

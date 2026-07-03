@@ -73,6 +73,10 @@ pub struct SubagentTranscript {
     pub messages: Vec<SessionMessage>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub meta: Option<SubagentMeta>,
+    /// The `wf_...` run this transcript belongs to, or `""` for a
+    /// top-level (non-workflow) subagent.
+    #[serde(default)]
+    pub workflow_id: String,
 }
 
 /// `agent-{id}.meta.json` — TS `SubagentMeta`.

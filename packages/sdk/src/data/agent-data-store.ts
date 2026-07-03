@@ -61,6 +61,12 @@ export interface AgentDataStore {
     slug: string,
     sessionId: string,
   ): Array<{ agentId: string; agentType: string; messageCount: number }>;
+  getSessionWorkflows(slug: string, sessionId: string): ReturnType<QueryService['getSessionWorkflows']>;
+  getWorkflowSubagents(
+    slug: string,
+    sessionId: string,
+    workflowId: string,
+  ): Array<{ agentId: string; agentType: string; messageCount: number }>;
   getSubagentMessages(
     slug: string,
     sessionId: string,
@@ -242,6 +248,18 @@ export class AgentDataStoreImpl implements AgentDataStore {
     sessionId: string,
   ): Array<{ agentId: string; agentType: string; messageCount: number }> {
     return this.queryService.getSessionSubagents(slug, sessionId);
+  }
+
+  getSessionWorkflows(slug: string, sessionId: string): ReturnType<QueryService['getSessionWorkflows']> {
+    return this.queryService.getSessionWorkflows(slug, sessionId);
+  }
+
+  getWorkflowSubagents(
+    slug: string,
+    sessionId: string,
+    workflowId: string,
+  ): Array<{ agentId: string; agentType: string; messageCount: number }> {
+    return this.queryService.getWorkflowSubagents(slug, sessionId, workflowId);
   }
 
   getSubagentMessages(

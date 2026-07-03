@@ -41,6 +41,7 @@ import type {
   TodoFile,
   TaskEntry,
   PlanFile,
+  WorkflowRun,
 } from '../types/index.js';
 import type { QueryService } from './query-service.js';
 import type { IngestService } from './ingest-service.js';
@@ -120,6 +121,12 @@ export interface ClaudeCodeAgentDataService extends EventEmitter {
   getSessionSubagents(
     slug: string,
     sessionId: string,
+  ): Array<{ agentId: string; agentType: string; messageCount: number }>;
+  getSessionWorkflows(slug: string, sessionId: string): ReturnType<AgentDataStore['getSessionWorkflows']>;
+  getWorkflowSubagents(
+    slug: string,
+    sessionId: string,
+    workflowId: string,
   ): Array<{ agentId: string; agentType: string; messageCount: number }>;
   getSubagentMessages(
     slug: string,
@@ -549,8 +556,14 @@ export class LifecycleOwner extends EventEmitter implements ClaudeCodeAgentDataS
               agentType: msg.agentType as SubagentTranscript['agentType'],
               fileName: msg.fileName,
               messages,
+              workflowId: msg.workflowId,
             };
             this.ingestService.onSubagent(msg.slug, msg.sessionId, transcript);
+            break;
+          }
+          case 'workflow-result': {
+            const workflow = JSON.parse(msg.workflowJson) as WorkflowRun;
+            this.ingestService.onWorkflow(msg.slug, msg.sessionId, workflow);
             break;
           }
           case 'tool-result': {
@@ -1315,6 +1328,18 @@ export class LifecycleOwner extends EventEmitter implements ClaudeCodeAgentDataS
     sessionId: string,
   ): Array<{ agentId: string; agentType: string; messageCount: number }> {
     return this.store.getSessionSubagents(slug, sessionId);
+  }
+
+  getSessionWorkflows(slug: string, sessionId: string): ReturnType<AgentDataStore['getSessionWorkflows']> {
+    return this.store.getSessionWorkflows(slug, sessionId);
+  }
+
+  getWorkflowSubagents(
+    slug: string,
+    sessionId: string,
+    workflowId: string,
+  ): Array<{ agentId: string; agentType: string; messageCount: number }> {
+    return this.store.getWorkflowSubagents(slug, sessionId, workflowId);
   }
 
   getSubagentMessages(

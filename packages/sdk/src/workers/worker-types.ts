@@ -63,6 +63,14 @@ export interface WorkerSubagentResult {
   fileName: string;
   messagesJson: string;
   messageCount: number;
+  workflowId: string;
+}
+
+export interface WorkerWorkflowResult {
+  type: 'workflow-result';
+  slug: string;
+  sessionId: string;
+  workflowJson: string;
 }
 
 export interface WorkerToolResultResult {
@@ -126,6 +134,7 @@ export type WorkerToMainMessage =
   | WorkerSessionResult
   | WorkerMessageBatch
   | WorkerSubagentResult
+  | WorkerWorkflowResult
   | WorkerToolResultResult
   | WorkerFileHistoryResult
   | WorkerTodoResult

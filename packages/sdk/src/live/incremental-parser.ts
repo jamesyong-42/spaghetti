@@ -377,7 +377,10 @@ export function createIncrementalParser(options: CreateIncrementalParserOptions)
       // later passes will overwrite with a full read.
     }
 
-    const transcript: SubagentTranscript = { agentId, agentType, fileName, messages };
+    // Live tailing currently only watches the flat subagents/ dir, so these
+    // are always top-level (workflowId ''); nested workflow transcripts are
+    // picked up on the next cold/warm re-parse.
+    const transcript: SubagentTranscript = { agentId, agentType, fileName, messages, workflowId: '' };
 
     const rows: ParsedRow[] = [{ category: 'subagent', slug, sessionId, transcript }];
     const rewrite = !checkpoint || checkpoint.inode !== inode || size < checkpoint.lastOffset;

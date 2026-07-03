@@ -424,8 +424,14 @@ const TABLE_SPECS: TableSpec[] = [
   },
   {
     name: 'subagents',
-    orderBy: 'project_slug, session_id, agent_id',
+    orderBy: 'project_slug, session_id, workflow_id, agent_id',
     jsonColumns: ['messages'],
+    ignoreColumns: ['id', 'updated_at'],
+  },
+  {
+    name: 'workflows',
+    orderBy: 'project_slug, session_id, workflow_id',
+    jsonColumns: ['data', 'journal'],
     ignoreColumns: ['id', 'updated_at'],
   },
   {

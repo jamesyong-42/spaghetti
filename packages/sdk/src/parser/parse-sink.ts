@@ -16,6 +16,7 @@ import type {
   TodoFile,
   TaskEntry,
   PlanFile,
+  WorkflowRun,
 } from '../types/index.js';
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -37,6 +38,9 @@ export interface ProjectParseSink {
 
   /** Called for each subagent transcript found in a session directory. */
   onSubagent(slug: string, sessionId: string, transcript: SubagentTranscript): void;
+
+  /** Called for each workflow run found in a session's `workflows/` dir. */
+  onWorkflow(slug: string, sessionId: string, workflow: WorkflowRun): void;
 
   /** Called for each persisted tool result found in a session directory. */
   onToolResult(slug: string, sessionId: string, toolResult: PersistedToolResult): void;

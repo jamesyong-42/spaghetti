@@ -4,7 +4,7 @@
 
 import type { SqliteService } from '../io/index.js';
 
-export const SCHEMA_VERSION = 3;
+export const SCHEMA_VERSION = 4;
 
 export const SCHEMA_SQL = `
 -- Meta
@@ -79,8 +79,27 @@ CREATE TABLE IF NOT EXISTS subagents (
   file_name TEXT,
   messages TEXT,
   message_count INTEGER,
+  workflow_id TEXT,
   updated_at INTEGER,
-  UNIQUE(project_slug, session_id, agent_id)
+  UNIQUE(project_slug, session_id, workflow_id, agent_id)
+);
+
+CREATE TABLE IF NOT EXISTS workflows (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  project_slug TEXT,
+  session_id TEXT,
+  workflow_id TEXT,
+  name TEXT,
+  status TEXT,
+  agent_count INTEGER,
+  total_tokens INTEGER,
+  total_tool_calls INTEGER,
+  duration_ms INTEGER,
+  subagent_count INTEGER,
+  data TEXT,
+  journal TEXT,
+  updated_at INTEGER,
+  UNIQUE(project_slug, session_id, workflow_id)
 );
 
 CREATE TABLE IF NOT EXISTS tool_results (
@@ -176,6 +195,7 @@ const CURRENT_TABLES = [
   'sessions',
   'messages',
   'subagents',
+  'workflows',
   'tool_results',
   'todos',
   'tasks',
