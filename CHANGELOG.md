@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.5.14](https://github.com/jamesyong-42/spaghetti/compare/spaghetti-v0.5.13...spaghetti-v0.5.14) (2026-07-03)
+
+
+### Features
+
+* **cli:** add Workflow tab to the session view ([#49](https://github.com/jamesyong-42/spaghetti/issues/49)) ([1242562](https://github.com/jamesyong-42/spaghetti/commit/12425621c7ef2c07051e23a577b24e4ac7c246b1))
+* **sdk,napi:** ingest workflow runs + nested subagent transcripts (schema v4) ([#48](https://github.com/jamesyong-42/spaghetti/issues/48)) ([c2422e3](https://github.com/jamesyong-42/spaghetti/commit/c2422e311e7cad60e175b815b58e6685c11bfa20))
+* **sdk,napi:** model new session message types + harden Rust against unknown types ([#46](https://github.com/jamesyong-42/spaghetti/issues/46)) ([b02795e](https://github.com/jamesyong-42/spaghetti/commit/b02795e22d5d48d276c2694413df842a1c6b672c))
+* **sdk:** promote settings.local.json into config + refresh settings/plugin types ([#50](https://github.com/jamesyong-42/spaghetti/issues/50)) ([1610430](https://github.com/jamesyong-42/spaghetti/commit/16104309583c5a5dcd45205aab72b30af4dd9309))
+* **sdk:** refresh ActiveSessionFile + HistoryPastedContent types (2026-07 audit) ([#51](https://github.com/jamesyong-42/spaghetti/issues/51)) ([f038051](https://github.com/jamesyong-42/spaghetti/commit/f03805122856f6e532394e440222ac76d25fcc1d))
+
 ## [0.5.13](https://github.com/jamesyong-42/spaghetti/compare/spaghetti-v0.5.12...spaghetti-v0.5.13) (2026-07-02)
 
 
