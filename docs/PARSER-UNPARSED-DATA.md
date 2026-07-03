@@ -1,7 +1,7 @@
 # Unparsed `.claude/` Data
 
 **Status:** Gap inventory for the spaghetti parsing library.
-**Updated:** 2026-07-02
+**Updated:** 2026-07-03
 **Scope:** `~/.claude/` on-disk state written by Claude Code that the spaghetti library does **not** currently ingest (or ingests incompletely). Separate doc: `PARSER-PIPELINE.md` for what *is* parsed.
 
 Two axes are tracked per entry:
@@ -191,10 +191,21 @@ Keep for institutional memory:
 
 ---
 
+## 5b. 2026-07-02/03 re-audit — shipped
+
+The full multi-agent re-audit (`PARSER-AUDIT-2026-07-02.md`) is landed. Fixes since:
+
+- ~~**HIGH data loss** — workflow-orchestration artifacts~~ **done**. Nested subagent transcripts (`subagents/workflows/wf_*/agent-*.jsonl`) + session-level run records (`workflows/wf_*.json`) + `journal.jsonl` are ingested by both engines under schema v4 (new `workflows` table; `subagents.workflow_id` groups nested transcripts under their run). API `getSessionWorkflows`/`getWorkflowSubagents` + a **Workflow** TUI tab. (PRs #48, #49.)
+- ~~**MEDIUM** — new session message types~~ **done**. `ai-title`/`mode`/`bridge-session` + system subtypes `away_summary`/`informational` modeled in both unions; `ai-title` + system `content` indexed into FTS. Both Rust enums gained a `#[serde(other)]` backstop so a *future* unknown `type`/`subtype` no longer fails the typed parse (which had nulled ~4,900 real lines' FTS). (PR #46.)
+- ~~**HIGH security** — `settings.local.json`~~ **done**. Promoted into `AgentConfig.settingsLocal` at cold start; 5 new `settings.json` keys + `PluginManifest.commands/skills/agents` typed. (PR #50.)
+- ~~**LOW** — `ActiveSessionFile` + `HistoryPastedContent`~~ **done**. Stale shapes refreshed (sessions/{pid}.json new fields; history `content`→`contentHash` migration). (PR #51.)
+
+Remaining LOW re-audit follow-ups: workflow live-watch (picked up on re-parse today), workflow `result`-text FTS, telemetry type refresh, session-env inner-script read, `mcp-needs-auth-cache`/`blocklist.json` readers, subagent `.meta.json` sidecar shape.
+
 ## 6. Prioritized fix list
 
 1. ~~**Critical** — Add `teams/` parser~~ — **done (TS cold start, 2026-07)**. Remaining: live-watch `teams/`, FTS over inbox text, Rust port with the config sprint (item 8).
-2. **High** — Parse `settings.local.json` and merge into effective settings.
+2. ~~**High** — Parse `settings.local.json`~~ — **done (2026-07-03, PR #50)**: `AgentConfig.settingsLocal` populated at cold start; effective-permission merge documented on the field.
 3. ~~**High** — Fix Rust `plans/`~~ — **done (2026-07-02)**: `parse_plans` mirrors `buildPlanIndex` (slug/title/content/size), emitted before the project fan-out under a pseudo-slug transaction; 35/35 plan rows on real data, plans now in the parity fixtures. Note: `sessions.plan_slug` is populated by NEITHER engine's DB path (the TS linkage only runs in the non-streaming in-memory parse) — tracked as a shared gap.
 3b. ~~**High** — Rust FTS extraction~~ — **done (2026-07-02)**: root cause was the strict `ToolUseResult` type, not the extractor (see §3.1); real-data search hit counts now identical across engines.
 3c. ~~**Medium** — TS warm-start freshness + `.DS_Store` project slug~~ — **done (2026-07-02)**: msg_index rebasing + snapshot fingerprints + one-shot heal; `directoriesOnly` project scans (see §3.1).
