@@ -1,9 +1,10 @@
 /**
- * SessionTabView — Tab container showing Messages + Todos + Plan + Subagents + Team for a session
+ * SessionTabView — Tab container showing Messages + Todos + Plan + Subagents + Team + Workflow.
  *
- * Wraps MessagesView (tab 0) and inline content panels for Todos, Plan, Subagents, Team (tabs 1-4).
- * The Team tab lists members of the team(s) this session leads (matched via config.leadSessionId,
- * with teamId fallbacks for orphan dirs and session-{8hex} scaffolds); Enter opens a member's inbox.
+ * Wraps MessagesView (tab 0) and inline panels for Todos, Plan, Subagents, Team, Workflow (tabs 1-5).
+ * The Team tab lists members of the team(s) this session leads; Enter opens a member's inbox.
+ * The Workflow tab lists this session's agent-orchestration runs; Enter drills into a run's grouped
+ * subagent transcripts, and Enter again opens a transcript.
  * Left/Right arrows switch tabs. Esc pops back to the sessions list.
  */
 
@@ -13,6 +14,7 @@ import type {
   ProjectListItem,
   SessionListItem,
   SubagentListItem,
+  WorkflowListItem,
   TeamDirectory,
   InboxMessage,
 } from '@vibecook/spaghetti-sdk';
@@ -26,7 +28,7 @@ import type { ViewEntry } from './types.js';
 
 // ─── Constants ────────────────────────────────────────────────────────
 
-const TABS = ['Messages', 'Todos', 'Plan', 'Subagents', 'Team'] as const;
+const TABS = ['Messages', 'Todos', 'Plan', 'Subagents', 'Team', 'Workflow'] as const;
 
 // ─── Todo Helpers ─────────────────────────────────────────────────────
 
@@ -458,6 +460,158 @@ function TeamInboxView({ row }: { row: TeamMemberRow }): React.ReactElement {
   return <Box flexDirection="column">{lines.slice(scroll, scroll + viewportHeight)}</Box>;
 }
 
+// ─── WorkflowPanel ────────────────────────────────────────────────────
+
+interface WorkflowPanelProps {
+  workflows: WorkflowListItem[];
+  scrollOffset: number;
+  selectedIndex: number;
+  viewportHeight: number;
+}
+
+function WorkflowPanelCard({ wf, selected }: { wf: WorkflowListItem; selected: boolean }): React.ReactElement {
+  const statusColor = wf.status === 'completed' ? 'green' : wf.status === 'failed' ? 'red' : 'yellow';
+  const plural = (n: number, unit: string) => `${formatNumber(n)} ${unit}${n === 1 ? '' : 's'}`;
+  const detail = [
+    plural(wf.agentCount, 'agent'),
+    plural(wf.subagentCount, 'transcript'),
+    plural(wf.totalTokens, 'token'),
+    plural(wf.totalToolCalls, 'tool call'),
+  ].join(' · ');
+
+  return (
+    <Box flexDirection="column">
+      <Text>
+        {selected ? <Text color="magenta">{'▎'}</Text> : ' '}{' '}
+        {selected ? (
+          <Text bold color="white">
+            {wf.name}
+          </Text>
+        ) : (
+          <Text color="magenta">{wf.name}</Text>
+        )}
+        {'  '}
+        <Text color={statusColor}>{wf.status}</Text>
+        {'  '}
+        <Text dimColor>{wf.workflowId}</Text>
+      </Text>
+      <Text>
+        {'    '}
+        <Text dimColor>{detail}</Text>
+      </Text>
+      <Text> </Text>
+    </Box>
+  );
+}
+
+function WorkflowPanel({
+  workflows,
+  scrollOffset,
+  selectedIndex,
+  viewportHeight,
+}: WorkflowPanelProps): React.ReactElement {
+  if (workflows.length === 0) {
+    return (
+      <Box flexDirection="column" paddingLeft={2}>
+        <Text dimColor>No workflows in this session.</Text>
+      </Box>
+    );
+  }
+
+  const viewportItems = Math.max(1, Math.floor(viewportHeight / 3));
+  const visible = workflows.slice(scrollOffset, scrollOffset + viewportItems);
+
+  return (
+    <Box flexDirection="column">
+      {visible.map((wf, i) => (
+        <WorkflowPanelCard key={wf.workflowId} wf={wf} selected={scrollOffset + i === selectedIndex} />
+      ))}
+    </Box>
+  );
+}
+
+// ─── WorkflowDetailView — a run's grouped subagents ───────────────────
+
+function WorkflowDetailView({
+  projectSlug,
+  sessionId,
+  workflow,
+}: {
+  projectSlug: string;
+  sessionId: string;
+  workflow: WorkflowListItem;
+}): React.ReactElement {
+  const nav = useViewNav();
+  const api = useApi();
+  const { stdout } = useStdout();
+  const viewportHeight = Math.max((stdout?.rows ?? 24) - 8, 5);
+
+  const agents = useMemo(
+    () => api.getWorkflowSubagents(projectSlug, sessionId, workflow.workflowId),
+    [api, projectSlug, sessionId, workflow.workflowId],
+  );
+  const [selected, setSelected] = useState(0);
+  const [scroll, setScroll] = useState(0);
+  const viewportItems = Math.max(1, Math.floor(viewportHeight / 3));
+  const maxScroll = Math.max(0, agents.length - viewportItems);
+
+  useInput(
+    (_input, key) => {
+      if (key.upArrow) {
+        setSelected((prev) => {
+          const next = Math.max(0, prev - 1);
+          if (next < scroll) setScroll(next);
+          return next;
+        });
+      } else if (key.downArrow) {
+        setSelected((prev) => {
+          const next = Math.min(agents.length - 1, prev + 1);
+          if (next >= scroll + viewportItems) setScroll(Math.min(maxScroll, scroll + 1));
+          return next;
+        });
+      } else if (key.return) {
+        const agent = agents[selected];
+        if (agent) {
+          nav.push({
+            type: 'detail',
+            component: () => <SubagentTranscriptPlaceholder agentId={agent.agentId} agentType={agent.agentType} />,
+            breadcrumb: `${agent.agentType} ${agent.agentId.slice(0, 8)}`,
+            hints: 'Esc back',
+          });
+        }
+      } else if (key.escape) {
+        nav.pop();
+      }
+    },
+    { isActive: !nav.searchMode },
+  );
+
+  return (
+    <Box flexDirection="column">
+      <Text>
+        {' '}
+        <Text bold>{workflow.name}</Text>
+        <Text dimColor>
+          {' · '}
+          {workflow.status}
+          {' · '}
+          {agents.length} subagent{agents.length === 1 ? '' : 's'}
+        </Text>
+      </Text>
+      <Text> </Text>
+      {agents.length === 0 ? (
+        <Text dimColor>{'  '}No subagent transcripts recorded for this run.</Text>
+      ) : (
+        agents
+          .slice(scroll, scroll + viewportItems)
+          .map((agent, i) => (
+            <SubagentsPanelCard key={agent.agentId} agent={agent} selected={scroll + i === selected} />
+          ))
+      )}
+    </Box>
+  );
+}
+
 // ─── SessionTabView ───────────────────────────────────────────────────
 
 export interface SessionTabViewProps {
@@ -481,8 +635,10 @@ export function SessionTabView({ project, session, sessionIndex }: SessionTabVie
   const [subagentsSelected, setSubagentsSelected] = useState(0);
   const [teamScroll, setTeamScroll] = useState(0);
   const [teamSelected, setTeamSelected] = useState(0);
+  const [workflowScroll, setWorkflowScroll] = useState(0);
+  const [workflowSelected, setWorkflowSelected] = useState(0);
 
-  // Compute max scroll values for tabs 1-4
+  // Compute max scroll values for tabs 1-5
   const viewportHeight = Math.max(termRows - 8, 5);
 
   const rawTodos = useMemo(
@@ -513,6 +669,14 @@ export function SessionTabView({ project, session, sessionIndex }: SessionTabVie
   const teamRowCount = teamRows.length;
   const teamViewportItems = Math.max(1, Math.floor((viewportHeight - 2) / 3));
   const teamMaxScroll = Math.max(0, teamRowCount - teamViewportItems);
+
+  const workflows = useMemo(
+    () => api.getSessionWorkflows(project.slug, session.sessionId),
+    [api, project.slug, session.sessionId],
+  );
+  const workflowCount = workflows.length;
+  const workflowViewportItems = Math.max(1, Math.floor(viewportHeight / 3));
+  const workflowMaxScroll = Math.max(0, workflowCount - workflowViewportItems);
 
   // Tab switching — always active (works on all tabs including Messages)
   useInput(
@@ -616,6 +780,39 @@ export function SessionTabView({ project, session, sessionIndex }: SessionTabVie
         } else if (key.escape) {
           nav.pop();
         }
+      } else if (activeTab === 5) {
+        // Workflow tab — run list navigation + Enter for the run's subagents
+        if (key.upArrow) {
+          setWorkflowSelected((prev) => {
+            const next = Math.max(0, prev - 1);
+            if (next < workflowScroll) setWorkflowScroll(next);
+            return next;
+          });
+        } else if (key.downArrow) {
+          setWorkflowSelected((prev) => {
+            const next = Math.min(workflowCount - 1, prev + 1);
+            if (next >= workflowScroll + workflowViewportItems) {
+              setWorkflowScroll(Math.min(workflowMaxScroll, workflowScroll + 1));
+            }
+            return next;
+          });
+        } else if (key.return) {
+          if (workflowCount === 0) return;
+          const wf = workflows[workflowSelected];
+          if (!wf) return;
+
+          const entry: ViewEntry = {
+            type: 'detail',
+            component: () => (
+              <WorkflowDetailView projectSlug={project.slug} sessionId={session.sessionId} workflow={wf} />
+            ),
+            breadcrumb: `${wf.name}`,
+            hints: '↑↓ select · ⏎ transcript · Esc back',
+          };
+          nav.push(entry);
+        } else if (key.escape) {
+          nav.pop();
+        }
       }
     },
     { isActive: activeTab !== 0 && !nav.searchMode },
@@ -660,6 +857,14 @@ export function SessionTabView({ project, session, sessionIndex }: SessionTabVie
           rows={teamRows}
           scrollOffset={teamScroll}
           selectedIndex={teamSelected}
+          viewportHeight={viewportHeight}
+        />
+      )}
+      {activeTab === 5 && (
+        <WorkflowPanel
+          workflows={workflows}
+          scrollOffset={workflowScroll}
+          selectedIndex={workflowSelected}
           viewportHeight={viewportHeight}
         />
       )}
