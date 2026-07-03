@@ -43,7 +43,7 @@
 
 use crate::types::{
     FileHistorySession, PersistedToolResult, PlanFile, SessionIndexEntry, SubagentTranscript,
-    TaskEntry, TodoFile,
+    TaskEntry, TodoFile, WorkflowRun,
 };
 
 /// One unit of work pushed from a parser thread to the writer thread.
@@ -103,6 +103,13 @@ pub enum IngestEvent {
         slug: String,
         session_id: String,
         transcript: SubagentTranscript,
+    },
+
+    /// Workflow run record (`workflows/{runId}.json`). Maps to `onWorkflow`.
+    Workflow {
+        slug: String,
+        session_id: String,
+        workflow: WorkflowRun,
     },
 
     /// Persisted tool result (.txt file). Maps to `onToolResult`.
@@ -266,6 +273,7 @@ mod tests {
                 file_name: "agent-a1.jsonl".into(),
                 messages: vec![],
                 meta: None,
+                workflow_id: String::new(),
             },
         };
         let s = format!("{ev:?}");

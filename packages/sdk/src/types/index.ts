@@ -83,6 +83,31 @@ export interface Session {
   todos: TodoFile[];
   task: TaskEntry | null;
   plan: PlanFile | null;
+  workflows: WorkflowRun[];
+}
+
+/**
+ * One agent-orchestration workflow run (the Workflow tool), recorded at
+ * `projects/{slug}/{sessionId}/workflows/{runId}.json`. Session-scoped.
+ * Its subagent transcripts live under
+ * `subagents/workflows/{runId}/agent-*.jsonl` and are grouped to this
+ * run via `SubagentTranscript.workflowId`.
+ */
+export interface WorkflowRun {
+  /** `wf_...` — the run id (matches the `workflows/` dir entry name). */
+  workflowId: string;
+  name: string;
+  status: string;
+  agentCount: number;
+  totalTokens: number;
+  totalToolCalls: number;
+  durationMs: number;
+  /** Number of nested subagent transcripts discovered for this run. */
+  subagentCount: number;
+  /** The full raw `{runId}.json` run record (phases/result/progress/logs/...). */
+  data: Record<string, unknown>;
+  /** Parsed `journal.jsonl` entries (started/result events), if present. */
+  journal: unknown[];
 }
 
 /** Subagent metadata from agent-{id}.meta.json files */
@@ -98,6 +123,12 @@ export interface SubagentTranscript {
   fileName: string;
   messages: SessionMessage[];
   meta?: SubagentMeta;
+  /**
+   * The `wf_...` run this transcript belongs to, or `''` for a
+   * top-level (non-workflow) subagent. Groups nested workflow
+   * transcripts under their run.
+   */
+  workflowId: string;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════

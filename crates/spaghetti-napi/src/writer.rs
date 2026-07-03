@@ -212,14 +212,34 @@ ON CONFLICT(session_id, msg_index) DO UPDATE SET
 const SQL_INSERT_SUBAGENT: &str = r#"
 INSERT INTO subagents (
   project_slug, session_id, agent_id, agent_type, file_name,
-  messages, message_count, updated_at
+  messages, message_count, workflow_id, updated_at
 )
-VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-ON CONFLICT(project_slug, session_id, agent_id) DO UPDATE SET
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+ON CONFLICT(project_slug, session_id, workflow_id, agent_id) DO UPDATE SET
   agent_type = excluded.agent_type,
   file_name = excluded.file_name,
   messages = excluded.messages,
   message_count = excluded.message_count,
+  updated_at = excluded.updated_at
+"#;
+
+const SQL_INSERT_WORKFLOW: &str = r#"
+INSERT INTO workflows (
+  project_slug, session_id, workflow_id, name, status,
+  agent_count, total_tokens, total_tool_calls, duration_ms,
+  subagent_count, data, journal, updated_at
+)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+ON CONFLICT(project_slug, session_id, workflow_id) DO UPDATE SET
+  name = excluded.name,
+  status = excluded.status,
+  agent_count = excluded.agent_count,
+  total_tokens = excluded.total_tokens,
+  total_tool_calls = excluded.total_tool_calls,
+  duration_ms = excluded.duration_ms,
+  subagent_count = excluded.subagent_count,
+  data = excluded.data,
+  journal = excluded.journal,
   updated_at = excluded.updated_at
 "#;
 
@@ -450,6 +470,7 @@ impl Writer {
             | IngestEvent::Session { ref slug, .. }
             | IngestEvent::Message { ref slug, .. }
             | IngestEvent::Subagent { ref slug, .. }
+            | IngestEvent::Workflow { ref slug, .. }
             | IngestEvent::ToolResult { ref slug, .. }
             | IngestEvent::Plan { ref slug, .. } => {
                 let slug = slug.clone();
@@ -733,10 +754,39 @@ pub fn dispatch_event(conn: &Connection, ev: &IngestEvent) -> Result<DispatchCou
                     transcript.file_name,
                     messages_json,
                     message_count,
+                    transcript.workflow_id,
                     now,
                 ],
             )?;
             counts.subagents_written = 1;
+        }
+
+        IngestEvent::Workflow {
+            slug,
+            session_id,
+            workflow,
+        } => {
+            let now = now_ms();
+            let data_json = serde_json::to_string(&workflow.data)?;
+            let journal_json = serde_json::to_string(&workflow.journal)?;
+            conn.execute(
+                SQL_INSERT_WORKFLOW,
+                params![
+                    slug,
+                    session_id,
+                    workflow.workflow_id,
+                    workflow.name,
+                    workflow.status,
+                    workflow.agent_count,
+                    workflow.total_tokens,
+                    workflow.total_tool_calls,
+                    workflow.duration_ms,
+                    workflow.subagent_count,
+                    data_json,
+                    journal_json,
+                    now,
+                ],
+            )?;
         }
 
         IngestEvent::ToolResult {
@@ -1230,6 +1280,7 @@ mod tests {
                 file_name: "agent-a1.jsonl".into(),
                 messages: vec![],
                 meta: None,
+                workflow_id: String::new(),
             },
         })
         .unwrap();
@@ -1436,6 +1487,7 @@ mod tests {
                     file_name: "agent-a1.jsonl".into(),
                     messages: vec![],
                     meta: None,
+                    workflow_id: String::new(),
                 },
             },
             IngestEvent::ToolResult {

@@ -60,6 +60,17 @@ export interface SubagentListItem {
   messageCount: number;
 }
 
+export interface WorkflowListItem {
+  workflowId: string;
+  name: string;
+  status: string;
+  agentCount: number;
+  totalTokens: number;
+  totalToolCalls: number;
+  durationMs: number;
+  subagentCount: number;
+}
+
 export interface SubagentMessagePage {
   messages: SessionMessage[];
   total: number;
@@ -113,8 +124,14 @@ export interface SpaghettiAPI {
   /** Get a persisted tool result */
   getToolResult(projectSlug: string, sessionId: string, toolUseId: string): string | null;
 
-  /** Get subagent list for a session */
+  /** Get top-level subagent list for a session (excludes workflow-nested) */
   getSessionSubagents(projectSlug: string, sessionId: string): SubagentListItem[];
+
+  /** Get agent-orchestration workflow runs for a session */
+  getSessionWorkflows(projectSlug: string, sessionId: string): WorkflowListItem[];
+
+  /** Get the subagents that ran under a specific workflow */
+  getWorkflowSubagents(projectSlug: string, sessionId: string, workflowId: string): SubagentListItem[];
 
   /** Get paginated subagent messages */
   getSubagentMessages(

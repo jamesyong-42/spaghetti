@@ -11,6 +11,7 @@ import type {
   SessionListItem,
   MessagePage,
   SubagentListItem,
+  WorkflowListItem,
   SubagentMessagePage,
 } from './api.js';
 import type { ClaudeCodeAgentDataService } from './data/agent-data-service.js';
@@ -141,6 +142,14 @@ class SpaghettiAppService extends EventEmitter implements SpaghettiAPI {
 
   getSessionSubagents(projectSlug: string, sessionId: string): SubagentListItem[] {
     return this.dataService.getSessionSubagents(projectSlug, sessionId);
+  }
+
+  getSessionWorkflows(projectSlug: string, sessionId: string): WorkflowListItem[] {
+    return this.dataService.getSessionWorkflows(projectSlug, sessionId);
+  }
+
+  getWorkflowSubagents(projectSlug: string, sessionId: string, workflowId: string): SubagentListItem[] {
+    return this.dataService.getWorkflowSubagents(projectSlug, sessionId, workflowId);
   }
 
   getSubagentMessages(

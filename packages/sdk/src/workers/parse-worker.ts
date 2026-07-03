@@ -112,6 +112,17 @@ port.on('message', (msg: MainToWorkerMessage) => {
             fileName: transcript.fileName,
             messagesJson: JSON.stringify(transcript.messages),
             messageCount: transcript.messages.length,
+            workflowId: transcript.workflowId,
+          });
+        },
+
+        onWorkflow(slug, sessionId, workflow) {
+          flushBatch();
+          port.postMessage({
+            type: 'workflow-result',
+            slug,
+            sessionId,
+            workflowJson: JSON.stringify(workflow),
           });
         },
 

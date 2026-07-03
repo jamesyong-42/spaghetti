@@ -17,6 +17,7 @@ import type {
   TodoFile,
   TaskEntry,
   PlanFile,
+  WorkflowRun,
 } from '../types/index.js';
 import type { Change } from '../live/change-events.js';
 import type { ParsedRow, ParsedRowCategory } from '../live/incremental-parser.js';
@@ -263,6 +264,7 @@ class IngestServiceImpl implements IngestService {
   private stmtInsertSession!: PreparedStatement;
   private stmtInsertMessage!: PreparedStatement;
   private stmtInsertSubagent!: PreparedStatement;
+  private stmtInsertWorkflow!: PreparedStatement;
   private stmtInsertToolResult!: PreparedStatement;
   private stmtInsertFileHistory!: PreparedStatement;
   private stmtInsertTodo!: PreparedStatement;
@@ -382,13 +384,29 @@ class IngestServiceImpl implements IngestService {
     );
 
     this.stmtInsertSubagent = this.db.prepare(
-      `INSERT INTO subagents (project_slug, session_id, agent_id, agent_type, file_name, messages, message_count, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-       ON CONFLICT(project_slug, session_id, agent_id) DO UPDATE SET
+      `INSERT INTO subagents (project_slug, session_id, agent_id, agent_type, file_name, messages, message_count, workflow_id, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(project_slug, session_id, workflow_id, agent_id) DO UPDATE SET
          agent_type = excluded.agent_type,
          file_name = excluded.file_name,
          messages = excluded.messages,
          message_count = excluded.message_count,
+         updated_at = excluded.updated_at`,
+    );
+
+    this.stmtInsertWorkflow = this.db.prepare(
+      `INSERT INTO workflows (project_slug, session_id, workflow_id, name, status, agent_count, total_tokens, total_tool_calls, duration_ms, subagent_count, data, journal, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(project_slug, session_id, workflow_id) DO UPDATE SET
+         name = excluded.name,
+         status = excluded.status,
+         agent_count = excluded.agent_count,
+         total_tokens = excluded.total_tokens,
+         total_tool_calls = excluded.total_tool_calls,
+         duration_ms = excluded.duration_ms,
+         subagent_count = excluded.subagent_count,
+         data = excluded.data,
+         journal = excluded.journal,
          updated_at = excluded.updated_at`,
     );
 
@@ -515,6 +533,26 @@ class IngestServiceImpl implements IngestService {
       transcript.fileName,
       JSON.stringify(transcript.messages),
       transcript.messages.length,
+      transcript.workflowId,
+      now,
+    );
+  }
+
+  onWorkflow(slug: string, sessionId: string, workflow: WorkflowRun): void {
+    const now = Date.now();
+    this.stmtInsertWorkflow.run(
+      slug,
+      sessionId,
+      workflow.workflowId,
+      workflow.name,
+      workflow.status,
+      workflow.agentCount,
+      workflow.totalTokens,
+      workflow.totalToolCalls,
+      workflow.durationMs,
+      workflow.subagentCount,
+      JSON.stringify(workflow.data),
+      JSON.stringify(workflow.journal),
       now,
     );
   }
@@ -820,6 +858,7 @@ class IngestServiceImpl implements IngestService {
     const tables = [
       'messages',
       'subagents',
+      'workflows',
       'tool_results',
       'todos',
       'tasks',

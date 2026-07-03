@@ -13,11 +13,13 @@ pub mod artifacts;
 pub mod content;
 pub mod project;
 pub mod session;
+pub mod workflow;
 
 pub use artifacts::*;
 pub use content::*;
 pub use project::*;
 pub use session::*;
+pub use workflow::*;
 
 #[cfg(test)]
 mod tests;

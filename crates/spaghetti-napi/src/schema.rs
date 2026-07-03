@@ -21,7 +21,7 @@ use thiserror::Error;
 /// tables on the next call to [`initialize_schema`].
 ///
 /// Keep in sync with `SCHEMA_VERSION` in `packages/sdk/src/data/schema.ts`.
-pub const SCHEMA_VERSION: u32 = 3;
+pub const SCHEMA_VERSION: u32 = 4;
 
 /// Full DDL for the current schema — lifted verbatim from the TS `SCHEMA_SQL`
 /// template literal. Whitespace differs; structure does not.
@@ -98,8 +98,27 @@ CREATE TABLE IF NOT EXISTS subagents (
   file_name TEXT,
   messages TEXT,
   message_count INTEGER,
+  workflow_id TEXT,
   updated_at INTEGER,
-  UNIQUE(project_slug, session_id, agent_id)
+  UNIQUE(project_slug, session_id, workflow_id, agent_id)
+);
+
+CREATE TABLE IF NOT EXISTS workflows (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  project_slug TEXT,
+  session_id TEXT,
+  workflow_id TEXT,
+  name TEXT,
+  status TEXT,
+  agent_count INTEGER,
+  total_tokens INTEGER,
+  total_tool_calls INTEGER,
+  duration_ms INTEGER,
+  subagent_count INTEGER,
+  data TEXT,
+  journal TEXT,
+  updated_at INTEGER,
+  UNIQUE(project_slug, session_id, workflow_id)
 );
 
 CREATE TABLE IF NOT EXISTS tool_results (
@@ -193,6 +212,7 @@ const CURRENT_TABLES: &[&str] = &[
     "sessions",
     "messages",
     "subagents",
+    "workflows",
     "tool_results",
     "todos",
     "tasks",

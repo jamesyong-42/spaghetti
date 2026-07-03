@@ -116,8 +116,8 @@ describe('AgentDataStore (C1.1 skeleton)', () => {
     );
 
     sqlite.run(
-      `INSERT INTO subagents (project_slug, session_id, agent_id, agent_type, file_name, messages, message_count, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO subagents (project_slug, session_id, agent_id, agent_type, file_name, messages, message_count, workflow_id, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       SLUG,
       SESSION_ID,
       'agent-0001',
@@ -125,6 +125,7 @@ describe('AgentDataStore (C1.1 skeleton)', () => {
       'agent-0001.jsonl',
       JSON.stringify([message]),
       1,
+      '',
       Date.now(),
     );
 

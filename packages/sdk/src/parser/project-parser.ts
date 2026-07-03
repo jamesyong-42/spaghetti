@@ -16,6 +16,7 @@ import type {
   TodoItem,
   TaskEntry,
   PlanFile,
+  WorkflowRun,
 } from '../types/index.js';
 import type { ProjectParseSink } from './parse-sink.js';
 import {
@@ -193,10 +194,16 @@ export class ProjectParserImpl implements ProjectParser {
             // JSONL file doesn't exist or is unreadable
           }
 
-          // Subagents
+          // Subagents (incl. nested workflow transcripts, tagged by workflowId)
           const subagents = this.parseSubagents(projectDir, sessionId);
           for (const subagent of subagents) {
             sink.onSubagent(slug, sessionId, subagent);
+          }
+
+          // Workflow run records (agent-orchestration analytics)
+          const workflows = this.parseWorkflows(projectDir, sessionId);
+          for (const workflow of workflows) {
+            sink.onWorkflow(slug, sessionId, workflow);
           }
 
           // Tool results
@@ -302,6 +309,7 @@ export class ProjectParserImpl implements ProjectParser {
       indexEntry: entry,
       messages,
       subagents: skipMessages ? [] : this.parseSubagents(projectDir, sessionId),
+      workflows: skipMessages ? [] : this.parseWorkflows(projectDir, sessionId),
       toolResults: skipMessages ? [] : this.parseToolResults(projectDir, sessionId),
       fileHistory: this.parseFileHistory(claudeDir, sessionId),
       todos: this.parseTodos(claudeDir, sessionId),
@@ -441,26 +449,117 @@ export class ProjectParserImpl implements ProjectParser {
     const subagentsDir = path.join(projectDir, sessionId, 'subagents');
     const transcripts: SubagentTranscript[] = [];
 
+    // Top-level subagent transcripts (not associated with a workflow).
     try {
       const filePaths = this.fileService.scanDirectorySync(subagentsDir, { pattern: '*.jsonl' });
-
       for (const filePath of filePaths) {
-        try {
-          const fileName = path.basename(filePath);
-          const agentId = this.extractAgentId(fileName);
-          const agentType = this.inferAgentType(fileName);
-          const result = this.fileService.readJsonlSync<SessionMessage>(filePath);
-
-          transcripts.push({ agentId, agentType, fileName, messages: result.entries });
-        } catch {
-          // skip bad subagent file
-        }
+        const transcript = this.readSubagentTranscript(filePath, '');
+        if (transcript) transcripts.push(transcript);
       }
     } catch {
       // subagents dir doesn't exist
     }
 
+    // Nested workflow subagent transcripts:
+    //   subagents/workflows/{wf_id}/agent-*.jsonl  (journal.jsonl is skipped
+    //   by the `agent-*` glob). Prior to this the parser only walked the
+    //   flat subagents/ dir, so every workflow-orchestrated transcript was
+    //   invisible to both engines. Grouped to its run via `workflowId`.
+    try {
+      const workflowsDir = path.join(subagentsDir, 'workflows');
+      const wfDirs = this.fileService.scanDirectorySync(workflowsDir, { directoriesOnly: true });
+      for (const wfDir of wfDirs) {
+        const workflowId = path.basename(wfDir);
+        try {
+          const agentFiles = this.fileService.scanDirectorySync(wfDir, { pattern: 'agent-*.jsonl' });
+          for (const filePath of agentFiles) {
+            const transcript = this.readSubagentTranscript(filePath, workflowId);
+            if (transcript) transcripts.push(transcript);
+          }
+        } catch {
+          // skip bad workflow dir
+        }
+      }
+    } catch {
+      // no subagents/workflows/ subtree
+    }
+
     return transcripts;
+  }
+
+  private readSubagentTranscript(filePath: string, workflowId: string): SubagentTranscript | null {
+    try {
+      const fileName = path.basename(filePath);
+      const result = this.fileService.readJsonlSync<SessionMessage>(filePath);
+      return {
+        agentId: this.extractAgentId(fileName),
+        agentType: this.inferAgentType(fileName),
+        fileName,
+        messages: result.entries,
+        workflowId,
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Parse the workflow run records under `projects/{slug}/{sid}/workflows/`.
+   * Each `wf_*.json` is an agent-orchestration run record; its `journal.jsonl`
+   * (started/result events) lives beside the run's nested transcripts under
+   * `subagents/workflows/{runId}/`.
+   */
+  private parseWorkflows(projectDir: string, sessionId: string): WorkflowRun[] {
+    const workflowsDir = path.join(projectDir, sessionId, 'workflows');
+    const runs: WorkflowRun[] = [];
+
+    try {
+      const filePaths = this.fileService.scanDirectorySync(workflowsDir, { pattern: 'wf_*.json' });
+      for (const filePath of filePaths) {
+        try {
+          const data = this.fileService.readJsonSync<Record<string, unknown>>(filePath);
+          if (!data) continue;
+          const workflowId = (typeof data.runId === 'string' && data.runId) || path.basename(filePath, '.json');
+          const num = (v: unknown): number => (typeof v === 'number' ? v : 0);
+          runs.push({
+            workflowId,
+            name: (typeof data.workflowName === 'string' && data.workflowName) || workflowId,
+            status: typeof data.status === 'string' ? data.status : '',
+            agentCount: num(data.agentCount),
+            totalTokens: num(data.totalTokens),
+            totalToolCalls: num(data.totalToolCalls),
+            durationMs: num(data.durationMs),
+            subagentCount: this.countWorkflowSubagents(projectDir, sessionId, workflowId),
+            data,
+            journal: this.parseWorkflowJournal(projectDir, sessionId, workflowId),
+          });
+        } catch {
+          // skip bad workflow record
+        }
+      }
+    } catch {
+      // no workflows/ dir
+    }
+
+    return runs.sort((a, b) => a.workflowId.localeCompare(b.workflowId));
+  }
+
+  private countWorkflowSubagents(projectDir: string, sessionId: string, workflowId: string): number {
+    try {
+      const dir = path.join(projectDir, sessionId, 'subagents', 'workflows', workflowId);
+      return this.fileService.scanDirectorySync(dir, { pattern: 'agent-*.jsonl' }).length;
+    } catch {
+      return 0;
+    }
+  }
+
+  private parseWorkflowJournal(projectDir: string, sessionId: string, workflowId: string): unknown[] {
+    try {
+      const journalPath = path.join(projectDir, sessionId, 'subagents', 'workflows', workflowId, 'journal.jsonl');
+      return this.fileService.readJsonlSync<unknown>(journalPath).entries;
+    } catch {
+      return [];
+    }
   }
 
   private extractAgentId(fileName: string): string {

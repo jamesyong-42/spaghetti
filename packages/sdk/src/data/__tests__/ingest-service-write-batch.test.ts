@@ -219,6 +219,7 @@ describe('IngestService.writeBatch (RFC 005 C2.6)', () => {
       agentType: 'task',
       fileName: 'agent-a-xyz.jsonl',
       messages: [{ type: 'user', message: { role: 'user', content: 'go' } } as unknown as SessionMessage],
+      workflowId: '',
     };
 
     const result = await ingest.writeBatch([{ category: 'subagent', slug: SLUG, sessionId: SESSION_ID, transcript }]);

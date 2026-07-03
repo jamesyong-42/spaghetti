@@ -51,6 +51,26 @@ export interface QueryService {
     offset: number,
   ): { messages: unknown[]; total: number; offset: number; hasMore: boolean };
 
+  // Workflows (agent-orchestration runs)
+  getSessionWorkflows(
+    slug: string,
+    sessionId: string,
+  ): Array<{
+    workflowId: string;
+    name: string;
+    status: string;
+    agentCount: number;
+    totalTokens: number;
+    totalToolCalls: number;
+    durationMs: number;
+    subagentCount: number;
+  }>;
+  getWorkflowSubagents(
+    slug: string,
+    sessionId: string,
+    workflowId: string,
+  ): Array<{ agentId: string; agentType: string; messageCount: number }>;
+
   // Details
   getProjectMemory(slug: string): string | null;
   getSessionTodos(slug: string, sessionId: string): unknown[];
@@ -121,6 +141,17 @@ interface SubagentRow {
   agent_id: string;
   agent_type: string;
   message_count: number;
+}
+
+interface WorkflowRow {
+  workflow_id: string;
+  name: string;
+  status: string;
+  agent_count: number;
+  total_tokens: number;
+  total_tool_calls: number;
+  duration_ms: number;
+  subagent_count: number;
 }
 
 interface SubagentMessagesRow {
@@ -314,10 +345,60 @@ class QueryServiceImpl implements QueryService {
     slug: string,
     sessionId: string,
   ): Array<{ agentId: string; agentType: string; messageCount: number }> {
+    // Top-level subagents only (workflow_id ''); workflow-nested ones are
+    // surfaced under their run via getWorkflowSubagents.
     const rows = this.db.all<SubagentRow>(
-      'SELECT agent_id, agent_type, message_count FROM subagents WHERE project_slug = ? AND session_id = ?',
+      "SELECT agent_id, agent_type, message_count FROM subagents WHERE project_slug = ? AND session_id = ? AND workflow_id = '' ORDER BY agent_id",
       slug,
       sessionId,
+    );
+    return rows.map((r) => ({
+      agentId: r.agent_id,
+      agentType: r.agent_type,
+      messageCount: r.message_count,
+    }));
+  }
+
+  getSessionWorkflows(
+    slug: string,
+    sessionId: string,
+  ): Array<{
+    workflowId: string;
+    name: string;
+    status: string;
+    agentCount: number;
+    totalTokens: number;
+    totalToolCalls: number;
+    durationMs: number;
+    subagentCount: number;
+  }> {
+    const rows = this.db.all<WorkflowRow>(
+      'SELECT workflow_id, name, status, agent_count, total_tokens, total_tool_calls, duration_ms, subagent_count FROM workflows WHERE project_slug = ? AND session_id = ? ORDER BY workflow_id',
+      slug,
+      sessionId,
+    );
+    return rows.map((r) => ({
+      workflowId: r.workflow_id,
+      name: r.name,
+      status: r.status,
+      agentCount: r.agent_count,
+      totalTokens: r.total_tokens,
+      totalToolCalls: r.total_tool_calls,
+      durationMs: r.duration_ms,
+      subagentCount: r.subagent_count,
+    }));
+  }
+
+  getWorkflowSubagents(
+    slug: string,
+    sessionId: string,
+    workflowId: string,
+  ): Array<{ agentId: string; agentType: string; messageCount: number }> {
+    const rows = this.db.all<SubagentRow>(
+      'SELECT agent_id, agent_type, message_count FROM subagents WHERE project_slug = ? AND session_id = ? AND workflow_id = ? ORDER BY agent_id',
+      slug,
+      sessionId,
+      workflowId,
     );
     return rows.map((r) => ({
       agentId: r.agent_id,
