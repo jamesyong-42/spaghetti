@@ -57,7 +57,10 @@ export interface TelemetryEnv {
 }
 
 export interface TelemetryEventData {
-  event_name: TelemetryEventName;
+  // Known `tengu_*` events, but the set grows continuously — accept any
+  // string so a new event name never fails the type (autocomplete keeps
+  // the known values via the union half).
+  event_name: TelemetryEventName | (string & {});
   client_timestamp: string;
   model: string;
   session_id: string;
@@ -70,9 +73,16 @@ export interface TelemetryEventData {
   additional_metadata: string;
   event_id: string;
   device_id: string;
-  auth?: string;
+  /** `auth` is an object (was mistyped `string`). */
+  auth?: TelemetryAuth;
+  email?: string;
   parent_session_id?: string;
   process?: string;
+}
+
+export interface TelemetryAuth {
+  organization_uuid: string;
+  account_uuid: string;
 }
 
 export interface TelemetryEvent {
