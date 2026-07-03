@@ -492,6 +492,9 @@ export function createLiveUpdates(deps: LiveUpdatesDeps, options: LiveUpdatesOpt
       checkpoint: priorCheckpoint,
       startMsgIndex,
       claudeDir,
+      // Only set for nested workflow subagent transcripts; groups the
+      // live-ingested transcript under its run (undefined → '').
+      workflowId: route.workflowId,
     });
 
     // Defer every state advance until writeBatch commits — a transient

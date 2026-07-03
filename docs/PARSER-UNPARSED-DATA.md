@@ -200,7 +200,12 @@ The full multi-agent re-audit (`PARSER-AUDIT-2026-07-02.md`) is landed. Fixes si
 - ~~**HIGH security** — `settings.local.json`~~ **done**. Promoted into `AgentConfig.settingsLocal` at cold start; 5 new `settings.json` keys + `PluginManifest.commands/skills/agents` typed. (PR #50.)
 - ~~**LOW** — `ActiveSessionFile` + `HistoryPastedContent`~~ **done**. Stale shapes refreshed (sessions/{pid}.json new fields; history `content`→`contentHash` migration). (PR #51.)
 
-Remaining LOW re-audit follow-ups: workflow live-watch (picked up on re-parse today), workflow `result`-text FTS, telemetry type refresh, session-env inner-script read, `mcp-needs-auth-cache`/`blocklist.json` readers, subagent `.meta.json` sidecar shape.
+- ~~**LOW** — config + analytics reader refresh~~ **done**. `mcp-needs-auth-cache.json` + plugins `blocklist.json` readers wired into `AgentConfig` (PR #53); telemetry event-type refresh + `session-env/*.sh` inner-script listing (PR #55); subagent `agent-{id}.meta.json` sidecar — the real free-form `agentType`/`name`/`description`, both engines (PR #56).
+- ~~**LOW** — workflow live-watch (nested transcripts)~~ **done**. The live router now classifies `subagents/workflows/<wf>/agent-*.jsonl` and threads `workflowId` end-to-end, so an active workflow's nested transcripts stream into SQLite grouped under their run — via the existing `subagent`→`subagent.updated` path (both engines; the native live handler already round-trips `SubagentTranscript.workflowId`) — instead of waiting for the next cold/warm re-parse. No schema/category/Rust change. (PR #57.)
+
+Remaining, consciously deferred (LOW value ≫ cost — documented, not built):
+- **`workflows/wf_*.json` run-record live-refresh.** During an active run the run-record *summary* row (status, token/tool totals, agent count) still refreshes only on the next re-parse. Deferred: it's derived analytics already captured correctly at cold start, and the substantive content — the nested transcripts — now streams live (above). A live path would need a first-class `workflow` category + `Change`/`ChangeTopic`/`topicToKey`/`candidateKeysFor` + native `live_ingest` variant across both engines, for marginal live-summary freshness.
+- **Workflow `result`-text FTS.** The run record's `data`/`journal` result text isn't in FTS. Deferred: the searchable "what the agents did" content is the transcripts, already FTS-indexed via `messages` (grouped by `workflow_id` since PR #48); a `workflows_fts` table would need a SCHEMA_VERSION bump + triggers + Rust mirror for low marginal recall over mostly-structured metadata.
 
 ## 6. Prioritized fix list
 

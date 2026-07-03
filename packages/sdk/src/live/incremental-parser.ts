@@ -177,6 +177,14 @@ export interface ParseFileDeltaParams {
    * there. When omitted, task rows are skipped.
    */
   claudeDir?: string;
+  /**
+   * For `subagent` rows only: the `wf_…` run a nested
+   * `subagents/workflows/<wf>/agent-*.jsonl` transcript belongs to.
+   * Threaded from the router so live-ingested nested transcripts get
+   * the same `workflow_id` grouping the cold-start parser assigns.
+   * Omitted (→ `''`) for flat, top-level subagents.
+   */
+  workflowId?: string;
 }
 
 export interface IncrementalParser {
@@ -349,7 +357,7 @@ export function createIncrementalParser(options: CreateIncrementalParserOptions)
   // ── Subagent JSONL (aggregate full file) ────────────────────────────────
 
   async function parseSubagentDelta(params: ParseFileDeltaParams): Promise<IncrementalParseResult> {
-    const { path: filePath, slug, sessionId, checkpoint } = params;
+    const { path: filePath, slug, sessionId, checkpoint, workflowId } = params;
     if (!slug || !sessionId) {
       return { rows: [], newCheckpoint: emptyCheckpoint(filePath, checkpoint), rewrite: false };
     }
@@ -377,10 +385,18 @@ export function createIncrementalParser(options: CreateIncrementalParserOptions)
       // later passes will overwrite with a full read.
     }
 
-    // Live tailing currently only watches the flat subagents/ dir, so these
-    // are always top-level (workflowId ''); nested workflow transcripts are
-    // picked up on the next cold/warm re-parse.
-    const transcript: SubagentTranscript = { agentId, agentType, fileName, messages, workflowId: '' };
+    // `workflowId` is threaded from the router: a nested
+    // `subagents/workflows/<wf>/agent-*.jsonl` event carries its run id
+    // so the live write groups the transcript under its workflow, exactly
+    // as the cold-start parser does. Flat, top-level subagents route
+    // without one and default to '' (ungrouped).
+    const transcript: SubagentTranscript = {
+      agentId,
+      agentType,
+      fileName,
+      messages,
+      workflowId: workflowId ?? '',
+    };
 
     const rows: ParsedRow[] = [{ category: 'subagent', slug, sessionId, transcript }];
     const rewrite = !checkpoint || checkpoint.inode !== inode || size < checkpoint.lastOffset;
