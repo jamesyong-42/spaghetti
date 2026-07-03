@@ -192,6 +192,7 @@ export function createSettingsHandler(
 function buildEmptyAgentConfig(): AgentConfig {
   return {
     settings: { permissions: { allow: [] as string[] } },
+    settingsLocal: null,
     plugins: {
       installedPlugins: { version: 2 as const, plugins: {} },
       knownMarketplaces: {},
