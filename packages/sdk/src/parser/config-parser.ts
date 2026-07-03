@@ -26,6 +26,8 @@ import type {
   TeamDirectory,
   TeamConfig,
   InboxMessage,
+  PluginBlocklistFile,
+  McpNeedsAuthCache,
 } from '../types/index.js';
 
 export interface ConfigParserOptions {
@@ -51,6 +53,7 @@ export class ConfigParserImpl implements ConfigParser {
       cache: this.parseCache(claudeDir),
       statusLineCommand: this.parseStatusLineCommand(claudeDir),
       teams: this.parseTeams(claudeDir),
+      mcpNeedsAuth: this.parseMcpNeedsAuth(claudeDir),
     };
   }
 
@@ -64,6 +67,7 @@ export class ConfigParserImpl implements ConfigParser {
         installCountsCache: { version: 1, fetchedAt: '', counts: [] },
         cache: [],
         marketplaces: [],
+        blocklist: null,
       },
       statsig: {},
       ide: { lockFiles: [] },
@@ -71,7 +75,16 @@ export class ConfigParserImpl implements ConfigParser {
       cache: {},
       statusLineCommand: null,
       teams: [],
+      mcpNeedsAuth: null,
     };
+  }
+
+  private parseMcpNeedsAuth(claudeDir: string): McpNeedsAuthCache | null {
+    try {
+      return this.fileService.readJsonSync<McpNeedsAuthCache>(path.join(claudeDir, 'mcp-needs-auth-cache.json'));
+    } catch {
+      return null;
+    }
   }
 
   private parseSettingsLocal(claudeDir: string): SettingsFile | null {
@@ -106,8 +119,9 @@ export class ConfigParserImpl implements ConfigParser {
     );
     const cache = this.parsePluginCache(pluginsDir);
     const marketplaces = this.parseMarketplaces(pluginsDir);
+    const blocklist = this.fileService.readJsonSync<PluginBlocklistFile>(path.join(pluginsDir, 'blocklist.json'));
 
-    return { installedPlugins, knownMarketplaces, installCountsCache, cache, marketplaces };
+    return { installedPlugins, knownMarketplaces, installCountsCache, cache, marketplaces, blocklist };
   }
 
   private parsePluginCache(pluginsDir: string): PluginCacheEntry[] {

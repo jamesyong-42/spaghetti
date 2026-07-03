@@ -123,7 +123,8 @@ export interface StatusLineCommandFile {
 
 /** ~/.claude/mcp-needs-auth-cache.json */
 export interface McpNeedsAuthCache {
-  [serverName: string]: { timestamp: number };
+  // Some entries also carry an auth `id`; most carry only `timestamp`.
+  [serverName: string]: { timestamp: number; id?: string };
 }
 
 /** ~/.claude/sessions/{PID}.json — maps running PIDs to session IDs */

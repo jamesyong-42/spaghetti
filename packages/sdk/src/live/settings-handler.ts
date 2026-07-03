@@ -199,6 +199,7 @@ function buildEmptyAgentConfig(): AgentConfig {
       installCountsCache: { version: 1 as const, fetchedAt: '', counts: [] },
       cache: [],
       marketplaces: [],
+      blocklist: null,
     },
     statsig: {},
     ide: { lockFiles: [] },
@@ -206,5 +207,6 @@ function buildEmptyAgentConfig(): AgentConfig {
     cache: {},
     statusLineCommand: null,
     teams: [],
+    mcpNeedsAuth: null,
   };
 }
