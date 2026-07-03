@@ -129,4 +129,19 @@ export interface PluginsDirectory {
   installCountsCache: InstallCountsCacheFile;
   cache: PluginCacheEntry[];
   marketplaces: MarketplaceManifest[];
+  blocklist: PluginBlocklistFile | null;
+}
+
+/** `~/.claude/plugins/blocklist.json` — plugins CC has blocked. */
+export interface PluginBlocklistFile {
+  fetchedAt: string;
+  plugins: PluginBlocklistEntry[];
+}
+
+export interface PluginBlocklistEntry {
+  /** `{plugin}@{marketplace}` */
+  plugin: string;
+  added_at: string;
+  reason?: string;
+  text?: string;
 }

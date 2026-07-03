@@ -75,4 +75,37 @@ describe('ConfigParser settings.local.json', () => {
     assert.equal(s.agentPushNotifEnabled, true);
     assert.equal(s.skipWorkflowUsageWarning, true);
   });
+
+  test('mcp-needs-auth-cache.json is read into config.mcpNeedsAuth', () => {
+    writeFileSync(
+      path.join(claudeDir, 'mcp-needs-auth-cache.json'),
+      JSON.stringify({ 'plugin:vercel:vercel': { timestamp: 1779286151774, id: 'auth-xyz' }, gmail: { timestamp: 1 } }),
+    );
+    const c = parser.parseConfig(claudeDir);
+    assert.equal(c.mcpNeedsAuth?.['plugin:vercel:vercel'].id, 'auth-xyz');
+    assert.equal(c.mcpNeedsAuth?.['gmail'].timestamp, 1);
+    assert.equal(c.mcpNeedsAuth?.['gmail'].id, undefined);
+  });
+
+  test('plugins/blocklist.json is read into plugins.blocklist', () => {
+    mkdirSync(path.join(claudeDir, 'plugins'), { recursive: true });
+    writeFileSync(
+      path.join(claudeDir, 'plugins', 'blocklist.json'),
+      JSON.stringify({
+        fetchedAt: '2026-03-31T22:19:08.632Z',
+        plugins: [{ plugin: 'code-review@official', added_at: '2026-02-11T03:16:31.424Z', reason: 'test' }],
+      }),
+    );
+    const b = parser.parseConfig(claudeDir).plugins.blocklist;
+    assert.equal(b?.plugins.length, 1);
+    assert.equal(b?.plugins[0].plugin, 'code-review@official');
+  });
+
+  test('mcpNeedsAuth + blocklist are null/absent when files are missing', () => {
+    const c = parser.parseConfig(claudeDir);
+    assert.equal(c.mcpNeedsAuth, null);
+    assert.equal(c.plugins.blocklist, null);
+    assert.equal(parser.empty().mcpNeedsAuth, null);
+    assert.equal(parser.empty().plugins.blocklist, null);
+  });
 });
