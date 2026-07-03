@@ -137,6 +137,14 @@ export interface SubagentTranscript {
 
 export interface AgentConfig {
   settings: SettingsFile;
+  /**
+   * `settings.local.json` — per-directory overrides layered over
+   * `settings`. Null when absent. Effective permissions/hooks/env are
+   * `settings` merged with `settingsLocal` (local wins); consumers that
+   * display "effective" config must apply that merge rather than reading
+   * `settings` alone.
+   */
+  settingsLocal: SettingsFile | null;
   plugins: PluginsDirectory;
   statsig: StatsigDirectory;
   ide: IdeDirectory;

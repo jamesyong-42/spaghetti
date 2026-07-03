@@ -40,6 +40,12 @@ export interface SettingsFile {
   cleanupPeriodDays?: number;
   extraKnownMarketplaces?: Record<string, ExtraKnownMarketplace>;
   hooks?: Record<string, HookMatcher[]>;
+  /** UI mode, e.g. 'fullscreen'. */
+  tui?: string;
+  autoCompactEnabled?: boolean;
+  agentPushNotifEnabled?: boolean;
+  skipWorkflowUsageWarning?: boolean;
+  skipAutoPermissionPrompt?: boolean;
 }
 
 export interface DailyActivity {

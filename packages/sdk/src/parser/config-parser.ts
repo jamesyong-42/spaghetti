@@ -43,6 +43,7 @@ export class ConfigParserImpl implements ConfigParser {
   parseConfig(claudeDir: string, options?: ConfigParserOptions): AgentConfig {
     return {
       settings: this.parseSettings(claudeDir),
+      settingsLocal: this.parseSettingsLocal(claudeDir),
       plugins: this.parsePlugins(claudeDir),
       statsig: this.parseStatsig(claudeDir),
       ide: this.parseIde(claudeDir),
@@ -56,6 +57,7 @@ export class ConfigParserImpl implements ConfigParser {
   empty(): AgentConfig {
     return {
       settings: { permissions: { allow: [] } },
+      settingsLocal: null,
       plugins: {
         installedPlugins: { version: 2, plugins: {} },
         knownMarketplaces: {},
@@ -70,6 +72,17 @@ export class ConfigParserImpl implements ConfigParser {
       statusLineCommand: null,
       teams: [],
     };
+  }
+
+  private parseSettingsLocal(claudeDir: string): SettingsFile | null {
+    // Same schema as settings.json; overrides it per working directory.
+    // Returns null (not an empty settings object) when absent so consumers
+    // can tell "no local overrides" from "empty local file".
+    try {
+      return this.fileService.readJsonSync<SettingsFile>(path.join(claudeDir, 'settings.local.json'));
+    } catch {
+      return null;
+    }
   }
 
   private parseSettings(claudeDir: string): SettingsFile {

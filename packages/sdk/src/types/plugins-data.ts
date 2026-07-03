@@ -61,8 +61,10 @@ export interface PluginManifest {
   homepage?: string;
   license?: string;
   keywords?: string[];
-  skills?: string;
-  commands?: string;
+  // A path (string) or a list of paths (string[]) in real manifests.
+  skills?: string | string[];
+  commands?: string | string[];
+  agents?: string | string[];
 }
 
 export type ExtensionToLanguageMap = Record<string, string>;
