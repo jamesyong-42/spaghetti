@@ -40,6 +40,15 @@ pub enum SessionMessage {
     Summary(SummaryMessage),
     QueueOperation(QueueOperationMessage),
     LastPrompt(LastPromptMessage),
+    AiTitle(AiTitleMessage),
+    Mode(ModeMessage),
+    BridgeSession(BridgeSessionMessage),
+    /// Any `type` value this build doesn't model. Without this backstop
+    /// a message type newly introduced by Claude Code fails the typed
+    /// parse — which nulls the line's FTS text (the raw JSONL line is
+    /// still stored verbatim; only the typed projection is a no-op).
+    #[serde(other)]
+    Unknown,
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -96,6 +105,38 @@ pub struct AgentNameMessage {
 pub struct CustomTitleMessage {
     pub custom_title: String,
     pub session_id: String,
+}
+
+/// `ai-title` — model-generated session title (additive to custom-title).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AiTitleMessage {
+    #[serde(default)]
+    pub ai_title: String,
+    #[serde(default)]
+    pub session_id: String,
+}
+
+/// `mode` — session-mode marker (e.g. `mode: "normal"`).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ModeMessage {
+    #[serde(default)]
+    pub mode: String,
+    #[serde(default)]
+    pub session_id: String,
+}
+
+/// `bridge-session` — remote (mobile/web) peer bridge marker.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BridgeSessionMessage {
+    #[serde(default)]
+    pub session_id: String,
+    #[serde(default)]
+    pub bridge_session_id: String,
+    #[serde(default)]
+    pub last_sequence_num: f64,
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -237,6 +278,8 @@ pub struct UserMessage {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub prompt_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub prompt_source: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub image_paste_ids: Option<Vec<String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub team_name: Option<String>,
@@ -302,6 +345,9 @@ pub struct AssistantMessage {
     pub is_api_error_message: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub api_error: Option<String>,
+    /// HTTP status of the API error that produced this line (e.g. 429, 529).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub api_error_status: Option<f64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub team_name: Option<String>,
 }
@@ -334,6 +380,31 @@ pub enum SystemMessagePayload {
     MicrocompactBoundary(MicrocompactBoundary),
     LocalCommand(LocalCommand),
     BridgeStatus(BridgeStatus),
+    AwaySummary(AwaySummary),
+    Informational(Informational),
+    /// Any `subtype` this build doesn't model. Without this backstop an
+    /// unknown system subtype fails the whole SystemMessage parse — and
+    /// since `type: "system"` is a known top-level variant, the enum's
+    /// own `#[serde(other)]` never catches it, so the line's FTS text is
+    /// nulled. Keep this last.
+    #[serde(other)]
+    Unknown,
+}
+
+/// `away_summary` — recap prose shown on return to an idle session.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AwaySummary {
+    #[serde(default)]
+    pub content: String,
+}
+
+/// `informational` — free-form informational system line.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Informational {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub content: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

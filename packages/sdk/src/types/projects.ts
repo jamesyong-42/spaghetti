@@ -49,9 +49,12 @@ export interface BaseMessageFields {
 
 export type SessionMessageType =
   | 'agent-name'
+  | 'ai-title'
   | 'attachment'
+  | 'bridge-session'
   | 'custom-title'
   | 'file-history-snapshot'
+  | 'mode'
   | 'pr-link'
   | 'progress'
   | 'permission-mode'
@@ -65,9 +68,12 @@ export type SessionMessageType =
 
 export type SessionMessage =
   | AgentNameMessage
+  | AiTitleMessage
   | AttachmentMessage
+  | BridgeSessionMessage
   | CustomTitleMessage
   | FileHistorySnapshotMessage
+  | ModeMessage
   | PrLinkMessage
   | ProgressMessage
   | PermissionModeMessage
@@ -89,6 +95,32 @@ export interface CustomTitleMessage {
   type: 'custom-title';
   customTitle: string;
   sessionId: string;
+}
+
+/**
+ * Model-generated session title. Additive to (not a rename of)
+ * `custom-title` — both occur; `ai-title` is the auto-summarised title
+ * shown in the session list and is indexed into FTS.
+ */
+export interface AiTitleMessage {
+  type: 'ai-title';
+  aiTitle: string;
+  sessionId: string;
+}
+
+/** Session-mode marker (e.g. `mode: 'normal'`). */
+export interface ModeMessage {
+  type: 'mode';
+  mode: string;
+  sessionId: string;
+}
+
+/** Emitted when a session is bridged to a remote (mobile/web) peer. */
+export interface BridgeSessionMessage {
+  type: 'bridge-session';
+  sessionId: string;
+  bridgeSessionId: string;
+  lastSequenceNum: number;
 }
 
 export interface PermissionModeMessage {
@@ -169,6 +201,8 @@ export interface UserMessage extends BaseMessageFields {
   isVisibleInTranscriptOnly?: boolean;
   planContent?: string;
   promptId?: string;
+  /** How the prompt was entered (e.g. 'typed', 'paste'). */
+  promptSource?: string;
   imagePasteIds?: string[];
   teamName?: string;
 }
@@ -246,6 +280,8 @@ export interface AssistantMessage extends BaseMessageFields {
   error?: string;
   isApiErrorMessage?: boolean;
   apiError?: string;
+  /** HTTP status of the API error that produced this line (e.g. 429, 529). */
+  apiErrorStatus?: number;
   teamName?: string;
 }
 
@@ -355,7 +391,9 @@ export type SystemMessage =
   | CompactBoundarySystemMessage
   | MicrocompactBoundarySystemMessage
   | LocalCommandSystemMessage
-  | BridgeStatusSystemMessage;
+  | BridgeStatusSystemMessage
+  | AwaySummarySystemMessage
+  | InformationalSystemMessage;
 
 interface SystemMessageBase extends BaseMessageFields {
   type: 'system';
@@ -418,6 +456,21 @@ export interface LocalCommandSystemMessage extends SystemMessageBase {
 export interface BridgeStatusSystemMessage extends SystemMessageBase {
   subtype: 'bridge_status';
   url?: string;
+  content?: string;
+}
+
+/**
+ * Recap prose shown when returning to an idle session ("away" digest).
+ * `content` carries searchable summary text, so it is indexed into FTS.
+ */
+export interface AwaySummarySystemMessage extends SystemMessageBase {
+  subtype: 'away_summary';
+  content: string;
+}
+
+/** Free-form informational system line. */
+export interface InformationalSystemMessage extends SystemMessageBase {
+  subtype: 'informational';
   content?: string;
 }
 

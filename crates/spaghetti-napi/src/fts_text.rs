@@ -11,6 +11,7 @@
 use crate::types::content::{
     AssistantContentBlock, ToolResultContent, UserContentBlock, UserMessageContent,
 };
+use crate::types::session::SystemMessagePayload;
 use crate::types::SessionMessage;
 
 /// Maximum number of bytes of extracted text stored per message.
@@ -112,6 +113,27 @@ pub fn extract_message_text(msg: &SessionMessage) -> String {
             // empty and is a no-op after truncation).
             parts.push(summary.summary.as_str());
         }
+        SessionMessage::AiTitle(m) => {
+            // TS extractTextContent 'ai-title' arm — index the session title.
+            parts.push(m.ai_title.as_str());
+        }
+        SessionMessage::System(sys) => {
+            // TS pushes the raw top-level `content` field for system lines.
+            // In Rust that content lives on the subtype payload; pull it
+            // from the variants that carry it (parity with extractTextContent).
+            let content = match &sys.payload {
+                SystemMessagePayload::AwaySummary(p) => Some(p.content.as_str()),
+                SystemMessagePayload::LocalCommand(p) => Some(p.content.as_str()),
+                SystemMessagePayload::CompactBoundary(p) => Some(p.content.as_str()),
+                SystemMessagePayload::MicrocompactBoundary(p) => Some(p.content.as_str()),
+                SystemMessagePayload::BridgeStatus(p) => p.content.as_deref(),
+                SystemMessagePayload::Informational(p) => p.content.as_deref(),
+                _ => None,
+            };
+            if let Some(c) = content {
+                parts.push(c);
+            }
+        }
         // All other variants contribute nothing to the FTS blob.
         SessionMessage::AgentName(_)
         | SessionMessage::Attachment(_)
@@ -121,9 +143,11 @@ pub fn extract_message_text(msg: &SessionMessage) -> String {
         | SessionMessage::Progress(_)
         | SessionMessage::PermissionMode(_)
         | SessionMessage::SavedHookContext(_)
-        | SessionMessage::System(_)
+        | SessionMessage::Mode(_)
+        | SessionMessage::BridgeSession(_)
         | SessionMessage::QueueOperation(_)
-        | SessionMessage::LastPrompt(_) => {}
+        | SessionMessage::LastPrompt(_)
+        | SessionMessage::Unknown => {}
     }
 
     truncate(&parts.join("\n")).to_owned()
@@ -137,6 +161,40 @@ pub fn extract_message_text(msg: &SessionMessage) -> String {
 mod tests {
     use super::*;
     use crate::types::SessionMessage;
+
+    // ─── new message types + unknown fallbacks ─────────────────────────────
+
+    #[test]
+    fn unknown_top_level_type_deserializes_to_unknown_not_error() {
+        // The whole point of #[serde(other)]: a type this build has never
+        // seen must NOT fail the parse (which would null the line's FTS).
+        let line = r#"{"type":"totally-new-future-type","sessionId":"s","x":1}"#;
+        let msg: SessionMessage = serde_json::from_str(line).expect("unknown type must parse");
+        assert!(matches!(msg, SessionMessage::Unknown));
+        assert_eq!(extract_message_text(&msg), "");
+    }
+
+    #[test]
+    fn unknown_system_subtype_deserializes_and_does_not_error() {
+        let line = r#"{"type":"system","subtype":"some_new_subtype","sessionId":"s","uuid":"u","timestamp":"t"}"#;
+        let msg: SessionMessage =
+            serde_json::from_str(line).expect("unknown system subtype must parse");
+        assert!(matches!(msg, SessionMessage::System(_)));
+    }
+
+    #[test]
+    fn ai_title_is_indexed() {
+        let line = r#"{"type":"ai-title","aiTitle":"My Session Title","sessionId":"s"}"#;
+        let msg: SessionMessage = serde_json::from_str(line).unwrap();
+        assert_eq!(extract_message_text(&msg), "My Session Title");
+    }
+
+    #[test]
+    fn away_summary_content_is_indexed() {
+        let line = r#"{"type":"system","subtype":"away_summary","content":"recap prose","sessionId":"s","uuid":"u","timestamp":"t"}"#;
+        let msg: SessionMessage = serde_json::from_str(line).unwrap();
+        assert_eq!(extract_message_text(&msg), "recap prose");
+    }
 
     // ─── truncate ──────────────────────────────────────────────────────────
 
