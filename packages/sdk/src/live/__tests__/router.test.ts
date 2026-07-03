@@ -50,6 +50,16 @@ describe('classify — category happy paths', () => {
     assert.deepEqual(r, { category: 'subagent', slug: 'my-proj', sessionId: 'sid-1' });
   });
 
+  test('subagent (nested workflow): subagents/workflows/<wf>/agent-*.jsonl carries workflowId', () => {
+    const r = classify(p('projects/my-proj/sid-1/subagents/workflows/wf_abc/agent-42.jsonl'), CLAUDE);
+    assert.deepEqual(r, {
+      category: 'subagent',
+      slug: 'my-proj',
+      sessionId: 'sid-1',
+      workflowId: 'wf_abc',
+    });
+  });
+
   test('tool_result: projects/<slug>/<sessionId>/tool-results/*.txt', () => {
     const r = classify(p('projects/my-proj/sid-1/tool-results/toolu_abc.txt'), CLAUDE);
     assert.deepEqual(r, { category: 'tool_result', slug: 'my-proj', sessionId: 'sid-1' });
@@ -298,6 +308,21 @@ describe('classify — structural near-misses → ignored', () => {
 
   test('agent-*.jsonl outside a subagents/ dir → ignored', () => {
     const r = classify(p('projects/foo/sid/agent-loose.jsonl'), CLAUDE);
+    assert.deepEqual(r, { category: 'ignored' });
+  });
+
+  test('workflow journal.jsonl (not an agent-* transcript) → ignored', () => {
+    // Lives beside the nested transcripts but isn't a subagent; the
+    // cold-start run-record parse owns it, not the live subagent path.
+    const r = classify(p('projects/foo/sid/subagents/workflows/wf_x/journal.jsonl'), CLAUDE);
+    assert.deepEqual(r, { category: 'ignored' });
+  });
+
+  test('workflow run record wf_*.json → ignored (live summary refresh deferred)', () => {
+    // Documented scope boundary: nested transcripts live-update via the
+    // subagent path above; the run-record summary row is refreshed on
+    // the next cold/warm re-parse (see docs/PARSER-UNPARSED-DATA.md §5b).
+    const r = classify(p('projects/foo/sid/workflows/wf_x.json'), CLAUDE);
     assert.deepEqual(r, { category: 'ignored' });
   });
 

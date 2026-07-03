@@ -362,6 +362,38 @@ describe('LiveUpdates end-to-end (RFC 005 C2.7)', () => {
     }
   });
 
+  test('nested workflow subagent transcript lands with its workflow_id', { timeout: 10000 }, async () => {
+    const fx = await createFixture({
+      ensureDirs: ['projects', 'todos'],
+      seed: [{ slug: SLUG, sessionIds: [SESSION_ID] }],
+    });
+    try {
+      await fx.live.start();
+      // Nested transcripts ride the `projects` scope, same as any subagent.
+      fx.live.prewarm({ kind: 'subagent', slug: SLUG, sessionId: SESSION_ID });
+      await new Promise((r) => setTimeout(r, 150));
+
+      // projects/<slug>/<sid>/subagents/workflows/<wf>/agent-*.jsonl —
+      // the router extracts wf_live_1 and the transcript must land
+      // grouped under it (not the flat ungrouped '' bucket).
+      const wfDir = path.join(fx.claudeDir, 'projects', SLUG, SESSION_ID, 'subagents', 'workflows', 'wf_live_1');
+      mkdirSync(wfDir, { recursive: true });
+      writeFileSync(path.join(wfDir, 'agent-alive01.jsonl'), makeUserMessage('sub-uuid-1', 'nested subagent line'));
+
+      const row = await pollUntil(() => {
+        const r = fx.sqlite.get<{ workflow_id: string }>(
+          `SELECT workflow_id FROM subagents WHERE session_id = ? AND agent_id = ?`,
+          SESSION_ID,
+          'alive01',
+        );
+        return r && r.workflow_id ? r : undefined;
+      });
+      assert.equal(row.workflow_id, 'wf_live_1', 'nested transcript grouped under its run on the live path');
+    } finally {
+      await fx.cleanup();
+    }
+  });
+
   test('todo file lands in SQLite', { timeout: 10000 }, async () => {
     const fx = await createFixture({
       ensureDirs: ['projects', 'todos'],

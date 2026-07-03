@@ -344,6 +344,7 @@ describe('IncrementalParser (C2.4)', () => {
     assert.equal(row.transcript.fileName, 'agent-a123xyz.jsonl');
     assert.equal(row.transcript.agentType, 'task');
     assert.equal(row.transcript.messages.length, 2);
+    assert.equal(row.transcript.workflowId, '', 'flat top-level subagent is ungrouped');
 
     // Tail: append one line, expect the full transcript (3 messages) re-emitted.
     appendFileSync(filePath, JSON.stringify({ role: 'assistant', content: 'second' }) + '\n');
@@ -356,6 +357,29 @@ describe('IncrementalParser (C2.4)', () => {
     });
     const row2 = expectRow(second.rows, 0, 'subagent');
     assert.equal(row2.transcript.messages.length, 3, 'tail re-reads the full file for correctness');
+
+    rmSync(filePath, { force: true });
+  });
+
+  test('subagent (nested workflow): workflowId param groups the transcript under its run', async () => {
+    // A nested subagents/workflows/<wf>/agent-*.jsonl transcript; the
+    // router extracts the workflowId and the orchestrator threads it in
+    // so the live write matches the cold-start `workflow_id` grouping.
+    const filePath = path.join(tempDir, 'agent-anested01.jsonl');
+    writeFileSync(filePath, JSON.stringify({ role: 'user', content: 'run' }) + '\n');
+
+    const result = await parser.parseFileDelta({
+      path: filePath,
+      category: 'subagent',
+      slug: SLUG,
+      sessionId: SESSION_ID,
+      checkpoint: undefined,
+      workflowId: 'wf_run_abc',
+    });
+
+    const row = expectRow(result.rows, 0, 'subagent');
+    assert.equal(row.transcript.agentId, 'anested01');
+    assert.equal(row.transcript.workflowId, 'wf_run_abc', 'nested transcript carries its run id');
 
     rmSync(filePath, { force: true });
   });

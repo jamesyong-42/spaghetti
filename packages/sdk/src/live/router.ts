@@ -55,11 +55,18 @@ export type Category =
  * Result of `classify()`. `slug` / `sessionId` are populated only for
  * the categories where the directory layout encodes them; see the
  * per-rule comments below for which fields are present per category.
+ *
+ * `workflowId` is set only for nested workflow-orchestrated subagent
+ * transcripts (`subagents/workflows/<wf>/agent-*.jsonl`); it groups the
+ * transcript under its run so the live path writes the same
+ * `subagents.workflow_id` the cold-start parser does. Flat, top-level
+ * subagents leave it undefined (the parser defaults to `''`).
  */
 export interface RouteResult {
   category: Category;
   slug?: string;
   sessionId?: string;
+  workflowId?: string;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -108,7 +115,23 @@ interface Rule {
 }
 
 const CATEGORY_RULES: readonly Rule[] = [
-  // projects/<slug>/<sessionId>/subagents/agent-*.jsonl
+  // projects/<slug>/<sessionId>/subagents/workflows/<wf>/agent-*.jsonl
+  // Nested workflow-orchestrated transcripts. Must precede the flat
+  // subagent rule (though the two are mutually exclusive — `agent-…`
+  // can't span the `workflows/<wf>/` segments — we keep most-specific
+  // first per the file's doctrine). `journal.jsonl` under the same dir
+  // doesn't start with `agent-`, so it correctly falls through to
+  // `ignored`; it's absorbed by the cold-start run-record parse.
+  {
+    re: /^projects\/([^/]+)\/([^/]+)\/subagents\/workflows\/([^/]+)\/agent-[^/]+\.jsonl$/,
+    build: (m) => ({
+      category: 'subagent',
+      slug: decode(m[1]!),
+      sessionId: decode(m[2]!),
+      workflowId: decode(m[3]!),
+    }),
+  },
+  // projects/<slug>/<sessionId>/subagents/agent-*.jsonl (flat, top-level)
   {
     re: /^projects\/([^/]+)\/([^/]+)\/subagents\/agent-[^/]+\.jsonl$/,
     build: (m) => ({ category: 'subagent', slug: decode(m[1]!), sessionId: decode(m[2]!) }),
