@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.5.15](https://github.com/jamesyong-42/spaghetti/compare/spaghetti-v0.5.14...spaghetti-v0.5.15) (2026-07-03)
+
+
+### Features
+
+* **sdk,napi:** read agent-{id}.meta.json sidecar; use its agentType (both engines) ([#56](https://github.com/jamesyong-42/spaghetti/issues/56)) ([78d6d56](https://github.com/jamesyong-42/spaghetti/commit/78d6d560dce687314f700c535ce61a0dd0515c0a))
+* **sdk:** live-watch nested workflow subagent transcripts (grouped under run) ([#57](https://github.com/jamesyong-42/spaghetti/issues/57)) ([08e1762](https://github.com/jamesyong-42/spaghetti/commit/08e1762ac6a5c56def3ef7c0a274267f5c4adf79))
+* **sdk:** telemetry type refresh + session-env script listing (2026-07 audit LOW) ([#55](https://github.com/jamesyong-42/spaghetti/issues/55)) ([0f4d3c2](https://github.com/jamesyong-42/spaghetti/commit/0f4d3c252874d017e799b13a4ea33bf5d328fc10))
+* **sdk:** wire mcp-needs-auth-cache + plugins/blocklist readers (2026-07 audit LOW) ([#53](https://github.com/jamesyong-42/spaghetti/issues/53)) ([cf12913](https://github.com/jamesyong-42/spaghetti/commit/cf129130bbdab68d44e3b247e0551a74a93e346a))
+
 ## [0.5.14](https://github.com/jamesyong-42/spaghetti/compare/spaghetti-v0.5.13...spaghetti-v0.5.14) (2026-07-03)
 
 
