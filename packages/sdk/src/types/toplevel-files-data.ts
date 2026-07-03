@@ -95,7 +95,13 @@ export interface StatsCacheFile {
 export interface HistoryPastedContent {
   id: number;
   type: string;
-  content: string;
+  /**
+   * Present on older entries. Claude Code migrated paste storage to a
+   * content-addressed `contentHash` (paste-cache/), so most recent
+   * entries carry `contentHash` and omit inline `content`.
+   */
+  content?: string;
+  contentHash?: string;
 }
 
 export interface HistoryEntry {
@@ -129,6 +135,15 @@ export interface ActiveSessionFile {
   kind?: string;
   entrypoint?: string;
   name?: string;
+  // Fields Claude Code now always writes (2026-07 audit); still no reader.
+  status?: string;
+  updatedAt?: number;
+  statusUpdatedAt?: number;
+  procStart?: string;
+  version?: string;
+  peerProtocol?: number;
+  nameSource?: string;
+  bridgeSessionId?: string;
 }
 
 export interface TopLevelFiles {
