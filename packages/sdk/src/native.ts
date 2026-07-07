@@ -12,7 +12,7 @@
 
 import { createRequire } from 'node:module';
 
-import { resolveEngine } from './settings.js';
+import { resolveEngine, type IngestEngine } from './settings.js';
 
 export interface NativeIngestOptions {
   claudeDir: string;
@@ -133,4 +133,46 @@ export function loadNativeAddon(): NativeAddon | null {
  */
 export function isNativeIngestEnabled(): boolean {
   return resolveEngine() === 'rs';
+}
+
+/** Effective ingest engine after native-addon fallback — see {@link resolveActiveEngine}. */
+export interface ActiveEngineInfo {
+  /**
+   * The engine actually used at runtime. `'rs'` only when the `rs`
+   * preference is set AND the native addon loads on this platform;
+   * otherwise `'ts'` (either the preference was `ts`, or it was `rs`
+   * but the addon is missing and the SDK fell back).
+   */
+  engine: IngestEngine;
+  /** The configured preference alone (env → legacy env → config → default `rs`). */
+  preference: IngestEngine;
+  /** Whether the native addon (`@vibecook/spaghetti-sdk-native`) loaded. */
+  nativeAvailable: boolean;
+  /** Loaded native addon semver, or `null` when unavailable. */
+  nativeVersion: string | null;
+}
+
+/**
+ * Resolve the ingest engine that a service will *actually* run — the
+ * single source of truth for the native-fallback rule mirrored in
+ * `LifecycleOwner.initialize()` (`engine === 'rs' ? loadNativeAddon() : null`,
+ * then native-or-TS). Consumers that need to *display* the active engine
+ * (CLI badge, `spag engine`, doctor) should call this rather than
+ * `resolveEngine()`, which only reports the preference and so reads `rs`
+ * even when the addon is missing and the run silently falls back to `ts`.
+ *
+ * Pure + cheap: `loadNativeAddon()` is memoized, so this is safe to call
+ * from a hot render path.
+ */
+export function resolveActiveEngine(): ActiveEngineInfo {
+  const preference = resolveEngine();
+  const native = loadNativeAddon();
+  const nativeAvailable = native !== null;
+  const engine: IngestEngine = preference === 'rs' && nativeAvailable ? 'rs' : 'ts';
+  return {
+    engine,
+    preference,
+    nativeAvailable,
+    nativeVersion: native?.nativeVersion() ?? null,
+  };
 }

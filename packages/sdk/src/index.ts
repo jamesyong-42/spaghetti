@@ -49,7 +49,13 @@ export { createSpaghettiService, type SpaghettiServiceOptions } from './create.j
 export { createSpaghettiAppService } from './app-service.js';
 
 // Native addon bridge (RFC 003)
-export { loadNativeAddon, isNativeIngestEnabled, type NativeAddon } from './native.js';
+export {
+  loadNativeAddon,
+  isNativeIngestEnabled,
+  resolveActiveEngine,
+  type NativeAddon,
+  type ActiveEngineInfo,
+} from './native.js';
 
 // Settings (engine selection, etc.)
 export {
