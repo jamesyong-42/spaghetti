@@ -8,9 +8,10 @@
  * to ProjectsView when the service is ready.
  */
 
-import React, { useState, useCallback, useEffect, useRef } from 'react';
+import React, { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import { Box, Text, useApp, useInput } from 'ink';
 import { createRequire } from 'node:module';
+import { resolveActiveEngine } from '@vibecook/spaghetti-sdk';
 import type { SpaghettiAPI } from '@vibecook/spaghetti-sdk';
 import type { ViewEntry, ViewNav, ViewContext } from './types.js';
 import { ViewNavProvider } from './context.js';
@@ -83,6 +84,12 @@ export function Shell({ api }: ShellProps): React.ReactElement {
 
   // Enter alternate screen buffer for a clean full-screen TUI canvas
   useAlternateScreen();
+
+  // Effective ingest engine for the footer badge. Fixed for the process
+  // lifetime (native-addon availability can't change mid-run), so resolve
+  // it once. Uses the effective value, not the preference — a `rs` config
+  // with no native addon shows `TS`, matching what the service actually ran.
+  const engine = useMemo(() => resolveActiveEngine().engine, []);
 
   // ── Initialization lifecycle ──────────────────────────────────────
 
@@ -265,7 +272,7 @@ export function Shell({ api }: ShellProps): React.ReactElement {
       </Box>
     );
   } else {
-    footerContent = <Footer hints={hints} />;
+    footerContent = <Footer hints={hints} engine={engine} />;
   }
 
   return (

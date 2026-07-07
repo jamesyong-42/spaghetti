@@ -8,9 +8,8 @@
 
 import {
   defaultDbPathForEngine,
-  loadNativeAddon,
   readSettings,
-  resolveEngine,
+  resolveActiveEngine,
   settingsPath,
   writeSettings,
   type IngestEngine,
@@ -22,9 +21,11 @@ export interface EngineOptions {
 }
 
 export async function engineCommand(target: string | undefined, opts: EngineOptions): Promise<void> {
-  const current = resolveEngine();
+  // Effective engine (after native-addon fallback), not just the
+  // preference — a `rs` config with no native addon actually runs `ts`.
+  const active = resolveActiveEngine();
   const settings = readSettings();
-  const native = loadNativeAddon();
+  const fellBack = active.preference !== active.engine;
 
   // ── Show current state (no target argument) ───────────────────────────
   if (!target) {
@@ -32,11 +33,12 @@ export async function engineCommand(target: string | undefined, opts: EngineOpti
       process.stdout.write(
         JSON.stringify(
           {
-            active: current,
+            active: active.engine,
+            preference: active.preference,
             persisted: settings.engine ?? null,
             source: engineSource(settings.engine),
-            nativeAddonAvailable: native !== null,
-            nativeVersion: native?.nativeVersion() ?? null,
+            nativeAddonAvailable: active.nativeAvailable,
+            nativeVersion: active.nativeVersion,
             dbPaths: {
               ts: defaultDbPathForEngine('ts'),
               rs: defaultDbPathForEngine('rs'),
@@ -54,10 +56,17 @@ export async function engineCommand(target: string | undefined, opts: EngineOpti
     lines.push('');
     lines.push(`  ${theme.heading('Active ingest engine')}`);
     lines.push('');
-    lines.push(`    engine:     ${theme.project(current)}${current === 'ts' ? ' (TypeScript)' : ' (Rust native)'}`);
+    lines.push(
+      `    engine:     ${theme.project(active.engine)}${active.engine === 'ts' ? ' (TypeScript)' : ' (Rust native)'}`,
+    );
+    if (fellBack) {
+      lines.push(
+        `    ${theme.warning(`preference is "${active.preference}" but the native addon isn't installed — running ${active.engine}`)}`,
+      );
+    }
     lines.push(`    source:     ${theme.muted(engineSource(settings.engine))}`);
     lines.push(
-      `    native:     ${native ? theme.project('available') + theme.muted(` (v${native.nativeVersion()})`) : theme.muted('not installed')}`,
+      `    native:     ${active.nativeAvailable ? theme.project('available') + theme.muted(` (v${active.nativeVersion})`) : theme.muted('not installed')}`,
     );
     lines.push('');
     lines.push(`  ${theme.muted('DB files')}`);
@@ -81,11 +90,11 @@ export async function engineCommand(target: string | undefined, opts: EngineOpti
 
   const next = lower as IngestEngine;
 
-  if (next === 'rs' && !native) {
+  if (next === 'rs' && !active.nativeAvailable) {
     process.stderr.write(
       theme.error(
         `\n  Native addon (@vibecook/spaghetti-sdk-native) not installed.\n` +
-          `  The Rust engine is unavailable on this install — keeping current engine (${current}).\n\n`,
+          `  The Rust engine is unavailable on this install — keeping current engine (${active.engine}).\n\n`,
       ),
     );
     process.exitCode = 1;
@@ -98,7 +107,7 @@ export async function engineCommand(target: string | undefined, opts: EngineOpti
     process.stdout.write(
       JSON.stringify(
         {
-          previous: current,
+          previous: active.preference,
           active: next,
           dbPath: defaultDbPathForEngine(next),
           configPath: settingsPath(),
@@ -112,7 +121,7 @@ export async function engineCommand(target: string | undefined, opts: EngineOpti
 
   process.stdout.write(
     '\n  ' +
-      theme.project(`Engine switched: ${current} → ${next}`) +
+      theme.project(`Engine switched: ${active.preference} → ${next}`) +
       '\n' +
       theme.muted(`  DB: ${defaultDbPathForEngine(next)}`) +
       '\n' +
