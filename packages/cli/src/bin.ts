@@ -9,14 +9,16 @@
  */
 
 import { createProgram } from './index.js';
-import { initService, shutdownService } from './lib/init.js';
+import { initService, shutdownService, registerService, disposeService } from './lib/init.js';
 import { handleError } from './lib/error.js';
 import { checkForUpdates } from './lib/updater.js';
 
-// Graceful shutdown on SIGINT
+// Graceful shutdown on SIGINT — prefer awaitable dispose so live pipeline
+// drains and checkpoints flush (TUI + one-shots both register via init).
 process.on('SIGINT', () => {
-  shutdownService();
-  process.exit(0);
+  void disposeService().finally(() => {
+    process.exit(0);
+  });
 });
 
 async function main(): Promise<void> {
@@ -55,12 +57,15 @@ async function main(): Promise<void> {
       };
       process.on('exit', leaveAlt);
 
-      const service = createSpaghettiService();
+      // Plane 2 on for the long-lived TUI so session lists / search stay warm
+      // while Claude Code writes. One-shot commands (initService) stay pull-only.
+      const service = createSpaghettiService({ live: true });
+      registerService(service);
       // Don't initialize here — let Shell handle it with BootView
       const { waitUntilExit } = render(React.createElement(Shell, { api: service }), { exitOnCtrlC: true });
 
       await waitUntilExit();
-      service.shutdown();
+      await disposeService();
       leaveAlt();
       return;
     } else {

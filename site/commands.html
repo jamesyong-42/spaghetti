@@ -1,0 +1,418 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>CLI Commands — Spaghetti</title>
+  <meta name="description" content="Spaghetti CLI command reference: projects, sessions, messages, search, stats, export, hooks, chat, doctor, and more." />
+  <meta name="theme-color" content="#050607" />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%232dd4bf'/%3E%3Ctext x='16' y='22' text-anchor='middle' font-family='monospace' font-size='14' font-weight='700' fill='%23042f2e'%3Esp%3C/text%3E%3C/svg%3E" />
+  <script>
+    (function () {
+      try {
+        var t = localStorage.getItem("spaghetti-docs-theme");
+        if (t !== "light" && t !== "dark") t = "dark";
+        document.documentElement.setAttribute("data-theme", t);
+      } catch (e) {
+        document.documentElement.setAttribute("data-theme", "dark");
+      }
+    })();
+  </script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Instrument+Sans:ital,wght@0,400..700;1,400..700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <nav class="nav" aria-label="Primary">
+    <div class="nav-inner">
+      <a href="index.html" class="nav-brand">
+        <span class="nav-logo" aria-hidden="true">sp</span>
+        Spaghetti
+      </a>
+      <ul class="nav-links" id="nav-links">
+        <li><a href="index.html#features">Features</a></li>
+        <li><a href="index.html#architecture">Architecture</a></li>
+        <li><a href="commands.html" class="active">Commands</a></li>
+        <li><a href="index.html#sdk">SDK</a></li>
+        <li><a href="api.html">API</a></li>
+      </ul>
+      <div class="nav-actions">
+        <button type="button" class="theme-toggle" data-theme-toggle aria-label="Toggle theme" title="Toggle theme">
+          <span class="icon-moon" aria-hidden="true">☾</span>
+          <span class="icon-sun" aria-hidden="true">☀</span>
+        </button>
+        <a class="btn btn-ghost btn-sm" href="https://github.com/jamesyong-42/spaghetti" target="_blank" rel="noopener">GitHub</a>
+        <a class="btn btn-primary btn-sm" href="index.html#install">Get started</a>
+        <button class="nav-toggle" id="nav-toggle" aria-label="Menu" aria-expanded="false">☰</button>
+      </div>
+    </div>
+  </nav>
+
+  <header class="hero" style="padding-bottom:24px">
+    <div class="wrap">
+      <div class="eyebrow">@vibecook/spaghetti</div>
+      <h1 style="font-size:clamp(2rem,4vw,2.75rem);margin-bottom:12px">CLI commands</h1>
+      <p class="lead">
+        Binaries: <code>spaghetti</code> and the shorter <code>spag</code>.
+        Bare <code>spag</code> on a TTY opens the TUI; subcommands print to the shell.
+        Most commands accept <code>--json</code> for scripting.
+      </p>
+    </div>
+  </header>
+
+  <section class="section-sm">
+    <div class="wrap">
+      <div class="section-header">
+        <div class="eyebrow">Resolution</div>
+        <h2>Flexible project &amp; session args</h2>
+        <p class="lead">You rarely need full UUIDs. Arguments resolve the way you already think about them.</p>
+      </div>
+      <div class="resolve-grid mb-32">
+        <div class="resolve-item">
+          <code>.</code>
+          <p>Current working directory’s project (matched against indexed paths).</p>
+        </div>
+        <div class="resolve-item">
+          <code>latest</code> / <code>last</code>
+          <p>Newest session for the selected project.</p>
+        </div>
+        <div class="resolve-item">
+          <code>1</code>, <code>2</code>, …
+          <p>Numeric index from the list view (1-based).</p>
+        </div>
+        <div class="resolve-item">
+          <code>spaghetti</code>
+          <p>Fuzzy / prefix project name match.</p>
+        </div>
+        <div class="resolve-item">
+          <code>a3f1</code>
+          <p>Partial session UUID prefix.</p>
+        </div>
+        <div class="resolve-item">
+          <code>--json</code>
+          <p>Machine-readable output on nearly every command.</p>
+        </div>
+      </div>
+
+      <div class="code-block mb-32">
+        <div class="code-header">
+          <span>common patterns</span>
+          <button class="copy-btn" type="button" data-copy>Copy</button>
+        </div>
+        <pre><code>spag                              <span class="c-cm"># interactive TUI</span>
+spag projects
+spag sessions .                   <span class="c-cm"># current repo</span>
+spag messages . latest
+spag search "worker pool"
+spag export . --format markdown -o out.md
+spag doctor</code></pre>
+      </div>
+    </div>
+  </section>
+
+  <section class="section" style="padding-top:32px" id="browse">
+    <div class="wrap">
+      <div class="section-header">
+        <div class="eyebrow">Browse</div>
+        <h2>Projects, sessions, messages</h2>
+      </div>
+
+      <article class="cmd-detail" id="projects">
+        <div class="cmd-detail-header">
+          <h3>spag projects</h3>
+          <span class="alias">alias: p</span>
+        </div>
+        <p>List indexed projects with session counts, message totals, tokens, and last activity.</p>
+        <ul class="cmd-flags">
+          <li><code>-s, --sort &lt;key&gt;</code><span>active · sessions · messages · tokens · name (default: active)</span></li>
+          <li><code>-l, --limit &lt;n&gt;</code><span>Limit rows</span></li>
+          <li><code>--json</code><span>JSON output</span></li>
+        </ul>
+        <div class="cmd-examples">
+          <code>spag projects --sort tokens --limit 20</code>
+          <code>spag p --json</code>
+        </div>
+      </article>
+
+      <article class="cmd-detail" id="sessions">
+        <div class="cmd-detail-header">
+          <h3>spag sessions [project]</h3>
+          <span class="alias">alias: s</span>
+        </div>
+        <p>List sessions for a project — branch, message count, tokens, duration, summary.</p>
+        <ul class="cmd-flags">
+          <li><code>-s, --sort &lt;field&gt;</code><span>recent · tokens · messages · duration</span></li>
+          <li><code>-l, --limit &lt;n&gt;</code><span>Default 20</span></li>
+          <li><code>-a, --all</code><span>No limit</span></li>
+          <li><code>--since &lt;time&gt;</code><span>today · yesterday · "3 days ago" · ISO date</span></li>
+          <li><code>--json</code><span>JSON output</span></li>
+        </ul>
+        <div class="cmd-examples">
+          <code>spag sessions .</code>
+          <code>spag s spaghetti --sort tokens --limit 10</code>
+          <code>spag sessions . --since today</code>
+        </div>
+      </article>
+
+      <article class="cmd-detail" id="messages">
+        <div class="cmd-detail-header">
+          <h3>spag messages [project] [session]</h3>
+          <span class="alias">alias: m</span>
+        </div>
+        <p>Read a session transcript with tool use, thinking blocks, and pagination.</p>
+        <ul class="cmd-flags">
+          <li><code>-n, --limit &lt;n&gt;</code><span>Default 50 messages</span></li>
+          <li><code>--offset &lt;n&gt;</code><span>Start at message N</span></li>
+          <li><code>--last &lt;n&gt;</code><span>Show last N messages</span></li>
+          <li><code>--compact</code><span>One line per message</span></li>
+          <li><code>--no-tools</code><span>Hide tool-use details</span></li>
+          <li><code>--no-thinking</code><span>Hide thinking blocks</span></li>
+          <li><code>--raw</code><span>Raw JSON per message</span></li>
+          <li><code>--json</code><span>Full JSON payload</span></li>
+        </ul>
+        <div class="cmd-examples">
+          <code>spag messages . latest</code>
+          <code>spag m . latest --last 20 --compact</code>
+          <code>spag messages spaghetti a3f1 --no-thinking</code>
+        </div>
+      </article>
+    </div>
+  </section>
+
+  <section class="section" style="padding-top:32px" id="search-stats">
+    <div class="wrap">
+      <div class="section-header">
+        <div class="eyebrow">Discover</div>
+        <h2>Search &amp; stats</h2>
+      </div>
+
+      <article class="cmd-detail" id="search">
+        <div class="cmd-detail-header">
+          <h3>spag search &lt;query&gt;</h3>
+        </div>
+        <p>Full-text search across the indexed message corpus (FTS5). Optional project scope.</p>
+        <ul class="cmd-flags">
+          <li><code>-p, --project &lt;name&gt;</code><span>Fuzzy project scope</span></li>
+          <li><code>-l, --limit &lt;n&gt;</code><span>Default 20</span></li>
+          <li><code>--offset &lt;n&gt;</code><span>Pagination offset</span></li>
+          <li><code>--json</code><span>JSON output</span></li>
+        </ul>
+        <div class="cmd-examples">
+          <code>spag search "worker pool"</code>
+          <code>spag search "refactor parser" -p spaghetti --limit 30</code>
+        </div>
+      </article>
+
+      <article class="cmd-detail" id="stats">
+        <div class="cmd-detail-header">
+          <h3>spag stats</h3>
+          <span class="alias">alias: st</span>
+        </div>
+        <p>Aggregate overview: project/session/message counts, DB size, token totals, top projects by tokens.</p>
+        <ul class="cmd-flags">
+          <li><code>--json</code><span>JSON output</span></li>
+        </ul>
+        <div class="cmd-examples">
+          <code>spag stats</code>
+          <code>spag st --json</code>
+        </div>
+      </article>
+    </div>
+  </section>
+
+  <section class="section" style="padding-top:32px" id="artifacts">
+    <div class="wrap">
+      <div class="section-header">
+        <div class="eyebrow">Artifacts</div>
+        <h2>Memory, todos, plans, subagents</h2>
+      </div>
+
+      <article class="cmd-detail" id="memory">
+        <div class="cmd-detail-header">
+          <h3>spag memory [project]</h3>
+          <span class="alias">alias: mem</span>
+        </div>
+        <p>Print project <code>MEMORY.md</code> content.</p>
+        <div class="cmd-examples">
+          <code>spag memory .</code>
+          <code>spag mem spaghetti --json</code>
+        </div>
+      </article>
+
+      <article class="cmd-detail" id="todos">
+        <div class="cmd-detail-header">
+          <h3>spag todos [project] [session]</h3>
+          <span class="alias">alias: t</span>
+        </div>
+        <p>Show session todos captured under <code>~/.claude/todos/</code>.</p>
+        <div class="cmd-examples">
+          <code>spag todos . latest</code>
+        </div>
+      </article>
+
+      <article class="cmd-detail" id="plan">
+        <div class="cmd-detail-header">
+          <h3>spag plan [project] [session]</h3>
+          <span class="alias">alias: pl</span>
+        </div>
+        <p>Show the plan linked to a session, if any.</p>
+        <div class="cmd-examples">
+          <code>spag plan . latest</code>
+        </div>
+      </article>
+
+      <article class="cmd-detail" id="subagents">
+        <div class="cmd-detail-header">
+          <h3>spag subagents [project] [session] [agent]</h3>
+          <span class="alias">alias: sub</span>
+        </div>
+        <p>List subagents for a session, or drill into a specific agent’s transcript by index.</p>
+        <div class="cmd-examples">
+          <code>spag subagents . latest</code>
+          <code>spag sub . latest 1</code>
+        </div>
+      </article>
+    </div>
+  </section>
+
+  <section class="section" style="padding-top:32px" id="export-ops">
+    <div class="wrap">
+      <div class="section-header">
+        <div class="eyebrow">Export &amp; ops</div>
+        <h2>Export, hooks, chat, doctor</h2>
+      </div>
+
+      <article class="cmd-detail" id="export">
+        <div class="cmd-detail-header">
+          <h3>spag export [project]</h3>
+          <span class="alias">alias: x</span>
+        </div>
+        <p>Export project or session data as JSON or Markdown.</p>
+        <ul class="cmd-flags">
+          <li><code>-s, --session &lt;id&gt;</code><span>Export one session only</span></li>
+          <li><code>-f, --format &lt;fmt&gt;</code><span>json · markdown (default: json)</span></li>
+          <li><code>-o, --output &lt;path&gt;</code><span>Write to file (default: stdout)</span></li>
+          <li><code>--include-tools</code><span>Include full tool-result bodies</span></li>
+        </ul>
+        <div class="cmd-examples">
+          <code>spag export . --format markdown -o session.md</code>
+          <code>spag x spaghetti -s latest --include-tools</code>
+        </div>
+      </article>
+
+      <article class="cmd-detail" id="hooks">
+        <div class="cmd-detail-header">
+          <h3>spag hooks</h3>
+          <span class="alias">alias: h</span>
+        </div>
+        <p>View Claude Code hook events captured by the Spaghetti hooks plugin. Does not require a full index rebuild.</p>
+        <ul class="cmd-flags">
+          <li><code>-f, --follow</code><span>Stream like <code>tail -f</code></span></li>
+          <li><code>--filter &lt;type&gt;</code><span>e.g. PreToolUse</span></li>
+          <li><code>-l, --limit &lt;n&gt;</code><span>Last N events (default 50)</span></li>
+          <li><code>--clear</code><span>Clear recorded events</span></li>
+          <li><code>--json</code><span>JSON output</span></li>
+        </ul>
+        <div class="cmd-examples">
+          <code>spag hooks --follow</code>
+          <code>spag h --filter PreToolUse --limit 100</code>
+        </div>
+      </article>
+
+      <article class="cmd-detail" id="chat">
+        <div class="cmd-detail-header">
+          <h3>spag chat [message]</h3>
+          <span class="alias">alias: c</span>
+        </div>
+        <p>Talk to active Claude Code sessions via the channels plugin (loopback WebSocket). Requires the channel plugin to be installed and a live session.</p>
+        <ul class="cmd-flags">
+          <li><code>-f, --follow</code><span>Stream messages in real time</span></li>
+          <li><code>-s, --session &lt;id&gt;</code><span>Target session UUID prefix or index</span></li>
+          <li><code>-a, --all</code><span>Apply to all sessions</span></li>
+          <li><code>-l, --limit &lt;n&gt;</code><span>History entries before follow</span></li>
+          <li><code>--cleanup</code><span>Remove stale session discovery files</span></li>
+        </ul>
+        <div class="cmd-examples">
+          <code>spag chat --follow</code>
+          <code>spag c -s a3f1 "what's the status?"</code>
+        </div>
+      </article>
+
+      <article class="cmd-detail" id="plugin">
+        <div class="cmd-detail-header">
+          <h3>spag plugin &lt;action&gt; [plugin]</h3>
+        </div>
+        <p>Install, uninstall, or check Spaghetti’s Claude Code plugins (hooks, channels).</p>
+        <div class="cmd-examples">
+          <code>spag plugin list</code>
+          <code>spag plugin install hooks</code>
+        </div>
+      </article>
+
+      <article class="cmd-detail" id="doctor">
+        <div class="cmd-detail-header">
+          <h3>spag doctor</h3>
+        </div>
+        <p>Health-check data paths, plugin state, and common setup issues.</p>
+        <div class="cmd-examples">
+          <code>spag doctor</code>
+        </div>
+      </article>
+
+      <article class="cmd-detail" id="engine">
+        <div class="cmd-detail-header">
+          <h3>spag engine</h3>
+        </div>
+        <p>Show or set the active ingest engine (<code>rs</code> / <code>ts</code>). Persists to <code>~/.spaghetti/config.json</code>.</p>
+        <div class="cmd-examples">
+          <code>spag engine</code>
+          <code>spag engine rs</code>
+          <code>SPAG_ENGINE=ts spag stats</code>
+        </div>
+      </article>
+
+      <article class="cmd-detail" id="update">
+        <div class="cmd-detail-header">
+          <h3>spag update</h3>
+        </div>
+        <p>Check for and install CLI updates from npm.</p>
+        <div class="cmd-examples">
+          <code>spag update</code>
+        </div>
+      </article>
+
+      <article class="cmd-detail" id="uninstall">
+        <div class="cmd-detail-header">
+          <h3>spag uninstall</h3>
+        </div>
+        <p>Print uninstall instructions for the CLI and related state under <code>~/.spaghetti</code>.</p>
+      </article>
+    </div>
+  </section>
+
+  <section class="section" style="padding-top:16px">
+    <div class="wrap">
+      <div class="cta-band">
+        <h2 style="font-size:1.4rem;margin-bottom:10px">Prefer a library?</h2>
+        <p class="lead" style="margin-bottom:20px">Everything the CLI can see is available from <code>@vibecook/spaghetti-sdk</code>.</p>
+        <div class="hero-ctas">
+          <a class="btn btn-primary" href="api.html">API reference</a>
+          <a class="btn btn-secondary" href="index.html#install">Install</a>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <footer class="footer">
+    <div class="wrap wrap-wide">
+      <div class="footer-bottom">
+        <span>© 2026 James Yong · CLI reference</span>
+        <span><a href="index.html">← Docs home</a> · <a href="api.html">API</a></span>
+      </div>
+    </div>
+  </footer>
+
+  <script src="app.js"></script>
+</body>
+</html>

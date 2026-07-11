@@ -11,7 +11,17 @@ import { execSync } from 'node:child_process';
 import { existsSync, readdirSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import { createHookEventWatcher, getChannelSessionsDir } from '@vibecook/spaghetti-sdk';
+import {
+  createClaudeCodeSource,
+  createHookEventWatcher,
+  createRuntimeBridge,
+  defaultDbPathForEngine,
+  getChannelSessionsDir,
+  isNativeIngestEnabled,
+  resolveActiveEngine,
+  resolveEngine,
+  type IngestEngine,
+} from '@vibecook/spaghetti-sdk';
 import { PLUGINS, PLUGINS_DIR, SETTINGS_PATH, getPluginState, type PluginState } from './plugins.js';
 
 export const CLAUDE_DIR = join(homedir(), '.claude');
@@ -46,9 +56,30 @@ export type ChannelSessionsReport =
   | { kind: 'ok'; path: string; activeCount: number }
   | { kind: 'absent'; path: string };
 
+/** Index + Plane 2/3 defaults (follow-up: "doctor shows live status"). */
+export interface IndexLiveReport {
+  /** Configured engine preference (env / settings / default). */
+  preferredEngine: IngestEngine;
+  /** Effective engine after native availability. */
+  effectiveEngine: IngestEngine;
+  nativeAvailable: boolean;
+  nativeVersion: string | null;
+  dbPath: string;
+  dbExists: boolean;
+  dbSizeBytes: number | null;
+  /** Long-lived TUI / playground default. */
+  liveDefaultLongLived: boolean;
+  /** One-shot CLI commands default. */
+  liveDefaultOneShot: boolean;
+  activeSessionsDir: string;
+  activeSessionsOnDisk: number;
+  activeSessionsAlive: number;
+}
+
 export interface DoctorReport {
   version: string;
   environment: EnvironmentReport;
+  indexLive: IndexLiveReport;
   plugins: PluginReport[];
   hookEvents: HookEventsReport;
   channelSessions: ChannelSessionsReport;
@@ -103,10 +134,47 @@ function collectChannelSessions(): ChannelSessionsReport {
   return { kind: 'ok', path, activeCount };
 }
 
+function collectIndexLive(): IndexLiveReport {
+  const preferredEngine = resolveEngine();
+  const active = resolveActiveEngine();
+  const dbPath = defaultDbPathForEngine(active.engine);
+  let dbExists = false;
+  let dbSizeBytes: number | null = null;
+  try {
+    if (existsSync(dbPath)) {
+      dbExists = true;
+      dbSizeBytes = statSync(dbPath).size;
+    }
+  } catch {
+    dbExists = existsSync(dbPath);
+  }
+
+  const source = createClaudeCodeSource();
+  const bridge = createRuntimeBridge(source);
+  const alive = bridge.listActiveSessions({ requireAlive: true });
+  const onDisk = bridge.listActiveSessions({ requireAlive: false });
+
+  return {
+    preferredEngine,
+    effectiveEngine: active.engine,
+    nativeAvailable: isNativeIngestEnabled() || active.nativeAvailable,
+    nativeVersion: active.nativeVersion,
+    dbPath,
+    dbExists,
+    dbSizeBytes,
+    liveDefaultLongLived: true,
+    liveDefaultOneShot: false,
+    activeSessionsDir: bridge.activeSessionsDir(),
+    activeSessionsOnDisk: onDisk.length,
+    activeSessionsAlive: alive.length,
+  };
+}
+
 export function collectDoctorReport(version: string): DoctorReport {
   return {
     version,
     environment: collectEnvironment(),
+    indexLive: collectIndexLive(),
     plugins: PLUGINS.map((p) => ({
       name: p.name,
       description: p.description,
@@ -115,6 +183,13 @@ export function collectDoctorReport(version: string): DoctorReport {
     hookEvents: collectHookEvents(),
     channelSessions: collectChannelSessions(),
   };
+}
+
+export function formatBytes(n: number): string {
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+  if (n < 1024 * 1024 * 1024) return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+  return `${(n / (1024 * 1024 * 1024)).toFixed(2)} GB`;
 }
 
 // ─── Shared helpers for rendering (used by CLI text + TUI Ink) ──────────

@@ -1,0 +1,786 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Spaghetti — Untangle your Claude Code history</title>
+  <meta name="description" content="Local-first CLI and SDK for Claude Code. Index ~/.claude into SQLite, search conversations, browse sessions, and build tools on top of your agent history." />
+  <meta name="theme-color" content="#050607" />
+  <meta property="og:title" content="Spaghetti — Untangle your Claude Code history" />
+  <meta property="og:description" content="Local-first CLI and SDK that turns Claude Code history into a searchable workspace." />
+  <meta property="og:type" content="website" />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%232dd4bf'/%3E%3Ctext x='16' y='22' text-anchor='middle' font-family='monospace' font-size='14' font-weight='700' fill='%23042f2e'%3Esp%3C/text%3E%3C/svg%3E" />
+  <script>
+    (function () {
+      try {
+        var t = localStorage.getItem("spaghetti-docs-theme");
+        if (t !== "light" && t !== "dark") t = "dark";
+        document.documentElement.setAttribute("data-theme", t);
+      } catch (e) {
+        document.documentElement.setAttribute("data-theme", "dark");
+      }
+    })();
+  </script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Instrument+Sans:ital,wght@0,400..700;1,400..700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <!-- Nav -->
+  <nav class="nav" aria-label="Primary">
+    <div class="nav-inner">
+      <a href="index.html" class="nav-brand">
+        <span class="nav-logo" aria-hidden="true">sp</span>
+        Spaghetti
+      </a>
+      <ul class="nav-links" id="nav-links">
+        <li><a href="#features">Features</a></li>
+        <li><a href="#architecture">Architecture</a></li>
+        <li><a href="#gallery">Product</a></li>
+        <li><a href="commands.html">Commands</a></li>
+        <li><a href="#sdk">SDK</a></li>
+        <li><a href="api.html">API</a></li>
+      </ul>
+      <div class="nav-actions">
+        <button type="button" class="theme-toggle" data-theme-toggle aria-label="Toggle theme" title="Toggle theme">
+          <span class="icon-moon" aria-hidden="true">☾</span>
+          <span class="icon-sun" aria-hidden="true">☀</span>
+        </button>
+        <a class="btn btn-ghost btn-sm" href="https://github.com/jamesyong-42/spaghetti" target="_blank" rel="noopener">GitHub</a>
+        <a class="btn btn-primary btn-sm" href="#install">Get started</a>
+        <button class="nav-toggle" id="nav-toggle" aria-label="Menu" aria-expanded="false">☰</button>
+      </div>
+    </div>
+  </nav>
+
+  <!-- Hero -->
+  <header class="hero">
+    <div class="wrap wrap-wide">
+      <div class="hero-grid">
+        <div class="hero-copy">
+          <div class="eyebrow">Local-first · Claude Code · SQLite</div>
+          <h1>
+            Untangle your<br />
+            <span class="grad">Claude Code history</span>
+          </h1>
+          <p class="lead">
+            Claude Code already writes everything to disk. Spaghetti turns
+            <code>~/.claude</code> into a fast, local SQLite workspace — searchable
+            conversations, browsable artifacts, and an SDK you can build on.
+          </p>
+          <div class="hero-ctas">
+            <a class="btn btn-primary" href="#install">
+              <span class="btn-icon">↓</span> Install CLI
+            </a>
+            <a class="btn btn-secondary" href="commands.html">Commands</a>
+            <a class="btn btn-secondary" href="api.html">API</a>
+          </div>
+          <div class="hero-meta">
+            <span><span class="dot"></span> MIT License</span>
+            <span>Node ≥ 18</span>
+            <span>v0.5.15</span>
+            <span>Rust + TypeScript</span>
+          </div>
+        </div>
+
+        <div class="terminal terminal-hero" role="img" aria-label="Mock Spaghetti CLI dashboard">
+          <div class="terminal-bar">
+            <span class="terminal-dot"></span>
+            <span class="terminal-dot"></span>
+            <span class="terminal-dot"></span>
+            <span class="terminal-title">spag · ~/.claude</span>
+          </div>
+          <div class="terminal-body terminal-body-mock dash-mock">
+            <div class="dash-frame">
+              <div class="dash-title">
+                <span>Spaghetti v0.5.15</span>
+              </div>
+              <div class="dash-top">
+                <div class="dash-brand">
+                  <div class="wordmark t-bold">▄▀▀ █▀█ ▄▀▄ █▀▀ █ █ █▀▀ ▀█▀ ▀█▀ █
+▀▄▄ █▀▀ █▀█ █ █ █▀█ █▀   █   █  █
+▄▄▀ █   █ █ ▀▀▀ ▀ ▀ ▀▀▀  ▀   ▀  ▀</div>
+                  <div class="t-muted dash-tagline">untangle your claude code history</div>
+                  <div class="t-dim dash-meta">~/.claude · 512 MB · 28ms</div>
+                </div>
+                <div class="term-stats">
+                  <div class="stat-line"><span class="stat-label">Projects</span><span class="stat-val t-accent">79</span></div>
+                  <div class="stat-line"><span class="stat-label">Sessions</span><span class="stat-val t-amber">1,247</span></div>
+                  <div class="stat-line"><span class="stat-label">Messages</span><span class="stat-val t-green">86,412</span></div>
+                  <div class="stat-line"><span class="stat-label">Tokens</span><span class="stat-val t-magenta">66.3M</span></div>
+                  <div class="stat-line"><span class="stat-label">Index</span><span class="stat-val t-white">512 MB</span></div>
+                </div>
+              </div>
+              <div class="dash-cmds t-dim">/search&nbsp;&nbsp;/stats&nbsp;&nbsp;/projects&nbsp;&nbsp;/hooks&nbsp;&nbsp;/help</div>
+              <div class="term-prompt">
+                <span class="t-accent">›</span> <span class="t-white">search</span> <span class="t-green">"worker pool"</span><span class="cursor"></span>
+              </div>
+              <div class="term-result">
+                <div class="t-muted">12 results · FTS5 · 4ms</div>
+                <div><span class="t-accent">acme-api</span> <span class="t-dim">›</span> <span class="t-white">session a3f1…</span></div>
+                <div class="t-dim">…spawn a <span class="t-green">worker pool</span> and fan out the parse jobs…</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="stats-strip">
+        <div class="stat-cell">
+          <div class="value accent">~120ms</div>
+          <div class="label">Warm start, unchanged files</div>
+        </div>
+        <div class="stat-cell">
+          <div class="value amber">2×</div>
+          <div class="label">Faster cold start with Rust</div>
+        </div>
+        <div class="stat-cell">
+          <div class="value green">FTS5</div>
+          <div class="label">Full-text search, always on</div>
+        </div>
+        <div class="stat-cell">
+          <div class="value">Local</div>
+          <div class="label">No cloud. Your machine only.</div>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <!-- Features -->
+  <section class="section" id="features">
+    <div class="wrap">
+      <div class="section-header center">
+        <div class="eyebrow">Why Spaghetti</div>
+        <h2>Your agent history, finally usable</h2>
+        <p class="lead">Not another chat archive. A structured index of everything Claude Code leaves behind — built for search, inspection, and tooling.</p>
+      </div>
+      <div class="features-grid">
+        <article class="feature-card">
+          <div class="feature-icon">⌕</div>
+          <h3>Search that scales</h3>
+          <p>Content-synced FTS5 over every message. Query across projects and years of agent work — hundreds of thousands of rows stay responsive.</p>
+        </article>
+        <article class="feature-card">
+          <div class="feature-icon amber">▣</div>
+          <h3>Artifacts, not just chat</h3>
+          <p>Projects, sessions, messages, plans, todos, memory, subagents, workflows, teams, and tool results — the full Claude Code surface.</p>
+        </article>
+        <article class="feature-card">
+          <div class="feature-icon green">⬡</div>
+          <h3>Local-first by design</h3>
+          <p>SQLite under <code>~/.spaghetti</code>. No accounts, no cloud sync, no phone-home. Your history never leaves the machine.</p>
+        </article>
+        <article class="feature-card">
+          <div class="feature-icon magenta">⚡</div>
+          <h3>Native Rust ingest</h3>
+          <p>Default path is a napi-rs addon with rayon parallelism. Pure TypeScript fallback when the binary is missing — zero configuration.</p>
+        </article>
+        <article class="feature-card">
+          <div class="feature-icon blue">⧉</div>
+          <h3>SDK + React exports</h3>
+          <p>The same pipeline powers the CLI. Scripts, Electron apps, and React UIs share <code>@vibecook/spaghetti-sdk</code>.</p>
+        </article>
+        <article class="feature-card">
+          <div class="feature-icon">◎</div>
+          <h3>Live while you work</h3>
+          <p>Opt into filesystem watchers that keep SQLite warm as Claude Code writes. Typed change events for reactive UIs.</p>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <!-- Product gallery (styled mocks matching real CLI chrome) -->
+  <section class="section" id="gallery" style="padding-top:48px">
+    <div class="wrap wrap-wide">
+      <div class="section-header center">
+        <div class="eyebrow">In the terminal</div>
+        <h2>The CLI you’ll actually use</h2>
+        <p class="lead">Stats, search, and session browsing — the same output shape the shipped binary prints.</p>
+      </div>
+      <div class="shot-gallery">
+        <!-- Stats mock -->
+        <div class="terminal shot-main" role="img" aria-label="Mock spag stats output">
+          <div class="terminal-bar">
+            <span class="terminal-dot"></span>
+            <span class="terminal-dot"></span>
+            <span class="terminal-dot"></span>
+            <span class="terminal-title">spag stats</span>
+          </div>
+          <div class="terminal-body terminal-body-mock terminal-body-compact">
+            <div class="t-bold">  Spaghetti Stats</div>
+            <div class="t-blank"></div>
+            <div class="t-accent">  Overview</div>
+            <div>    <span class="t-muted">Projects:</span>     <span class="t-white">79</span></div>
+            <div>    <span class="t-muted">Sessions:</span>     <span class="t-white">1,247</span></div>
+            <div>    <span class="t-muted">Messages:</span>     <span class="t-white">86,412</span></div>
+            <div class="t-blank"></div>
+            <div class="t-accent">  Data Store</div>
+            <div>    <span class="t-muted">DB size:</span>      <span class="t-white">512 MB</span></div>
+            <div>    <span class="t-muted">Search index:</span> <span class="t-white">86,412 entries</span></div>
+            <div>    <span class="t-muted">Source files:</span>  <span class="t-white">4,820 tracked</span></div>
+            <div class="t-blank"></div>
+            <div class="t-accent">  Token Usage</div>
+            <div>    <span class="t-muted">Input:</span>          <span class="t-amber">4.2M</span></div>
+            <div>    <span class="t-muted">Output:</span>         <span class="t-amber">12.8M</span></div>
+            <div>    <span class="t-muted">Cache creation:</span> <span class="t-amber">38.1M</span></div>
+            <div>    <span class="t-muted">Cache read:</span>     <span class="t-amber">210.6M</span></div>
+            <div class="t-dim">    ──────────────────────────────</div>
+            <div>    <span class="t-muted">Total:</span>          <span class="t-amber t-bold">265.7M</span></div>
+            <div class="t-blank"></div>
+            <div class="t-accent">  Top Projects by Tokens</div>
+            <div>    <span class="t-white">acme-api</span>              <span class="t-bar">████████████████████</span> <span class="t-amber">66.3M</span></div>
+            <div>    <span class="t-white">edge-router</span>           <span class="t-bar">█████████████████░░░</span> <span class="t-amber">52.1M</span></div>
+            <div>    <span class="t-white">design-kit</span>            <span class="t-bar">███████████░░░░░░░░░</span> <span class="t-amber">31.4M</span></div>
+            <div>    <span class="t-white">ledger</span>                <span class="t-bar">█████████░░░░░░░░░░░</span> <span class="t-amber">24.8M</span></div>
+            <div>    <span class="t-white">notebook</span>              <span class="t-bar">█████████░░░░░░░░░░░</span> <span class="t-amber">22.0M</span></div>
+          </div>
+          <div class="shot-caption">
+            <strong>Usage stats</strong>
+            <span>spag stats</span>
+          </div>
+        </div>
+
+        <!-- Search mock -->
+        <div class="terminal" role="img" aria-label="Mock spag search output">
+          <div class="terminal-bar">
+            <span class="terminal-dot"></span>
+            <span class="terminal-dot"></span>
+            <span class="terminal-dot"></span>
+            <span class="terminal-title">spag search "worker pool"</span>
+          </div>
+          <div class="terminal-body terminal-body-mock terminal-body-compact">
+            <div>  <span class="t-bold">Search:</span> <span class="t-accent">worker pool</span> <span class="t-muted">(48 results)</span></div>
+            <div class="t-blank"></div>
+            <div class="t-accent">  -Users-dev-Projects-acme-api</div>
+            <div class="t-muted">  (6 matches)</div>
+            <div class="t-blank"></div>
+            <div>    <span class="t-green">[message]</span> <span class="t-dim">[a3f19c2e]</span></div>
+            <div class="t-dim">    Spin up a <span class="t-hl">worker pool</span> and fan out the parse jobs.</div>
+            <div class="t-blank"></div>
+            <div>    <span class="t-green">[message]</span> <span class="t-dim">[a3f19c2e]</span></div>
+            <div class="t-dim">    The <span class="t-hl">worker pool</span> saturates at 8 threads on this machine.</div>
+            <div class="t-blank"></div>
+            <div>    <span class="t-green">[message]</span> <span class="t-dim">[b7e04d11]</span></div>
+            <div class="t-dim">    Move the <span class="t-hl">worker pool</span> behind a channel so backpressure works.</div>
+            <div class="t-blank"></div>
+            <div>    <span class="t-green">[message]</span> <span class="t-dim">[c91f8a44]</span></div>
+            <div class="t-dim">    Benchmarked: <span class="t-hl">worker pool</span> cold start down 2× vs sequential.</div>
+            <div class="t-blank"></div>
+            <div class="t-muted">  6/48 results · use --offset 6 for more</div>
+          </div>
+          <div class="shot-caption">
+            <strong>Full-text search</strong>
+            <span>spag search "worker pool"</span>
+          </div>
+        </div>
+
+        <!-- Sessions mock -->
+        <div class="terminal" role="img" aria-label="Mock spag sessions output">
+          <div class="terminal-bar">
+            <span class="terminal-dot"></span>
+            <span class="terminal-dot"></span>
+            <span class="terminal-dot"></span>
+            <span class="terminal-title">spag sessions acme-api</span>
+          </div>
+          <div class="terminal-body terminal-body-mock terminal-body-compact">
+            <div>  <span class="t-accent t-bold">acme-api</span> <span class="t-muted">(18 sessions)</span></div>
+            <div class="t-blank"></div>
+            <div class="t-muted">   #  Branch    Msgs     Tokens    Duration  Summary</div>
+            <div class="t-dim">────  ──────  ──────  ─────────  ──────────  ─────────</div>
+            <div>   <span class="t-dim">1</span>  <span class="t-white">main</span>     <span class="t-white">1,728</span>     <span class="t-amber">47.9M</span>       <span class="t-dim">2h 14m</span>  <span class="t-dim">Refactor ingest…</span></div>
+            <div>   <span class="t-dim">2</span>  <span class="t-white">feat/…</span>     <span class="t-white">856</span>      <span class="t-amber">8.5M</span>       <span class="t-dim">48m</span>  <span class="t-dim">Wire FTS triggers</span></div>
+            <div>   <span class="t-dim">3</span>  <span class="t-white">main</span>       <span class="t-white">378</span>      <span class="t-amber">3.7M</span>       <span class="t-dim">22m</span>  <span class="t-dim">Debug warm start</span></div>
+            <div>   <span class="t-dim">4</span>  <span class="t-white">fix/…</span>      <span class="t-white">68</span>    <span class="t-amber">575.8K</span>        <span class="t-dim">9m</span>  <span class="t-dim">Tidy CLI colors</span></div>
+            <div class="t-blank"></div>
+            <div class="t-muted">  showing 4/18 · 5,241 messages · 190.6M tokens</div>
+          </div>
+          <div class="shot-caption">
+            <strong>Session browser</strong>
+            <span>spag sessions acme-api</span>
+          </div>
+        </div>
+      </div>
+      <p class="shot-note">Illustrative output · your numbers come from your own ~/.claude after install</p>
+    </div>
+  </section>
+
+  <!-- Architecture -->
+  <section class="section" id="architecture" style="padding-top: 48px">
+    <div class="wrap wrap-wide">
+      <div class="section-header center">
+        <div class="eyebrow">Architecture</div>
+        <h2>One pipeline. Two engines. One index.</h2>
+        <p class="lead">Stream from disk, write once to SQLite, resume with fingerprints. Built for multi-gigabyte <code>~/.claude</code> trees without loading them into RAM.</p>
+      </div>
+
+      <div class="arch-panel">
+        <!-- Custom SVG architecture diagram -->
+        <svg class="arch-svg" viewBox="0 0 1040 520" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Spaghetti architecture: ~/.claude source flows through dual engines into SQLite and out to CLI, SDK, and React consumers">
+          <defs>
+            <linearGradient id="g-src" x1="0" y1="0" x2="1" y2="1">
+              <stop offset="0%" stop-color="#181c26"/>
+              <stop offset="100%" stop-color="#12151c"/>
+            </linearGradient>
+            <linearGradient id="g-rs" x1="0" y1="0" x2="1" y2="1">
+              <stop offset="0%" stop-color="#134e4a"/>
+              <stop offset="100%" stop-color="#0f766e"/>
+            </linearGradient>
+            <linearGradient id="g-ts" x1="0" y1="0" x2="1" y2="1">
+              <stop offset="0%" stop-color="#1e3a5f"/>
+              <stop offset="100%" stop-color="#1e40af"/>
+            </linearGradient>
+            <linearGradient id="g-db" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stop-color="#2dd4bf"/>
+              <stop offset="100%" stop-color="#0d9488"/>
+            </linearGradient>
+            <linearGradient id="g-line" x1="0" y1="0" x2="1" y2="0">
+              <stop offset="0%" stop-color="#2dd4bf" stop-opacity="0.1"/>
+              <stop offset="50%" stop-color="#2dd4bf" stop-opacity="0.7"/>
+              <stop offset="100%" stop-color="#2dd4bf" stop-opacity="0.1"/>
+            </linearGradient>
+            <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+              <feGaussianBlur stdDeviation="4" result="b"/>
+              <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+            </filter>
+            <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+              <path d="M0 0L10 5L0 10z" fill="#2dd4bf" fill-opacity="0.7"/>
+            </marker>
+          </defs>
+
+          <!-- Background grid dots -->
+          <pattern id="dots" width="20" height="20" patternUnits="userSpaceOnUse">
+            <circle cx="1" cy="1" r="0.6" fill="rgba(255,255,255,0.04)"/>
+          </pattern>
+          <rect width="1040" height="520" fill="url(#dots)" rx="12"/>
+
+          <!-- Layer labels -->
+          <text x="40" y="36" fill="#4a5163" font-family="JetBrains Mono, monospace" font-size="10" letter-spacing="1.5">SOURCE</text>
+          <text x="300" y="36" fill="#4a5163" font-family="JetBrains Mono, monospace" font-size="10" letter-spacing="1.5">INGEST</text>
+          <text x="580" y="36" fill="#4a5163" font-family="JetBrains Mono, monospace" font-size="10" letter-spacing="1.5">INDEX</text>
+          <text x="820" y="36" fill="#4a5163" font-family="JetBrains Mono, monospace" font-size="10" letter-spacing="1.5">CONSUMERS</text>
+
+          <!-- Source box -->
+          <rect x="32" y="60" width="200" height="400" rx="14" fill="url(#g-src)" stroke="rgba(255,255,255,0.08)" stroke-width="1"/>
+          <text x="132" y="92" text-anchor="middle" fill="#eef1f6" font-family="Instrument Sans, sans-serif" font-size="14" font-weight="600">~/.claude</text>
+          <text x="132" y="110" text-anchor="middle" fill="#6b7388" font-family="JetBrains Mono, monospace" font-size="10">Claude Code data</text>
+
+          <!-- Source items -->
+          <g font-family="JetBrains Mono, monospace" font-size="11">
+            <rect x="48" y="130" width="168" height="32" rx="6" fill="#0c0e12" stroke="rgba(45,212,191,0.2)"/>
+            <text x="60" y="150" fill="#5eead4">projects/{slug}/</text>
+
+            <rect x="48" y="172" width="168" height="32" rx="6" fill="#0c0e12" stroke="rgba(255,255,255,0.06)"/>
+            <text x="60" y="192" fill="#a8b0c0">*.jsonl sessions</text>
+
+            <rect x="48" y="214" width="168" height="32" rx="6" fill="#0c0e12" stroke="rgba(255,255,255,0.06)"/>
+            <text x="60" y="234" fill="#a8b0c0">subagents · tools</text>
+
+            <rect x="48" y="256" width="168" height="32" rx="6" fill="#0c0e12" stroke="rgba(255,255,255,0.06)"/>
+            <text x="60" y="276" fill="#a8b0c0">todos · plans</text>
+
+            <rect x="48" y="298" width="168" height="32" rx="6" fill="#0c0e12" stroke="rgba(255,255,255,0.06)"/>
+            <text x="60" y="318" fill="#a8b0c0">memory · history</text>
+
+            <rect x="48" y="340" width="168" height="32" rx="6" fill="#0c0e12" stroke="rgba(255,255,255,0.06)"/>
+            <text x="60" y="360" fill="#a8b0c0">settings · plugins</text>
+
+            <rect x="48" y="382" width="168" height="32" rx="6" fill="#0c0e12" stroke="rgba(251,191,36,0.2)"/>
+            <text x="60" y="402" fill="#fbbf24">workflows · teams</text>
+          </g>
+
+          <!-- Flow lines source → engines -->
+          <path d="M232 260 C270 260, 270 160, 300 160" stroke="url(#g-line)" stroke-width="1.5" fill="none" marker-end="url(#arrow)"/>
+          <path d="M232 260 C270 260, 270 340, 300 340" stroke="url(#g-line)" stroke-width="1.5" fill="none" marker-end="url(#arrow)"/>
+
+          <!-- Rust engine -->
+          <rect x="300" y="100" width="220" height="130" rx="14" fill="url(#g-rs)" stroke="rgba(45,212,191,0.45)" stroke-width="1.5" filter="url(#glow)"/>
+          <text x="410" y="132" text-anchor="middle" fill="#5eead4" font-family="JetBrains Mono, monospace" font-size="10" letter-spacing="1">ENGINE · RS</text>
+          <text x="410" y="158" text-anchor="middle" fill="#eef1f6" font-family="Instrument Sans, sans-serif" font-size="16" font-weight="600">Native Rust</text>
+          <text x="410" y="180" text-anchor="middle" fill="#99f6e4" font-family="JetBrains Mono, monospace" font-size="11">napi-rs · rayon · rusqlite</text>
+          <text x="410" y="204" text-anchor="middle" fill="#ccfbf1" font-family="Instrument Sans, sans-serif" font-size="12">Default · ~2× cold start</text>
+
+          <!-- TS engine -->
+          <rect x="300" y="280" width="220" height="130" rx="14" fill="url(#g-ts)" stroke="rgba(96,165,250,0.4)" stroke-width="1.5"/>
+          <text x="410" y="312" text-anchor="middle" fill="#93c5fd" font-family="JetBrains Mono, monospace" font-size="10" letter-spacing="1">ENGINE · TS</text>
+          <text x="410" y="338" text-anchor="middle" fill="#eef1f6" font-family="Instrument Sans, sans-serif" font-size="16" font-weight="600">TypeScript</text>
+          <text x="410" y="360" text-anchor="middle" fill="#bfdbfe" font-family="JetBrains Mono, monospace" font-size="11">workers · streaming · FTS</text>
+          <text x="410" y="384" text-anchor="middle" fill="#dbeafe" font-family="Instrument Sans, sans-serif" font-size="12">Ground truth · fallback</text>
+
+          <!-- Flow engines → SQLite -->
+          <path d="M520 165 C560 165, 560 260, 590 260" stroke="url(#g-line)" stroke-width="1.5" fill="none" marker-end="url(#arrow)"/>
+          <path d="M520 345 C560 345, 560 260, 590 260" stroke="url(#g-line)" stroke-width="1.5" fill="none" marker-end="url(#arrow)"/>
+
+          <!-- SQLite -->
+          <rect x="590" y="180" width="180" height="160" rx="14" fill="#0c0e12" stroke="rgba(45,212,191,0.5)" stroke-width="1.5"/>
+          <rect x="590" y="180" width="180" height="6" rx="3" fill="url(#g-db)"/>
+          <text x="680" y="220" text-anchor="middle" fill="#5eead4" font-family="JetBrains Mono, monospace" font-size="10" letter-spacing="1">SQLITE</text>
+          <text x="680" y="248" text-anchor="middle" fill="#eef1f6" font-family="Instrument Sans, sans-serif" font-size="15" font-weight="600">Local Index</text>
+          <text x="680" y="272" text-anchor="middle" fill="#6b7388" font-family="JetBrains Mono, monospace" font-size="10">~/.spaghetti/cache/</text>
+          <text x="680" y="298" text-anchor="middle" fill="#a8b0c0" font-family="JetBrains Mono, monospace" font-size="11">tables · FTS5 · WAL</text>
+          <text x="680" y="318" text-anchor="middle" fill="#6b7388" font-family="JetBrains Mono, monospace" font-size="10">single writer</text>
+
+          <!-- Flow SQLite → consumers -->
+          <path d="M770 220 C800 220, 800 120, 830 120" stroke="url(#g-line)" stroke-width="1.5" fill="none" marker-end="url(#arrow)"/>
+          <path d="M770 260 C800 260, 800 260, 830 260" stroke="url(#g-line)" stroke-width="1.5" fill="none" marker-end="url(#arrow)"/>
+          <path d="M770 300 C800 300, 800 400, 830 400" stroke="url(#g-line)" stroke-width="1.5" fill="none" marker-end="url(#arrow)"/>
+
+          <!-- Consumers -->
+          <rect x="830" y="80" width="180" height="80" rx="12" fill="#12151c" stroke="rgba(255,255,255,0.1)"/>
+          <text x="920" y="112" text-anchor="middle" fill="#eef1f6" font-family="Instrument Sans, sans-serif" font-size="14" font-weight="600">CLI · TUI</text>
+          <text x="920" y="134" text-anchor="middle" fill="#6b7388" font-family="JetBrains Mono, monospace" font-size="11">spag · Ink</text>
+
+          <rect x="830" y="220" width="180" height="80" rx="12" fill="#12151c" stroke="rgba(45,212,191,0.25)"/>
+          <text x="920" y="252" text-anchor="middle" fill="#eef1f6" font-family="Instrument Sans, sans-serif" font-size="14" font-weight="600">SDK API</text>
+          <text x="920" y="274" text-anchor="middle" fill="#5eead4" font-family="JetBrains Mono, monospace" font-size="11">createSpaghettiService</text>
+
+          <rect x="830" y="360" width="180" height="80" rx="12" fill="#12151c" stroke="rgba(232,121,249,0.25)"/>
+          <text x="920" y="392" text-anchor="middle" fill="#eef1f6" font-family="Instrument Sans, sans-serif" font-size="14" font-weight="600">React · Live</text>
+          <text x="920" y="414" text-anchor="middle" fill="#e879f9" font-family="JetBrains Mono, monospace" font-size="11">/react · api.live</text>
+
+          <!-- Fingerprint badge -->
+          <rect x="340" y="450" width="360" height="40" rx="20" fill="#0c0e12" stroke="rgba(255,255,255,0.08)"/>
+          <circle cx="368" cy="470" r="5" fill="#4ade80"/>
+          <text x="520" y="475" text-anchor="middle" fill="#a8b0c0" font-family="JetBrains Mono, monospace" font-size="11">fingerprints · byte-offset resume · warm start ~120ms</text>
+        </svg>
+
+        <div class="arch-legend">
+          <div class="arch-legend-item">
+            <span class="arch-legend-swatch" style="background:#0f766e"></span>
+            Rust ingest (default)
+          </div>
+          <div class="arch-legend-item">
+            <span class="arch-legend-swatch" style="background:#1e40af"></span>
+            TypeScript ingest (parity + fallback)
+          </div>
+          <div class="arch-legend-item">
+            <span class="arch-legend-swatch" style="background:#2dd4bf"></span>
+            Shared SQLite schema + FTS5
+          </div>
+          <div class="arch-legend-item">
+            <span class="arch-legend-swatch" style="background:#e879f9"></span>
+            Optional live updates
+          </div>
+        </div>
+      </div>
+
+      <!-- Pipeline steps -->
+      <div class="pipeline mt-48">
+        <div class="pipeline-step">
+          <div class="pipeline-num">01</div>
+          <div>
+            <h4>Discover</h4>
+            <p>Walk <code>~/.claude/projects</code> and classify every source file by category.</p>
+          </div>
+        </div>
+        <div class="pipeline-step">
+          <div class="pipeline-num">02</div>
+          <div>
+            <h4>Stream parse</h4>
+            <p>64KB buffered JSONL reads — sessions never need to fit in RAM.</p>
+          </div>
+        </div>
+        <div class="pipeline-step">
+          <div class="pipeline-num">03</div>
+          <div>
+            <h4>Single-write</h4>
+            <p>One SQLite connection, batched UPSERTs, FTS rebuilt at finalize.</p>
+          </div>
+        </div>
+        <div class="pipeline-step">
+          <div class="pipeline-num">04</div>
+          <div>
+            <h4>Fingerprint</h4>
+            <p>Store path, mtime, size, and byte offset for incremental warm starts.</p>
+          </div>
+        </div>
+        <div class="pipeline-step">
+          <div class="pipeline-num">05</div>
+          <div>
+            <h4>Query</h4>
+            <p>SQL aggregates + FTS5 search power the CLI, SDK, and React surfaces.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Engines -->
+  <section class="section" id="engines">
+    <div class="wrap">
+      <div class="section-header">
+        <div class="eyebrow">Dual engines</div>
+        <h2>Speed by default. Correctness always.</h2>
+        <p class="lead">Rust and TypeScript write the same schema. A fixture-based ingest-diff harness keeps them honest in CI.</p>
+      </div>
+      <div class="engine-grid">
+        <div class="engine-card featured">
+          <div class="engine-badge">⬡ engine: 'rs'</div>
+          <h3>Native Rust</h3>
+          <p>napi-rs addon with rayon-parallel project parse and a dedicated rusqlite writer thread. Roughly 2× faster cold start on multi-GB histories.</p>
+          <ul class="engine-list">
+            <li>Project/session bulk ingest + live batch writes</li>
+            <li>FTS triggers dropped during bulk, rebuilt once</li>
+            <li>Prebuilt binaries: macOS + Linux (x64/arm64)</li>
+            <li>Default when the native module loads</li>
+          </ul>
+        </div>
+        <div class="engine-card">
+          <div class="engine-badge" style="color:var(--blue)">◈ engine: 'ts'</div>
+          <h3>TypeScript</h3>
+          <p>Full streaming pipeline with worker threads. Ground truth for development, automatic fallback when native is unavailable.</p>
+          <ul class="engine-list">
+            <li>Complete coverage: config, analytics, plugins</li>
+            <li>Worker pool with sequential fallback</li>
+            <li>No native deps required</li>
+            <li>Pin with <code>SPAG_ENGINE=ts</code></li>
+          </ul>
+        </div>
+      </div>
+      <div class="callout mt-32">
+        <span>ⓘ</span>
+        <div>
+          <strong>Engine resolution:</strong>
+          per-service <code>engine</code> option → <code>SPAG_ENGINE</code> env → legacy <code>SPAG_NATIVE_INGEST</code> →
+          <code>~/.spaghetti/config.json</code> → default <code>rs</code>.
+          Each engine uses its own DB file so switching never forces a re-ingest.
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- What gets indexed -->
+  <section class="section" id="indexed" style="padding-top:48px">
+    <div class="wrap">
+      <div class="section-header center">
+        <div class="eyebrow">Coverage</div>
+        <h2>What Spaghetti indexes</h2>
+        <p class="lead">From session transcripts to orchestration workflows — structured tables, not opaque blobs.</p>
+      </div>
+      <div class="index-grid">
+        <div class="index-item">
+          <div class="tag">Both engines</div>
+          <h4>Projects &amp; sessions</h4>
+          <p>Slugs, paths, summaries, branches, sidechains, token totals</p>
+        </div>
+        <div class="index-item">
+          <div class="tag">Both engines</div>
+          <h4>Messages</h4>
+          <p>Full JSONL with FTS text extraction and token breakdowns</p>
+        </div>
+        <div class="index-item">
+          <div class="tag">Both engines</div>
+          <h4>Subagents</h4>
+          <p>Transcripts, agent types, nested workflow agents</p>
+        </div>
+        <div class="index-item">
+          <div class="tag">Both engines</div>
+          <h4>Workflows</h4>
+          <p>Agent-orchestration runs with nested subagent graphs</p>
+        </div>
+        <div class="index-item">
+          <div class="tag">Both engines</div>
+          <h4>Todos &amp; plans</h4>
+          <p>Session todos, plan markdown, task metadata</p>
+        </div>
+        <div class="index-item">
+          <div class="tag">Both engines</div>
+          <h4>Memory &amp; tools</h4>
+          <p>MEMORY.md, persisted tool results, file history</p>
+        </div>
+        <div class="index-item">
+          <div class="tag ts-only">TS only</div>
+          <h4>Config &amp; plugins</h4>
+          <p>Settings, marketplaces, statsig, IDE locks</p>
+        </div>
+        <div class="index-item">
+          <div class="tag ts-only">TS only</div>
+          <h4>Analytics</h4>
+          <p>history.jsonl, debug logs, telemetry, session-env</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- CLI -->
+  <section class="section" id="cli">
+    <div class="wrap">
+      <div class="split">
+        <div>
+          <div class="eyebrow">CLI &amp; TUI</div>
+          <h2>Terminal-native from day one</h2>
+          <p class="lead" style="margin:14px 0 28px">
+            Full-screen Ink TUI with bare <code>spag</code>, or one-shot commands when you
+            just need a fast answer. Same index either way.
+          </p>
+          <div class="cmd-grid">
+            <div class="cmd-row">
+              <code>spag</code>
+              <span>Interactive TUI</span>
+            </div>
+            <div class="cmd-row">
+              <code>spag projects</code>
+              <span>List indexed projects</span>
+            </div>
+            <div class="cmd-row">
+              <code>spag sessions .</code>
+              <span>Sessions for the current repo</span>
+            </div>
+            <div class="cmd-row">
+              <code>spag messages . latest</code>
+              <span>Latest session transcript</span>
+            </div>
+            <div class="cmd-row">
+              <code>spag search "…"</code>
+              <span>Full-text search</span>
+            </div>
+            <div class="cmd-row">
+              <code>spag doctor</code>
+              <span>Health-check paths &amp; plugins</span>
+            </div>
+          </div>
+          <p style="margin-top:18px">
+            <a href="commands.html" style="font-size:14px;font-weight:600">Full command reference →</a>
+          </p>
+        </div>
+        <div>
+          <div class="terminal" role="img" aria-label="Mock TUI navigation tree">
+            <div class="terminal-bar">
+              <span class="terminal-dot"></span>
+              <span class="terminal-dot"></span>
+              <span class="terminal-dot"></span>
+              <span class="terminal-title">spag · TUI</span>
+            </div>
+            <div class="terminal-body terminal-body-mock terminal-body-compact">
+              <div class="t-bold t-accent">Home</div>
+              <div class="t-white"> ├─ <span class="t-accent">Projects</span></div>
+              <div class="t-muted"> │   ├─ Sessions</div>
+              <div class="t-muted"> │   │   ├─ Messages</div>
+              <div class="t-muted"> │   │   ├─ Todos · Plan · Subagents</div>
+              <div class="t-muted"> │   │   └─ Workflows</div>
+              <div class="t-muted"> │   └─ Memory</div>
+              <div class="t-white"> ├─ Hooks Monitor</div>
+              <div class="t-white"> ├─ Stats · Help · Doctor</div>
+              <div class="t-white"> └─ Chat <span class="t-dim">(live channel)</span></div>
+              <hr class="term-divider" />
+              <div class="t-dim">Resolve with <span class="t-green">.</span> · <span class="t-green">latest</span> · fuzzy · UUID prefix</div>
+            </div>
+            <div class="shot-caption">
+              <strong>Interactive TUI</strong>
+              <span>bare spag on a TTY</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- SDK -->
+  <section class="section" id="sdk" style="padding-top:48px">
+    <div class="wrap">
+      <div class="split split-start">
+        <div>
+          <div class="eyebrow">SDK</div>
+          <h2>Build on the same index</h2>
+          <p class="lead" style="margin:14px 0 24px">
+            One factory. One API. Scripts, dashboards, and Electron apps all read
+            the SQLite index the CLI builds. React components live under
+            <code>@vibecook/spaghetti-sdk/react</code>.
+          </p>
+          <a class="btn btn-secondary" href="api.html">API reference →</a>
+        </div>
+        <div class="code-block">
+          <div class="code-header">
+            <span>example.ts</span>
+            <button class="copy-btn" type="button" data-copy>Copy</button>
+          </div>
+          <pre><code><span class="c-kw">import</span> { createSpaghettiService } <span class="c-kw">from</span> <span class="c-str">'@vibecook/spaghetti-sdk'</span>;
+
+<span class="c-kw">const</span> spaghetti = <span class="c-fn">createSpaghettiService</span>();
+<span class="c-kw">await</span> spaghetti.<span class="c-fn">initialize</span>();
+
+<span class="c-kw">const</span> projects = spaghetti.<span class="c-fn">getProjectList</span>();
+<span class="c-kw">const</span> results = spaghetti.<span class="c-fn">search</span>({ text: <span class="c-str">'worker thread'</span> });
+
+<span class="c-cm">// Opt into live filesystem updates</span>
+<span class="c-kw">const</span> live = <span class="c-fn">createSpaghettiService</span>({ live: <span class="c-kw">true</span> });
+
+spaghetti.<span class="c-fn">shutdown</span>();</code></pre>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Install -->
+  <section class="section" id="install">
+    <div class="wrap">
+      <div class="cta-band">
+        <div class="eyebrow" style="justify-content:center">Get started</div>
+        <h2>Install in one line</h2>
+        <p class="lead">Ship the CLI for daily use, or embed the SDK in any Node project.</p>
+        <div class="code-block" style="max-width:520px;margin:0 auto 28px;text-align:left">
+          <div class="code-header">
+            <span>shell</span>
+            <button class="copy-btn" type="button" data-copy>Copy</button>
+          </div>
+          <pre><code>npm install -g @vibecook/spaghetti
+spag</code></pre>
+        </div>
+        <div class="hero-ctas">
+          <a class="btn btn-primary" href="https://www.npmjs.com/package/@vibecook/spaghetti" target="_blank" rel="noopener">CLI on npm</a>
+          <a class="btn btn-secondary" href="https://www.npmjs.com/package/@vibecook/spaghetti-sdk" target="_blank" rel="noopener">SDK on npm</a>
+          <a class="btn btn-secondary" href="https://github.com/jamesyong-42/spaghetti" target="_blank" rel="noopener">Star on GitHub</a>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Footer -->
+  <footer class="footer">
+    <div class="wrap wrap-wide">
+      <div class="footer-grid">
+        <div class="footer-brand">
+          <a href="index.html" class="nav-brand">
+            <span class="nav-logo" aria-hidden="true">sp</span>
+            Spaghetti
+          </a>
+          <p>Local-first Claude Code explorer. Index, search, and build on your agent history — without leaving the machine.</p>
+        </div>
+        <div>
+          <h4>Product</h4>
+          <ul>
+            <li><a href="#features">Features</a></li>
+            <li><a href="#architecture">Architecture</a></li>
+            <li><a href="#gallery">Screenshots</a></li>
+            <li><a href="#sdk">SDK</a></li>
+          </ul>
+        </div>
+        <div>
+          <h4>Docs</h4>
+          <ul>
+            <li><a href="commands.html">CLI commands</a></li>
+            <li><a href="api.html">API reference</a></li>
+            <li><a href="api.html#create">createSpaghettiService</a></li>
+            <li><a href="api.html#live">Live updates</a></li>
+          </ul>
+        </div>
+        <div>
+          <h4>Packages</h4>
+          <ul>
+            <li><a href="https://www.npmjs.com/package/@vibecook/spaghetti" target="_blank" rel="noopener">@vibecook/spaghetti</a></li>
+            <li><a href="https://www.npmjs.com/package/@vibecook/spaghetti-sdk" target="_blank" rel="noopener">@vibecook/spaghetti-sdk</a></li>
+            <li><a href="https://github.com/jamesyong-42/spaghetti" target="_blank" rel="noopener">GitHub</a></li>
+            <li><a href="https://github.com/jamesyong-42/spaghetti/blob/main/LICENSE" target="_blank" rel="noopener">MIT License</a></li>
+          </ul>
+        </div>
+      </div>
+      <div class="footer-bottom">
+        <span>© 2026 James Yong</span>
+        <span>Built for Claude Code power users</span>
+      </div>
+    </div>
+  </footer>
+
+  <script src="app.js"></script>
+</body>
+</html>

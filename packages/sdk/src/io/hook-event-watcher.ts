@@ -6,15 +6,15 @@
  */
 
 import { watch, existsSync, writeFileSync, mkdirSync, type FSWatcher } from 'fs';
-import { join, dirname } from 'path';
-import { homedir } from 'os';
+import { dirname } from 'path';
 import { readJsonlStreaming } from './streaming-jsonl-reader.js';
 import type { HookEvent } from '../types/hook-events.js';
+import { createClaudeCodeSource } from '../sources/claude-code/index.js';
 
 // ─── Types ───────────────────────────────────────────────────────────────
 
 export interface HookEventWatcherOptions {
-  /** Path to the hook events JSONL file. Default: ~/.spaghetti/hooks/events.jsonl */
+  /** Path to the hook events JSONL file. Default: Claude Code source `paths.hookEventsFile` */
   eventsPath?: string;
 }
 
@@ -35,8 +35,9 @@ export interface HookEventWatcher {
 
 // ─── Default path ────────────────────────────────────────────────────────
 
+/** Default hook events path for the Claude Code agent source. */
 export function getDefaultHookEventsPath(): string {
-  return join(homedir(), '.spaghetti', 'hooks', 'events.jsonl');
+  return createClaudeCodeSource().paths.hookEventsFile;
 }
 
 // ─── Implementation ──────────────────────────────────────────────────────

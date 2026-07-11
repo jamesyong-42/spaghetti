@@ -16,6 +16,7 @@ import { useViewNav } from './context.js';
 import { VERSION } from './shell.js';
 import {
   collectDoctorReport,
+  formatBytes,
   formatRelative,
   pluginStatusKind,
   PLUGIN_STATUS_LABEL,
@@ -139,8 +140,11 @@ export function DoctorView(): React.ReactElement {
   );
 
   const env = report.environment;
+  const ix = report.indexLive;
   const he = report.hookEvents;
   const cs = report.channelSessions;
+  const engineLabel =
+    ix.preferredEngine === ix.effectiveEngine ? ix.effectiveEngine : `${ix.preferredEngine} → ${ix.effectiveEngine}`;
 
   return (
     <Box flexDirection="column">
@@ -178,6 +182,34 @@ export function DoctorView(): React.ReactElement {
       <Row icon={<StatusIcon kind={env.pluginsDir.exists ? 'ok' : 'warn'} />} label="plugins dir">
         {tildify(env.pluginsDir.path)}
       </Row>
+      <Spacer />
+
+      {/* Index & live */}
+      <SectionHeading title="Index & live" />
+      <Row icon={<StatusIcon kind="ok" />} label="engine">
+        {engineLabel}
+      </Row>
+      <Sub>
+        {ix.nativeAvailable ? `native ${ix.nativeVersion ?? 'loaded'}` : 'native addon unavailable — TS ingest path'}
+      </Sub>
+      <Row icon={<StatusIcon kind={ix.dbExists ? 'ok' : 'warn'} />} label="index db">
+        {tildify(ix.dbPath)}
+      </Row>
+      <Sub>
+        {ix.dbExists && ix.dbSizeBytes != null
+          ? formatBytes(ix.dbSizeBytes)
+          : 'not created yet — run spag once to build the index'}
+      </Sub>
+      <Row icon={<StatusIcon kind="ok" />} label="live (TUI)">
+        <Text color="green">{ix.liveDefaultLongLived ? 'on by default' : 'off'}</Text>
+      </Row>
+      <Row icon={<StatusIcon kind="dot" />} label="live (CLI)">
+        <Text dimColor>{ix.liveDefaultOneShot ? 'on' : 'off for one-shots'}</Text>
+      </Row>
+      <Row icon={<StatusIcon kind={ix.activeSessionsAlive > 0 ? 'ok' : 'dot'} />} label="active sessions">
+        {ix.activeSessionsAlive} live / {ix.activeSessionsOnDisk} on disk
+      </Row>
+      <Sub>{tildify(ix.activeSessionsDir)}</Sub>
       <Spacer />
 
       {/* Plugins */}

@@ -93,12 +93,22 @@ const results = spaghetti.search({ text: 'worker thread' });
 spaghetti.shutdown();
 ```
 
+## Docs site
+
+Official product docs (static HTML for GitHub Pages):
+
+- [`site/index.html`](site/index.html) — product overview, architecture, CLI/SDK
+- [`site/api.html`](site/api.html) — SDK API reference
+
+Preview: `npx serve site` · Publish: see [`site/README.md`](site/README.md)
+
 ## Repo map
 
 - [`packages/cli`](packages/cli) — published CLI package
 - [`packages/sdk`](packages/sdk) — parsing, indexing, query APIs, and React exports
 - [`crates/spaghetti-napi`](crates/spaghetti-napi) — native Rust ingest engine
 - [`apps/playground`](apps/playground) — Electron demo app
+- [`site`](site) — official documentation website
 - [`docs`](docs) — RFCs, design notes, and deeper implementation details
 
 ## Requirements

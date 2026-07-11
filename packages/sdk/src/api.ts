@@ -12,6 +12,7 @@ import type {
 import type { TokenUsageSummary } from './data/summary-types.js';
 import type { SessionMessage, TeamDirectory } from './types/index.js';
 import type { SpaghettiLive } from './live/spaghetti-live.js';
+import type { SpaghettiRuntime } from './runtime/spaghetti-runtime.js';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // RESPONSE TYPES
@@ -165,17 +166,25 @@ export interface SpaghettiAPI {
   onChange(cb: (batch: SegmentChangeBatch) => void): () => void;
 
   /**
-   * Live-updates surface (RFC 005). Present only when the service
-   * was constructed with `{ live: true }`. See
+   * Live-updates surface (RFC 005 / Plane 2). Present only when the
+   * service was constructed with `{ live: true }`. See
    * `docs/rfcs/005-live-updates.md` §Public API for the full
    * subscribe + events + prewarm contract.
    */
   readonly live?: SpaghettiLive;
 
   /**
-   * Awaitable teardown. Stops the live pipeline, drains in-flight
-   * writes, disposes subscribers, and closes SQLite. Prefer this to
-   * `shutdown()` when the caller can `await` — `shutdown()` is
+   * Runtime surface (Plane 3) — hooks + channel session discovery.
+   * Present when built via `createSpaghettiService` (always for the
+   * default factory path). Lazy-starts watchers on first subscribe.
+   * See `docs/THREE-PLANE-INGEST-ARCHITECTURE.md` §6.
+   */
+  readonly runtime?: SpaghettiRuntime;
+
+  /**
+   * Awaitable teardown. Stops live disk + runtime pipelines, drains
+   * in-flight writes, disposes subscribers, and closes SQLite. Prefer
+   * this to `shutdown()` when the caller can `await` — `shutdown()` is
    * fire-and-forget.
    *
    * Declared as a plain method because the SDK's tsconfig targets

@@ -48,6 +48,38 @@ export * from './api.js';
 export { createSpaghettiService, type SpaghettiServiceOptions } from './create.js';
 export { createSpaghettiAppService } from './app-service.js';
 
+// Agent sources (three-plane architecture — Claude Code today)
+export type { AgentSource, AgentSourceId, AgentSourcePaths } from './sources/types.js';
+export {
+  createClaudeCodeSource,
+  defaultClaudeDir,
+  defaultSpaghettiStateDir,
+  type ClaudeCodeSourceOptions,
+} from './sources/index.js';
+
+// Durable store + plane façades (composition helpers; prefer createSpaghettiService)
+export { createDurableStore, type DurableStore, type CreateDurableStoreOptions } from './store/durable-store.js';
+export {
+  toLifecycleOptions,
+  type StaticIngestDeps,
+  createLiveDiskIngest,
+  type LiveDiskIngest,
+  type LiveDiskIngestOptions,
+  createRuntimeBridge,
+  type RuntimeBridge,
+  type CreateRuntimeBridgeOptions,
+  listActiveSessionsFromDir,
+  isProcessAlive,
+  type ListActiveSessionsOptions,
+} from './planes/index.js';
+export type { RuntimeEvent } from './events/runtime-event.js';
+export {
+  isHookRuntimeEvent,
+  isChannelSessionsRuntimeEvent,
+  isSessionActiveRuntimeEvent,
+} from './events/runtime-event.js';
+export type { SpaghettiRuntime } from './runtime/spaghetti-runtime.js';
+
 // Native addon bridge (RFC 003)
 export {
   loadNativeAddon,
@@ -68,7 +100,7 @@ export {
   settingsPath,
 } from './settings.js';
 
-// Live updates (RFC 005 Phase 3) — public surface + event types.
+// Live updates (RFC 005 Phase 3) — public surface + event types (Plane 2).
 export type { SpaghettiLive } from './live/spaghetti-live.js';
 export type { Change, ChangeType, ChangeTopic, SubscribeOptions, Dispose } from './live/change-events.js';
 export {

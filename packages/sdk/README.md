@@ -96,6 +96,39 @@ At init, the service:
 
 Query and ingest share one SQLite connection to avoid `SQLITE_BUSY` conflicts.
 
+## Architecture (three planes)
+
+Composition follows a stable internal shape (see monorepo `docs/THREE-PLANE-INGEST-ARCHITECTURE.md`):
+
+| Piece | Role |
+|---|---|
+| `AgentSource` / `createClaudeCodeSource()` | Agent product roots (`~/.claude`, `~/.spaghetti`) |
+| Static ingest | Cold/warm full parse into SQLite |
+| Live disk (`{ live: true }` → `api.live`) | Watcher + incremental writes + `Change` events |
+| Runtime (`api.runtime`) | Hooks stream + channel session discovery |
+| Durable store | Shared SQLite query + ingest + data store |
+
+```ts
+import { createClaudeCodeSource, createSpaghettiService } from '@vibecook/spaghetti-sdk';
+
+const source = createClaudeCodeSource({ rootDir: '/custom/.claude' });
+const svc = createSpaghettiService({ source, live: true });
+await svc.initialize();
+
+// Plane 2 — disk deltas (only when live: true)
+svc.live?.onChange({ type: 'session', slug: '…', sessionId: '…' }, (e) => {
+  console.log('disk change', e.type);
+});
+
+// Plane 3 — hooks / channel sessions (always on default factory)
+svc.runtime?.onEvent((e) => {
+  if (e.type === 'hook') console.log(e.name, e.sessionId);
+});
+```
+
+`claudeDir` remains supported and seeds the default Claude Code source.  
+Long-lived surfaces (CLI TUI, Electron playground) pass `{ live: true }` by default; one-shot CLI commands stay pull-only.
+
 ## Engine selection
 
 The SDK ships two ingest engines:
@@ -105,16 +138,11 @@ The SDK ships two ingest engines:
 
 Resolution order (first match wins):
 
-1. `SPAG_ENGINE=ts|rs` env var
-2. Legacy `SPAG_NATIVE_INGEST=0|1` env var (`0` → ts, `1` → rs)
-3. Persisted `engine` field in `~/.spaghetti/config.json`
-4. Default: `rs`
-
-Selection is **process-wide** — there is no per-instance `engine` option today. To use the TS path, set the env var before the SDK is imported:
-
-```bash
-SPAG_ENGINE=ts node my-app.js
-```
+1. Per-service `createSpaghettiService({ engine })`
+2. `SPAG_ENGINE=ts|rs` env var
+3. Legacy `SPAG_NATIVE_INGEST=0|1` env var (`0` → ts, `1` → rs)
+4. Persisted `engine` field in `~/.spaghetti/config.json`
+5. Default: `rs`
 
 Correctness parity between the two engines is enforced by `pnpm test:ingest-diff` (small fixture) and `pnpm test:ingest-diff:medium` (exercises every rare `SessionMessage` / content-block variant) in CI.
 

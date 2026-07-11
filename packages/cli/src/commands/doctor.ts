@@ -10,6 +10,7 @@ import { theme } from '../lib/color.js';
 import {
   PLUGIN_STATUS_LABEL,
   collectDoctorReport,
+  formatBytes,
   formatRelative,
   pluginStatusKind,
   tildify,
@@ -67,6 +68,35 @@ function renderReport(report: DoctorReport): string {
   lines.push(row(env.claudeDir.exists ? OK : BAD, '~/.claude', tildify(env.claudeDir.path)));
   lines.push(row(env.settings.exists ? OK : WARN, 'settings.json', tildify(env.settings.path)));
   lines.push(row(env.pluginsDir.exists ? OK : WARN, 'plugins dir', tildify(env.pluginsDir.path)));
+  lines.push('');
+
+  // ─── Index & live (Plane 1 / 2 / 3) ─────────────────────────────────
+  const ix = report.indexLive;
+  lines.push(heading('Index & live'));
+  const engineLabel =
+    ix.preferredEngine === ix.effectiveEngine ? ix.effectiveEngine : `${ix.preferredEngine} → ${ix.effectiveEngine}`;
+  lines.push(row(OK, 'engine', engineLabel));
+  if (ix.nativeAvailable) {
+    lines.push(sub(`native ${ix.nativeVersion ?? 'loaded'}`));
+  } else {
+    lines.push(sub(theme.muted('native addon unavailable — TS ingest path')));
+  }
+  lines.push(row(ix.dbExists ? OK : WARN, 'index db', tildify(ix.dbPath)));
+  if (ix.dbExists && ix.dbSizeBytes != null) {
+    lines.push(sub(formatBytes(ix.dbSizeBytes)));
+  } else {
+    lines.push(sub('not created yet — run spag once to build the index'));
+  }
+  lines.push(row(OK, 'live (TUI)', ix.liveDefaultLongLived ? theme.success('on by default') : theme.muted('off')));
+  lines.push(row(DOT, 'live (CLI)', ix.liveDefaultOneShot ? 'on' : theme.muted('off for one-shots')));
+  lines.push(
+    row(
+      ix.activeSessionsAlive > 0 ? OK : DOT,
+      'active sessions',
+      `${ix.activeSessionsAlive} live / ${ix.activeSessionsOnDisk} on disk`,
+    ),
+  );
+  lines.push(sub(tildify(ix.activeSessionsDir)));
   lines.push('');
 
   // ─── Plugins ────────────────────────────────────────────────────────

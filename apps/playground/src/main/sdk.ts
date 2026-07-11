@@ -45,9 +45,12 @@ export function initSdk(options: InitSdkOptions): Promise<SpaghettiAPI> {
   if (initPromise) return initPromise;
 
   activeEngine = options.engine;
+  // Long-lived desktop surface: enable Plane 2 live disk updates so the
+  // UI can stay current while Claude Code writes (matches TUI default).
   const service = createSpaghettiService({
     dbPath: options.dbPath,
     engine: options.engine,
+    live: true,
     ...(options.claudeDir ? { claudeDir: options.claudeDir } : {}),
   });
   sdkInstance = service;

@@ -9,8 +9,7 @@
  * verdicts.
  */
 
-import { homedir } from 'node:os';
-import { join } from 'node:path';
+import { createClaudeCodeSource } from '../sources/claude-code/index.js';
 
 // ─── Session discovery ───────────────────────────────────────────────────
 
@@ -154,10 +153,10 @@ export function isOutgoing(msg: ChannelMessage): msg is ChannelOutgoing {
 
 /** Absolute path to the channel session discovery directory. */
 export function getChannelSessionsDir(): string {
-  return join(homedir(), '.spaghetti', 'channel', 'sessions');
+  return createClaudeCodeSource().paths.channelSessionsDir;
 }
 
 /** Absolute path to the channel messages (JSONL history) directory. */
 export function getChannelMessagesDir(): string {
-  return join(homedir(), '.spaghetti', 'channel', 'messages');
+  return createClaudeCodeSource().paths.channelMessagesDir;
 }
