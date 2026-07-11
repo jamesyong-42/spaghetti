@@ -4,7 +4,7 @@
 
 import assert from 'node:assert/strict';
 import { describe, it, before, after } from 'node:test';
-import { mkdtempSync, writeFileSync, mkdirSync, rmSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
