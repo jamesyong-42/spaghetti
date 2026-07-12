@@ -590,7 +590,7 @@ await b.initialize();
 | Stack | Work | Status |
 |---|---|---|
 | Productize Plane 2 | TUI/playground default `live: true`; doctor shows live status | **Done** (TUI + playground + doctor Index & live) |
-| Runtime API | `SpaghettiRuntime`, hook/channel subscribe, optional persistence | **Partial** — `api.runtime` + subscribe; no SQLite persistence yet |
+| Runtime API | `SpaghettiRuntime`, hook/channel subscribe | **Done** — `api.runtime` + subscribe shipped; SQLite persistence **rejected 2026-07-12** (the index stays a pure function of files on disk; runtime streams are ephemeral by design) |
 | Active sessions | Parse `~/.claude/sessions/{pid}.json` into RuntimeBridge | **Done** — `listActiveSessions` / `active-sessions.ts` |
 | Source-local parsers | Move Claude path classification next to source; keep engines generic | Pending |
 | Second AgentSource | Only after above | Pending |
