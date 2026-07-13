@@ -20,6 +20,8 @@ import type { SpaghettiRuntime } from './runtime/spaghetti-runtime.js';
 
 export interface ProjectListItem {
   slug: string;
+  /** Agent product this project came from (e.g. 'claude-code'). */
+  sourceId: string;
   folderName: string;
   absolutePath: string;
   sessionCount: number;
@@ -33,6 +35,8 @@ export interface ProjectListItem {
 
 export interface SessionListItem {
   sessionId: string;
+  /** Agent product this session came from (e.g. 'claude-code'). */
+  sourceId: string;
   startTime: string;
   lastUpdate: string;
   lifespanMs: number;
@@ -102,7 +106,10 @@ export interface SpaghettiAPI {
   isReady(): boolean;
 
   /** Get all projects sorted by last active date */
-  getProjectList(): ProjectListItem[];
+  /** Distinct agent sources present in the index (e.g. ['claude-code']). */
+  getSourceIds(): string[];
+  /** List projects, optionally scoped to one agent source. */
+  getProjectList(options?: { sourceId?: string }): ProjectListItem[];
 
   /** Get all sessions for a project sorted by last update */
   getSessionList(projectSlug: string): SessionListItem[];

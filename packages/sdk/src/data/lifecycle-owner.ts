@@ -110,7 +110,8 @@ export interface ClaudeCodeAgentDataService extends EventEmitter {
   getConfig(): AgentConfig;
   getAnalytics(): AgentAnalytic;
 
-  getProjectSummaries(): ProjectSummaryData[];
+  getSourceIds(): string[];
+  getProjectSummaries(options?: { sourceId?: string }): ProjectSummaryData[];
   getSessionSummaries(projectSlug: string): SessionSummaryData[];
 
   getProjectMemory(slug: string): string | null;
@@ -1291,8 +1292,12 @@ export class LifecycleOwner extends EventEmitter implements ClaudeCodeAgentDataS
   // Summaries (delegate to AgentDataStore — SQL aggregation underneath)
   // ─────────────────────────────────────────────────────────────────────────
 
-  getProjectSummaries(): ProjectSummaryData[] {
-    return this.store.getProjectSummaries();
+  getSourceIds(): string[] {
+    return this.store.getSourceIds();
+  }
+
+  getProjectSummaries(options?: { sourceId?: string }): ProjectSummaryData[] {
+    return this.store.getProjectSummaries(options);
   }
 
   getSessionSummaries(projectSlug: string): SessionSummaryData[] {

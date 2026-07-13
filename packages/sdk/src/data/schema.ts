@@ -4,7 +4,14 @@
 
 import type { SqliteService } from '../io/index.js';
 
-export const SCHEMA_VERSION = 4;
+// v5: the source dimension. `source_id` on the four queryable entities
+// (source_files, projects, sessions, messages) records which agent product a
+// row came from, so multiple agents can be indexed side by side. Claude Code
+// is the only source today, so every row is stamped 'claude-code'; the column
+// exists so a second AgentSource needs a data change, not a schema change.
+// Migration is the version bump: drop-and-rebuild re-ingests from disk (the
+// index is a pure function of files on disk), stamping source_id fresh.
+export const SCHEMA_VERSION = 5;
 
 export const SCHEMA_SQL = `
 -- Meta
@@ -13,6 +20,7 @@ CREATE TABLE IF NOT EXISTS schema_meta (key TEXT PRIMARY KEY, value TEXT NOT NUL
 -- Source file tracking
 CREATE TABLE IF NOT EXISTS source_files (
   path TEXT PRIMARY KEY,
+  source_id TEXT NOT NULL DEFAULT 'claude-code',
   mtime_ms REAL,
   size INTEGER,
   byte_position INTEGER,
@@ -24,6 +32,7 @@ CREATE TABLE IF NOT EXISTS source_files (
 -- Core entities
 CREATE TABLE IF NOT EXISTS projects (
   slug TEXT PRIMARY KEY,
+  source_id TEXT NOT NULL DEFAULT 'claude-code',
   original_path TEXT,
   sessions_index TEXT,
   updated_at INTEGER
@@ -37,6 +46,7 @@ CREATE TABLE IF NOT EXISTS project_memories (
 
 CREATE TABLE IF NOT EXISTS sessions (
   id TEXT PRIMARY KEY,
+  source_id TEXT NOT NULL DEFAULT 'claude-code',
   project_slug TEXT,
   full_path TEXT,
   first_prompt TEXT,
@@ -54,6 +64,7 @@ CREATE TABLE IF NOT EXISTS sessions (
 
 CREATE TABLE IF NOT EXISTS messages (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
+  source_id TEXT NOT NULL DEFAULT 'claude-code',
   project_slug TEXT,
   session_id TEXT,
   msg_index INTEGER,

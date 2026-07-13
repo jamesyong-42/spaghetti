@@ -45,7 +45,8 @@ import type { ErrorSink } from '../io/error-sink.js';
 export interface AgentDataStore {
   // ── Projects ─────────────────────────────────────────────────────────────
   getProjectSlugs(): string[];
-  getProjectSummaries(): ProjectSummaryData[];
+  getSourceIds(): string[];
+  getProjectSummaries(options?: { sourceId?: string }): ProjectSummaryData[];
   getSessionSummaries(projectSlug: string): SessionSummaryData[];
 
   // ── Messages ─────────────────────────────────────────────────────────────
@@ -222,8 +223,12 @@ export class AgentDataStoreImpl implements AgentDataStore {
     return this.queryService.getProjectSlugs();
   }
 
-  getProjectSummaries(): ProjectSummaryData[] {
-    return this.queryService.getProjectSummaries();
+  getSourceIds(): string[] {
+    return this.queryService.getSourceIds();
+  }
+
+  getProjectSummaries(options?: { sourceId?: string }): ProjectSummaryData[] {
+    return this.queryService.getProjectSummaries(options);
   }
 
   getSessionSummaries(projectSlug: string): SessionSummaryData[] {
