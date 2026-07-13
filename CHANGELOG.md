@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.17](https://github.com/jamesyong-42/spaghetti/compare/spaghetti-v0.5.16...spaghetti-v0.5.17) (2026-07-13)
+
+
+### Features
+
+* **sdk:** multi-agent groundwork — source dimension, source-owned classifier, normalized-model RFC ([#62](https://github.com/jamesyong-42/spaghetti/issues/62)) ([3a99ca5](https://github.com/jamesyong-42/spaghetti/commit/3a99ca5199fadae88e3f0339858ea882008d17dd))
+
 ## [0.5.16](https://github.com/jamesyong-42/spaghetti/compare/spaghetti-v0.5.15...spaghetti-v0.5.16) (2026-07-13)
 
 
