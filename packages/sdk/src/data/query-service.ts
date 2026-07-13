@@ -260,15 +260,15 @@ class QueryServiceImpl implements QueryService {
     const rows = this.db.all<ProjectSummaryRow>(
       `
       SELECT p.slug, p.source_id, p.original_path,
-        (SELECT COUNT(*) FROM sessions WHERE project_slug = p.slug) as session_count,
-        COALESCE((SELECT SUM(mc.cnt) FROM (SELECT COUNT(*) as cnt FROM messages WHERE project_slug = p.slug GROUP BY session_id) mc), 0) as message_count,
-        COALESCE((SELECT SUM(input_tokens) FROM messages WHERE project_slug = p.slug), 0) as input_tokens,
-        COALESCE((SELECT SUM(output_tokens) FROM messages WHERE project_slug = p.slug), 0) as output_tokens,
-        COALESCE((SELECT SUM(cache_creation_tokens) FROM messages WHERE project_slug = p.slug), 0) as cache_creation_tokens,
-        COALESCE((SELECT SUM(cache_read_tokens) FROM messages WHERE project_slug = p.slug), 0) as cache_read_tokens,
-        COALESCE((SELECT MAX(modified_at) FROM sessions WHERE project_slug = p.slug), '1970-01-01') as last_active_at,
-        COALESCE((SELECT MIN(created_at) FROM sessions WHERE project_slug = p.slug), '1970-01-01') as first_active_at,
-        (SELECT git_branch FROM sessions WHERE project_slug = p.slug ORDER BY modified_at DESC LIMIT 1) as latest_git_branch,
+        (SELECT COUNT(*) FROM sessions WHERE project_slug = p.slug AND source_id = p.source_id) as session_count,
+        COALESCE((SELECT SUM(mc.cnt) FROM (SELECT COUNT(*) as cnt FROM messages WHERE project_slug = p.slug AND source_id = p.source_id GROUP BY session_id) mc), 0) as message_count,
+        COALESCE((SELECT SUM(input_tokens) FROM messages WHERE project_slug = p.slug AND source_id = p.source_id), 0) as input_tokens,
+        COALESCE((SELECT SUM(output_tokens) FROM messages WHERE project_slug = p.slug AND source_id = p.source_id), 0) as output_tokens,
+        COALESCE((SELECT SUM(cache_creation_tokens) FROM messages WHERE project_slug = p.slug AND source_id = p.source_id), 0) as cache_creation_tokens,
+        COALESCE((SELECT SUM(cache_read_tokens) FROM messages WHERE project_slug = p.slug AND source_id = p.source_id), 0) as cache_read_tokens,
+        COALESCE((SELECT MAX(modified_at) FROM sessions WHERE project_slug = p.slug AND source_id = p.source_id), '1970-01-01') as last_active_at,
+        COALESCE((SELECT MIN(created_at) FROM sessions WHERE project_slug = p.slug AND source_id = p.source_id), '1970-01-01') as first_active_at,
+        (SELECT git_branch FROM sessions WHERE project_slug = p.slug AND source_id = p.source_id ORDER BY modified_at DESC LIMIT 1) as latest_git_branch,
         EXISTS(SELECT 1 FROM project_memories WHERE project_slug = p.slug) as has_memory
       FROM projects p
       ${where}

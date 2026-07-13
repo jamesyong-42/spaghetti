@@ -214,7 +214,7 @@ class IngestServiceImpl implements IngestService {
     this.stmtInsertProject = this.db.prepare(
       `INSERT INTO projects (slug, original_path, sessions_index, updated_at, source_id)
        VALUES (?, ?, ?, ?, ?)
-       ON CONFLICT(slug) DO UPDATE SET
+       ON CONFLICT(source_id, slug) DO UPDATE SET
          original_path = excluded.original_path,
          sessions_index = excluded.sessions_index,
          updated_at = excluded.updated_at`,

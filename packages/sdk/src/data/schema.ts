@@ -11,7 +11,16 @@ import type { SqliteService } from '../io/index.js';
 // exists so a second AgentSource needs a data change, not a schema change.
 // Migration is the version bump: drop-and-rebuild re-ingests from disk (the
 // index is a pure function of files on disk), stamping source_id fresh.
-export const SCHEMA_VERSION = 5;
+//
+// v6: `projects` primary key is now composite `(source_id, slug)`. A project
+// slug is the encoded cwd, so two sources (e.g. claude-code + codex) that
+// worked the same directory derive the SAME slug — slug alone would collide and
+// merge them into one row. Sessions (PK `id`) and messages (unique
+// `session_id, msg_index`) don't collide (ids are globally unique per source),
+// so only `projects` needs the composite key. `project_memories` stays keyed by
+// `project_slug` for now — only Claude Code writes memories, so there is no
+// cross-source collision there yet (see RFC 006 §8).
+export const SCHEMA_VERSION = 6;
 
 export const SCHEMA_SQL = `
 -- Meta
@@ -31,11 +40,12 @@ CREATE TABLE IF NOT EXISTS source_files (
 
 -- Core entities
 CREATE TABLE IF NOT EXISTS projects (
-  slug TEXT PRIMARY KEY,
+  slug TEXT NOT NULL,
   source_id TEXT NOT NULL DEFAULT 'claude-code',
   original_path TEXT,
   sessions_index TEXT,
-  updated_at INTEGER
+  updated_at INTEGER,
+  PRIMARY KEY (source_id, slug)
 );
 
 CREATE TABLE IF NOT EXISTS project_memories (
