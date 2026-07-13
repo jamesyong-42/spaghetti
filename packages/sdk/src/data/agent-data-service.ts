@@ -14,10 +14,13 @@
 
 export {
   // Impl: the class formerly known as `AgentDataServiceImpl`, now
-  // implemented as `LifecycleOwner`. Aliased back on the way out so
-  // existing `new AgentDataServiceImpl(...)` call-sites keep compiling.
-  LifecycleOwner as AgentDataServiceImpl,
-  // Interface + options used by `create.ts` and `app-service.ts`.
+  // `ClaudeCodeLifecycleOwner` (RFC 006: one lifecycle owner per source).
+  // Aliased back on the way out so existing `new AgentDataServiceImpl(...)`
+  // call-sites keep compiling.
+  ClaudeCodeLifecycleOwner as AgentDataServiceImpl,
+  ClaudeCodeLifecycleOwner,
+  // The per-source ingest-lifecycle interface + options.
+  type LifecycleOwner,
   type ClaudeCodeAgentDataService,
   type AgentDataServiceOptions,
   // Segment / search / summary re-exports that previously lived on
