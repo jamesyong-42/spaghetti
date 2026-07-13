@@ -160,6 +160,7 @@ class IngestServiceImpl implements IngestService {
   private readonly engine: IngestEngine;
   private readonly native: NativeAddon | null;
   private readonly messageExtractor: MessageExtractor;
+  private readonly sourceId: string;
   private dbPath: string | null = null;
 
   /**
@@ -181,6 +182,7 @@ class IngestServiceImpl implements IngestService {
     this.engine = options?.engine ?? 'ts';
     this.native = options?.native ?? null;
     this.messageExtractor = options?.messages ?? claudeCodeMessageExtractor;
+    this.sourceId = options?.sourceId ?? 'claude-code';
   }
 
   open(dbPath: string): void {
@@ -210,8 +212,8 @@ class IngestServiceImpl implements IngestService {
 
   private prepareStatements(): void {
     this.stmtInsertProject = this.db.prepare(
-      `INSERT INTO projects (slug, original_path, sessions_index, updated_at)
-       VALUES (?, ?, ?, ?)
+      `INSERT INTO projects (slug, original_path, sessions_index, updated_at, source_id)
+       VALUES (?, ?, ?, ?, ?)
        ON CONFLICT(slug) DO UPDATE SET
          original_path = excluded.original_path,
          sessions_index = excluded.sessions_index,
@@ -227,8 +229,8 @@ class IngestServiceImpl implements IngestService {
     );
 
     this.stmtInsertSession = this.db.prepare(
-      `INSERT INTO sessions (id, project_slug, full_path, first_prompt, summary, git_branch, project_path, is_sidechain, created_at, modified_at, file_mtime, plan_slug, has_task, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `INSERT INTO sessions (id, project_slug, full_path, first_prompt, summary, git_branch, project_path, is_sidechain, created_at, modified_at, file_mtime, plan_slug, has_task, updated_at, source_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(id) DO UPDATE SET
          project_slug = excluded.project_slug,
          full_path = excluded.full_path,
@@ -246,8 +248,8 @@ class IngestServiceImpl implements IngestService {
     );
 
     this.stmtInsertMessage = this.db.prepare(
-      `INSERT INTO messages (project_slug, session_id, msg_index, msg_type, uuid, timestamp, data, input_tokens, output_tokens, cache_creation_tokens, cache_read_tokens, text_content, byte_offset)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `INSERT INTO messages (project_slug, session_id, msg_index, msg_type, uuid, timestamp, data, input_tokens, output_tokens, cache_creation_tokens, cache_read_tokens, text_content, byte_offset, source_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(session_id, msg_index) DO UPDATE SET
          project_slug = excluded.project_slug,
          msg_type = excluded.msg_type,
@@ -334,8 +336,8 @@ class IngestServiceImpl implements IngestService {
     );
 
     this.stmtUpsertFingerprint = this.db.prepare(
-      `INSERT INTO source_files (path, mtime_ms, size, byte_position)
-       VALUES (?, ?, ?, ?)
+      `INSERT INTO source_files (path, mtime_ms, size, byte_position, source_id)
+       VALUES (?, ?, ?, ?, ?)
        ON CONFLICT(path) DO UPDATE SET
          mtime_ms = excluded.mtime_ms,
          size = excluded.size,
@@ -349,7 +351,7 @@ class IngestServiceImpl implements IngestService {
 
   onProject(slug: string, originalPath: string, sessionsIndex: SessionsIndex): void {
     const now = Date.now();
-    this.stmtInsertProject.run(slug, originalPath, JSON.stringify(sessionsIndex), now);
+    this.stmtInsertProject.run(slug, originalPath, JSON.stringify(sessionsIndex), now, this.sourceId);
   }
 
   onProjectMemory(slug: string, content: string): void {
@@ -374,6 +376,7 @@ class IngestServiceImpl implements IngestService {
       null, // plan_slug — set later if found
       0, // has_task — set later if found
       now,
+      this.sourceId,
     );
   }
 
@@ -398,6 +401,7 @@ class IngestServiceImpl implements IngestService {
       extracted.tokens.cacheReadTokens,
       extracted.text,
       byteOffset,
+      this.sourceId,
     );
   }
 
@@ -493,7 +497,7 @@ class IngestServiceImpl implements IngestService {
   }
 
   upsertFingerprint(fp: SourceFingerprint): void {
-    this.stmtUpsertFingerprint.run(fp.path, fp.mtimeMs, fp.size, fp.bytePosition ?? null);
+    this.stmtUpsertFingerprint.run(fp.path, fp.mtimeMs, fp.size, fp.bytePosition ?? null, this.sourceId);
   }
 
   deleteFingerprint(filePath: string): void {
@@ -811,6 +815,13 @@ export interface CreateIngestServiceOptions {
    * the ingest writer never learns that source's message envelope.
    */
   messages?: MessageExtractor;
+  /**
+   * The `AgentSource.id` this service writes for. Bound into the `source_id`
+   * column of every row (RFC 006 §5.1 — one index, source_id column). Defaults
+   * to `'claude-code'`, matching the schema DEFAULT, so the claude-code path and
+   * the Rust writer (which still relies on the DEFAULT) stay byte-identical.
+   */
+  sourceId?: string;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
