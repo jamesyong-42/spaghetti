@@ -69,7 +69,7 @@ export function MenuView(): React.ReactElement {
   const { cols } = useTerminalSize();
 
   // Load aggregate data for stats display
-  const { panelStats, dataSize, queryMs, projectCount, tokenStr, pluginStatStr } = useMemo(() => {
+  const { panelStats, dataSize, queryMs, projectCount, tokenStr, pluginStatStr, sourceIds } = useMemo(() => {
     const t0 = performance.now();
     const projects = api.getProjectList();
     const elapsed = Math.round(performance.now() - t0);
@@ -108,14 +108,26 @@ export function MenuView(): React.ReactElement {
       projectCount: projects.length,
       tokenStr: formatTokens(tokens),
       pluginStatStr: pluginStat,
+      sourceIds: api.getSourceIds(),
     };
   }, [api]);
+
+  // Agent-aware labels (RFC 006 multi-source): reflect whichever agents are
+  // actually indexed rather than assuming Claude Code.
+  const agentName = (id: string): string => (id === 'claude-code' ? 'Claude Code' : id === 'codex' ? 'Codex' : id);
+  const agentRoot = (id: string): string => (id === 'claude-code' ? '~/.claude' : id === 'codex' ? '~/.codex' : id);
+  const agentIds = sourceIds.length > 0 ? sourceIds : ['claude-code'];
+  const projectsDescription =
+    agentIds.length > 1
+      ? `Browse project conversations across ${agentIds.map(agentName).join(' + ')}`
+      : `Browse ${agentName(agentIds[0])} project conversations`;
+  const dataPath = agentIds.map(agentRoot).join(' + ');
 
   // Menu items
   const menuItems = [
     {
       name: 'Projects',
-      description: 'Browse all Claude Code project conversations',
+      description: projectsDescription,
       rightStat: `${projectCount} projects`,
     },
     {
@@ -150,6 +162,7 @@ export function MenuView(): React.ReactElement {
             type: 'projects',
             component: ProjectsView,
             breadcrumb: 'Projects',
+            hints: agentIds.length > 1 ? '↑↓ navigate  ←→ switch agent  ⏎ open  Esc back' : undefined,
           };
           nav.push(entry);
         } else if (selectedIndex === 1) {
@@ -198,7 +211,7 @@ export function MenuView(): React.ReactElement {
 
   return (
     <Box flexDirection="column">
-      <WelcomePanel stats={panelStats} dataPath="~/.claude" dataSize={dataSize} initMs={queryMs} />
+      <WelcomePanel stats={panelStats} dataPath={dataPath} dataSize={dataSize} initMs={queryMs} />
       {menuItems.map((item, i) => (
         <MenuItem
           key={item.name}
