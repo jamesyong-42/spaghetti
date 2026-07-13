@@ -4,6 +4,7 @@
 **Created:** 2026-07-13
 **Depends on:** step 1 (source dimension, schema v5 — shipped) · step 2 (classifier is a property of `AgentSource` — shipped)
 **Companion:** `docs/THREE-PLANE-INGEST-ARCHITECTURE.md` §8 (longer-term multi-agent)
+**Empirical grounding:** `docs/rfcs/006-appendix-agent-survey.md` — a five-agent survey (Codex, Gemini CLI, Grok Build, OpenCode, Cursor) that inspected real installs / primary source. It confirms the thin-core direction and forces the amendments folded into §3.1, §4, §6 and §8 below. Read it before implementing.
 
 ---
 
@@ -34,15 +35,26 @@ Two layers, explicit:
    ```ts
    interface NormalizedMessage {
      msgType: 'user' | 'assistant' | 'system' | 'summary' | 'other';
-     text: string;          // FTS/preview text, already flattened
+     text: string;          // FTS/preview text, already flattened — excludes reasoning + tool payloads
+     seq: number;           // source-supplied monotonic ordinal — ordering does NOT rely on timestamp
      uuid?: string;
-     timestamp?: string;
+     timestamp?: string;    // optional: reliable per-message in only 4/6 surveyed agents (§4)
      tokens?: { input: number; output: number; cacheCreation: number; cacheRead: number };
-     // raw line retained separately as `data`
+     // raw native record (message + its parts) retained separately as `data`
    }
    ```
 
-   `msgType` is a **normalized enum**, not Claude's 14-variant union — Claude's app-specific variants (`bridge-session`, `pr-link`, `custom-title`, `permission-mode`, …) collapse to `system`/`other` in the core and stay fully available in `data` for anyone who wants them.
+   `msgType` is a **normalized enum**, not Claude's 14-variant union — Claude's app-specific variants (`bridge-session`, `pr-link`, `custom-title`, `permission-mode`, …) collapse to `system`/`other` in the core and stay fully available in `data` for anyone who wants them. The survey confirms this is mandatory, not cosmetic: **0 of 6 agents expose a copyable role field** — it is `role` vs `type`, string vs *numeric enum* (Cursor: `1`/`2`) vs variant-name (Codex `event_msg`), with disjoint value sets (`user/model`, `user/assistant`, `developer`, `system/reasoning/tool_result`, `info/error/warning`). Each source *maps into* the enum; none copies it.
+
+   **`seq` is new (added post-survey).** Ordering cannot rely on `timestamp`: Cursor has no reliable per-message time and orders by array position; Grok Build's timestamps live on a side stream. Every source can supply a monotonic ordinal (JSONL line number, SQLite rowid, Codex's `ordinal`, OpenCode's monotonic `msg_` id). Making ordering source-supplied keeps within-source and cross-source sequencing deterministic where time is absent.
+
+   **`text` is always derived, never copied** — 0 of 6 agents store the turn as a single prose string; it is split across content blocks / a 12-variant `parts[]` / merged `text`+`codeBlocks`+`richText`. The extractor concatenates prose only and **excludes reasoning and tool payloads** (both universally kept separate; reasoning CoT is *encrypted* in Codex and Grok — only a summary is legible). Those live in `data`.
+
+### 3.1 The seam below extraction — source-owned record production
+
+RFC 006's `extract(rawLine)` (§3, below) presumes the engine reads a source's files and hands the extractor one line at a time. **The survey breaks that presumption: 2 of 5 agents have no lines.** OpenCode migrated its transcript into SQLite (`opencode.db`); Cursor never used files (chat lives in `state.vscdb` KV blobs). For these, "the raw line" does not exist — there is a row, or a KV entry the source must assemble.
+
+So the `AgentSource` must own **how raw records are produced**, not just where its files are. Three strategies observed: `JSONL-tail` (Claude, Codex, Gemini, Grok), `SQL-query` (OpenCode), `KV-scan` (Cursor). The engine consumes an abstract stream of **source-native records**; `MessageExtractor` operates on a *record*, not a *line*. This is the single most important finding — RFC 006 (extraction) is *necessary but not sufficient* without this reader seam. It is an `AgentSource` responsibility alongside `classify` and `messages`, and it also governs `LiveDiskIngest`'s incremental step (file-tail vs watch-DB-and-re-query-by-rowid — see §6 and the appendix §4.6).
 
 The seam is a per-source **`MessageExtractor`**, owned by the `AgentSource` (the same way `classify` is now):
 
@@ -59,7 +71,9 @@ interface MessageExtractor {
 
 The tempting alternative is a rich normalized model (normalize tool calls, content-block kinds, thinking, attachments into shared tables). Rejected, for three reasons:
 
-1. **It re-centers on Claude.** A "generic" rich model is inevitably Claude's model with the serial numbers filed off; the next agent whose structure differs then fights it. The thin core has nothing to fight — role, text, tokens, time are universal.
+1. **It re-centers on Claude.** A "generic" rich model is inevitably Claude's model with the serial numbers filed off; the next agent whose structure differs then fights it. The thin core has little to fight — role and text are effectively universal (in *derived*, normalized form), and `tokens`/`time` are the two remaining fields.
+
+   **Survey correction (do not overclaim universality):** only role and text are truly universal, and only after normalization. **Per-message `tokens` exist in just 3 of 6 agents** (Claude, Gemini, OpenCode); Codex counts periodically, Grok only at session level, Cursor effectively not at all. **Reliable per-message `timestamp` exists in 4 of 6** (absent/side-stream in Grok, weak in Cursor). The `?` types already anticipated this; the honesty fix is to stop calling them universal, treat **absent ≠ zero** (per-message zeros mean "this source does not attribute", not "0 tokens used"), and carry a per-source **granularity hint** (`tokens: 'message'|'session'|'none'`, `time: 'message'|'derived'|'none'`) so token-stat and timeline surfaces do not silently mislead. Token *bucket shapes* also diverge (Claude 4, Codex 5, Gemini 6) and **cost in USD** appears in OpenCode/Codex/Grok but not Claude — left in `data`, a candidate column only if a cross-agent cost view is ever wanted.
 2. **The raw line already has it.** `data` is lossless. Rich cross-agent structure is a *query-time* concern for the rare consumer that wants it, not an ingest-time normalization tax on every row.
 3. **It keeps adapters cheap.** A new source implements one small `extract()` returning five fields. That is the whole point of the exercise.
 
@@ -73,7 +87,7 @@ The v5 `messages` columns already match the normalized core (`msg_type`, `text_c
 
 The Rust crate re-implements Claude extraction for the bulk path (`project_parser.rs`, `types/`). Two honest options:
 
-- **(A) Rust stays Claude-only; second sources are TS-only first.** A new `AgentSource` ships with a TS `MessageExtractor` and no native path; its ingest runs on the TS engine (correct, just slower on large histories). Native parity is a later, per-source add. **Recommended** — it unblocks a second adapter now without a Rust extractor-trait refactor.
+- **(A) Rust stays Claude-only; second sources are TS-only first.** A new `AgentSource` ships with a TS `MessageExtractor` and no native path; its ingest runs on the TS engine (correct, just slower on large histories). Native parity is a later, per-source add. **Recommended — and the survey strengthens this to near-certain:** no surveyed second source has a history volume that justifies native ingest yet, and **two of them (OpenCode, Cursor) are SQLite-backed** — a native path for those means an entirely different Rust reader (SQL/KV), not a tweak to the JSONL parser. Reimplementing five heterogeneous readers in Rust up front would be pure speculation. TS-first per source, native only where a specific source's volume later demands it.
 - **(B) Generalize the Rust extractor into a trait up front.** Cleaner long-term, but it is speculative work before a second source's shape is even known. Defer until a second source exists and its volume justifies native ingest.
 
 Either way, the parity harness (`test:ingest-diff`) continues to compare the two engines **for `claude-code`**; a TS-only source is simply outside its scope until it gets a native path.
@@ -88,10 +102,14 @@ Either way, the parity harness (`test:ingest-diff`) continues to compare the two
 
 ## 8. Open questions
 
-- **`msgType` enum membership.** Is `summary` core or does it collapse to `system`? (Leaning: keep `summary` — it is cross-agent meaningful for list previews.)
-- **Token model.** Cache tokens are an Anthropic concept; a source without them returns zeros. Fine — the columns already default to 0. Confirm no consumer treats absent cache tokens as an error.
+- **`msgType` enum membership.** Is `summary` core or does it collapse to `system`? (Leaning: keep `summary` — it is cross-agent meaningful for list previews.) **Survey adds a live sub-question:** several agents make `tool_result` and `reasoning` *first-class record types*, not content nested in an assistant message (Grok `type: tool_result`/`reasoning`; Codex separate `function_call_output`; OpenCode `ToolPart`/`ReasoningPart`). Decide whether these become their own `messages` rows (needs `tool`/`reasoning` enum members) or are folded into the parent turn and left in `data`. Leaning: fold for now (keep the enum small), revisit if a cross-agent tool/reasoning timeline is built.
+- **Token model.** ~~a source without them returns zeros~~ — refined by the survey: **absent ≠ zero.** Per-message tokens exist in only 3/6 agents; the DEFAULT-0 columns are fine for storage but a consumer must not read `0` as "0 tokens used" for a source that doesn't attribute per-message. Carry a per-source granularity hint (§4) and confirm no consumer treats absent/zero cache tokens as an error.
+- **Record production seam (NEW, §3.1).** Where does the reader live — a `read()`/`enumerate()` on `AgentSource`, or a separate `SourceReader` the ingest planes take? This is the decision that actually prices SQLite sources (OpenCode, Cursor). Resolve it *with* the RFC-006 implementation, not after — a Claude-only relocation that hardcodes "engine reads lines" will have to be reopened the moment a DB source lands.
+- **Ordering / `seq` provenance (NEW).** Confirm every source can produce a stable monotonic ordinal cheaply (line number / rowid / native id). Cursor's implicit array-position ordering is the fragile case — a corrupt `fullConversationHeadersOnly` spine loses sequence.
 - **Projects PK.** `projects.slug` is still the PK; two sources with a colliding slug would clash. Out of scope here (step-1 follow-up: composite `(source_id, slug)`), but note it before a second source lands on overlapping paths.
 
 ## 9. One-line charter
 
-> **Normalize only role/text/tokens/time; keep the raw line lossless in `data`; make extraction a per-source `MessageExtractor` the way classification is already a per-source `classify` — so a new agent is one small extractor, not a schema fight.**
+> **Normalize only a derived role + flattened text (with an optional seq/time/tokens); keep the raw native record lossless in `data`; let each `AgentSource` own how it *reads* records (file-tail / SQL / KV) and how it *extracts* them (`MessageExtractor`), the way it already owns `classify` — so a new agent is one small reader + one small extractor, not a schema fight.**
+
+*(Charter updated post-survey: "raw line" → "raw native record" and the reader seam added, because 2 of 6 agents have no line to read. See §3.1 and `006-appendix-agent-survey.md`.)*
