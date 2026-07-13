@@ -158,7 +158,9 @@ export function createSpaghettiService(options?: SpaghettiServiceOptions): Spagh
         messages: extra.messages,
         engine: 'ts',
       });
-      owners.push(new CodexLifecycleOwner(fileService, extra, store.data, codexIngest, dbPath));
+      owners.push(
+        new CodexLifecycleOwner(fileService, extra, store.data, codexIngest, dbPath, errorSink, options?.live ?? false),
+      );
     } else {
       errorSink.error(new Error(`No LifecycleOwner registered for source '${extra.id}' — skipping.`));
     }

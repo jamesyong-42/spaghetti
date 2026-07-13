@@ -14,6 +14,10 @@
  * (path + mtime) is unchanged; new/changed files are re-read. Project/session
  * metadata is always refreshed (cheap upserts).
  *
+ * Live (Plane 2, opt-in): when `live` is set, after the initial ingest a
+ * {@link CodexLiveWatch} watches the rollout tree and streams appended turns
+ * into the shared store, so `api.live` reflects Codex activity in real time.
+ *
  * Failures are non-fatal: a Codex ingest error emits `error` and leaves the rest
  * of the app (Claude) working — Codex is an additive source, not a dependency.
  */
@@ -21,8 +25,10 @@
 import { EventEmitter } from 'events';
 
 import type { FileService } from '../io/index.js';
+import type { ErrorSink } from '../io/error-sink.js';
 import type { AgentSource } from '../sources/types.js';
 import { CodexReader } from '../sources/codex/reader.js';
+import { createCodexLiveWatch, type CodexLiveWatch } from '../sources/codex/live-watch.js';
 import type { AgentDataStore } from './agent-data-store.js';
 import type { IngestService } from './ingest-service.js';
 import type { LifecycleOwner } from './lifecycle-owner.js';
@@ -31,6 +37,7 @@ import type { LiveUpdates } from '../live/live-updates.js';
 export class CodexLifecycleOwner extends EventEmitter implements LifecycleOwner {
   readonly sourceId = 'codex';
   private ready = false;
+  private liveWatch: CodexLiveWatch | undefined;
 
   constructor(
     private readonly fileService: FileService,
@@ -38,6 +45,8 @@ export class CodexLifecycleOwner extends EventEmitter implements LifecycleOwner 
     private readonly store: AgentDataStore,
     private readonly ingestService: IngestService,
     private readonly dbPath: string,
+    private readonly errorSink: ErrorSink,
+    private readonly live: boolean = false,
   ) {
     super();
   }
@@ -69,6 +78,18 @@ export class CodexLifecycleOwner extends EventEmitter implements LifecycleOwner 
         throw error;
       }
 
+      // Plane 2: start the live watcher once the baseline is caught up.
+      if (this.live && !this.liveWatch) {
+        this.liveWatch = createCodexLiveWatch({
+          fileService: this.fileService,
+          sessionsDir: this.source.paths.sessionsDir,
+          ingestService: this.ingestService,
+          store: this.store,
+          errorSink: this.errorSink,
+        });
+        await this.liveWatch.start();
+      }
+
       this.ready = true;
       this.emit('ready', { durationMs: Date.now() - start });
     } catch (error) {
@@ -79,12 +100,19 @@ export class CodexLifecycleOwner extends EventEmitter implements LifecycleOwner 
 
   shutdown(): void {
     this.ready = false;
+    // Best-effort stop; shutdownAsync awaits it properly.
+    void this.liveWatch?.stop();
+    this.liveWatch = undefined;
     // The shared SQLite handle is closed by the primary (Claude) owner; this
     // owner must not double-close it.
   }
 
   async shutdownAsync(): Promise<void> {
-    this.shutdown();
+    this.ready = false;
+    if (this.liveWatch) {
+      await this.liveWatch.stop();
+      this.liveWatch = undefined;
+    }
   }
 
   async rebuild(): Promise<void> {
@@ -109,7 +137,8 @@ export class CodexLifecycleOwner extends EventEmitter implements LifecycleOwner 
   }
 
   getLiveUpdates(): LiveUpdates | undefined {
-    // No live pipeline for Codex yet (cold/warm ingest only).
+    // Codex's live watcher emits directly to the shared store (which `api.live`
+    // observes), so it does not expose the `LiveUpdates` prewarm surface.
     return undefined;
   }
 }
