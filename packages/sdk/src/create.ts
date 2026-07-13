@@ -11,7 +11,10 @@ import { createConsoleErrorSink, type ErrorSink } from './io/error-sink.js';
 import { createSpaghettiAppService } from './app-service.js';
 import { createClaudeCodeParser } from './parser/claude-code-parser.js';
 import { AgentDataServiceImpl } from './data/agent-data-service.js';
-import type { ClaudeCodeAgentDataService } from './data/agent-data-service.js';
+import type { ClaudeCodeAgentDataService, LifecycleOwner } from './data/agent-data-service.js';
+import { SpaghettiDataService } from './data/multi-source-service.js';
+import { CodexLifecycleOwner } from './data/codex-lifecycle-owner.js';
+import { createIngestService } from './data/ingest-service.js';
 import { loadNativeAddon } from './native.js';
 import { defaultDbPathForEngine, resolveEngine, type IngestEngine } from './settings.js';
 import type { SpaghettiAPI } from './api.js';
@@ -36,6 +39,13 @@ export interface SpaghettiServiceOptions {
    * `claudeDir` (or `~/.claude`) as the root.
    */
   source?: AgentSource;
+  /**
+   * Additional agent sources to ingest into the SAME store (RFC 006
+   * multi-source). Each gets its own `LifecycleOwner`; reads unify across all
+   * of them. Opt-in — nothing extra is read unless a source is passed here,
+   * e.g. `additionalSources: [createCodexSource({ rootDir: '~/.codex' })]`.
+   */
+  additionalSources?: AgentSource[];
   /**
    * Pin the ingest engine for this service. When set, takes precedence
    * over the process-wide `SPAG_ENGINE` env var and the persisted
@@ -119,9 +129,9 @@ export function createSpaghettiService(options?: SpaghettiServiceOptions): Spagh
       })
     : undefined;
 
-  // ── Plane 1: StaticIngest via LifecycleOwner ───────────────────────────
+  // ── Plane 1: StaticIngest — one LifecycleOwner per source ──────────────
   const parser = createClaudeCodeParser(fileService);
-  const dataService = new AgentDataServiceImpl(
+  const claudeOwner = new AgentDataServiceImpl(
     fileService,
     parser,
     store.query,
@@ -134,6 +144,28 @@ export function createSpaghettiService(options?: SpaghettiServiceOptions): Spagh
     }),
     liveDisk,
   );
+
+  // The app's data service: reads from the shared store, lifecycle fanned
+  // across owners. Additional sources (opt-in) each get their own owner writing
+  // into the SAME store under their own source id.
+  const owners: LifecycleOwner[] = [claudeOwner];
+  for (const extra of options?.additionalSources ?? []) {
+    if (extra.id === 'codex') {
+      // Codex ingests on the TS path (no native reader); its own IngestService
+      // stamps source_id='codex' and uses the source's own extractor.
+      const codexIngest = createIngestService(() => sharedSqlite, {
+        sourceId: extra.id,
+        messages: extra.messages,
+        engine: 'ts',
+      });
+      owners.push(
+        new CodexLifecycleOwner(fileService, extra, store.data, codexIngest, dbPath, errorSink, options?.live ?? false),
+      );
+    } else {
+      errorSink.error(new Error(`No LifecycleOwner registered for source '${extra.id}' — skipping.`));
+    }
+  }
+  const dataService = new SpaghettiDataService(store.data, owners);
 
   // Plane 3: RuntimeBridge — always attached on the default factory path.
   // Watchers start lazily on first api.runtime subscribe.

@@ -17,7 +17,7 @@ import type {
 import type { ClaudeCodeAgentDataService } from './data/agent-data-service.js';
 import type { LifecycleInternal } from './data/lifecycle-owner.js';
 import type { AgentDataStore } from './data/agent-data-store.js';
-import type { LiveUpdates } from './live/live-updates.js';
+import type { LiveWatch } from './live/live-watch.js';
 import type {
   SearchQuery,
   SearchResultSet,
@@ -69,11 +69,11 @@ class SpaghettiAppService extends EventEmitter implements SpaghettiAPI {
     // type leaks.
     const internal = dataService as Partial<LifecycleInternal>;
     const getStore = internal.getStore?.bind(internal) as (() => AgentDataStore) | undefined;
-    const getLiveUpdates = internal.getLiveUpdates?.bind(internal) as (() => LiveUpdates | undefined) | undefined;
-    if (getStore && getLiveUpdates) {
-      const liveUpdates = getLiveUpdates();
-      if (liveUpdates) {
-        this.live = createSpaghettiLive(getStore(), liveUpdates, errorSink);
+    const getLiveWatch = internal.getLiveWatch?.bind(internal) as (() => LiveWatch | undefined) | undefined;
+    if (getStore && getLiveWatch) {
+      const liveWatch = getLiveWatch();
+      if (liveWatch) {
+        this.live = createSpaghettiLive(getStore(), liveWatch, errorSink);
       }
     }
 

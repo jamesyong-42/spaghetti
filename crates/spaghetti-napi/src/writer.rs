@@ -151,7 +151,7 @@ pub struct WriteBatchStats {
 const SQL_INSERT_PROJECT: &str = r#"
 INSERT INTO projects (slug, original_path, sessions_index, updated_at)
 VALUES (?, ?, ?, ?)
-ON CONFLICT(slug) DO UPDATE SET
+ON CONFLICT(source_id, slug) DO UPDATE SET
   original_path = excluded.original_path,
   sessions_index = excluded.sessions_index,
   updated_at = excluded.updated_at
