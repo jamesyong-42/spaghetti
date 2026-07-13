@@ -181,6 +181,10 @@ export interface LifecycleOwner extends LifecycleInternal {
   shutdown(): void;
   shutdownAsync?(): Promise<void>;
   rebuild(): Promise<void>;
+  /** Full cold rebuild of this source's rows. */
+  rebuildIndex(): Promise<{ durationMs: number }>;
+  /** Owners emit `progress`/`change`/`error`; the coordinator forwards them. */
+  on(event: string, listener: (...args: unknown[]) => void): this;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

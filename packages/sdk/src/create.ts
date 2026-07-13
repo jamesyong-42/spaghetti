@@ -12,6 +12,7 @@ import { createSpaghettiAppService } from './app-service.js';
 import { createClaudeCodeParser } from './parser/claude-code-parser.js';
 import { AgentDataServiceImpl } from './data/agent-data-service.js';
 import type { ClaudeCodeAgentDataService } from './data/agent-data-service.js';
+import { SpaghettiDataService } from './data/multi-source-service.js';
 import { loadNativeAddon } from './native.js';
 import { defaultDbPathForEngine, resolveEngine, type IngestEngine } from './settings.js';
 import type { SpaghettiAPI } from './api.js';
@@ -119,9 +120,9 @@ export function createSpaghettiService(options?: SpaghettiServiceOptions): Spagh
       })
     : undefined;
 
-  // ── Plane 1: StaticIngest via LifecycleOwner ───────────────────────────
+  // ── Plane 1: StaticIngest — one LifecycleOwner per source ──────────────
   const parser = createClaudeCodeParser(fileService);
-  const dataService = new AgentDataServiceImpl(
+  const claudeOwner = new AgentDataServiceImpl(
     fileService,
     parser,
     store.query,
@@ -134,6 +135,10 @@ export function createSpaghettiService(options?: SpaghettiServiceOptions): Spagh
     }),
     liveDisk,
   );
+
+  // The app's data service: reads from the shared store, lifecycle fanned
+  // across owners. Single source today; a second owner (Codex) plugs in here.
+  const dataService = new SpaghettiDataService(store.data, [claudeOwner]);
 
   // Plane 3: RuntimeBridge — always attached on the default factory path.
   // Watchers start lazily on first api.runtime subscribe.
