@@ -26,6 +26,7 @@ import type { IngestEngine } from '../settings.js';
 import type { MessageExtractor } from '../sources/types.js';
 import { claudeCodeMessageExtractor } from '../sources/claude-code/message-extractor.js';
 import { parseCodexTokenCount, type CodexTokenUsage } from '../sources/codex/token-usage.js';
+import { estimateTokensFromMessageRows } from '../sources/codex/estimate-tokens.js';
 import type { SourceFingerprint } from './segment-types.js';
 import { initializeSchema } from './schema.js';
 
@@ -241,8 +242,8 @@ class IngestServiceImpl implements IngestService {
     );
 
     this.stmtInsertSession = this.db.prepare(
-      `INSERT INTO sessions (id, project_slug, full_path, first_prompt, summary, git_branch, project_path, is_sidechain, created_at, modified_at, file_mtime, plan_slug, has_task, updated_at, source_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `INSERT INTO sessions (id, project_slug, full_path, first_prompt, summary, git_branch, project_path, is_sidechain, created_at, modified_at, file_mtime, plan_slug, has_task, updated_at, source_id, tokens_estimated)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(id) DO UPDATE SET
          project_slug = excluded.project_slug,
          full_path = excluded.full_path,
@@ -256,7 +257,8 @@ class IngestServiceImpl implements IngestService {
          file_mtime = excluded.file_mtime,
          plan_slug = excluded.plan_slug,
          has_task = excluded.has_task,
-         updated_at = excluded.updated_at`,
+         updated_at = excluded.updated_at,
+         tokens_estimated = excluded.tokens_estimated`,
     );
 
     this.stmtUpdateMessageTokens = this.db.prepare(
@@ -402,6 +404,7 @@ class IngestServiceImpl implements IngestService {
       0, // has_task — set later if found
       now,
       this.sourceId,
+      0, // tokens_estimated — set on session complete if we estimate
     );
   }
 
@@ -498,6 +501,45 @@ class IngestServiceImpl implements IngestService {
       target.msgIndex,
     );
     this.attributedTurnBySession.add(sessionId);
+    this.db.run('UPDATE sessions SET tokens_estimated = 0 WHERE id = ?', sessionId);
+  }
+
+  /**
+   * P2: when no official token_count was seen, estimate from stored text via
+   * tiktoken and mark the session `tokens_estimated = 1`.
+   */
+  private applyCodexTokenEstimate(sessionId: string): void {
+    if (this.attributedTurnBySession.has(sessionId)) {
+      this.db.run('UPDATE sessions SET tokens_estimated = 0 WHERE id = ?', sessionId);
+      return;
+    }
+
+    const rows = this.db.all<{ msg_index: number; msg_type: string; text_content: string | null }>(
+      'SELECT msg_index, msg_type, text_content FROM messages WHERE session_id = ? ORDER BY msg_index',
+      sessionId,
+    );
+    if (rows.length === 0) {
+      this.db.run('UPDATE sessions SET tokens_estimated = 0 WHERE id = ?', sessionId);
+      return;
+    }
+
+    const estimates = estimateTokensFromMessageRows(rows);
+    if (estimates.length === 0) {
+      this.db.run('UPDATE sessions SET tokens_estimated = 0 WHERE id = ?', sessionId);
+      return;
+    }
+
+    for (const e of estimates) {
+      this.stmtUpdateMessageTokens.run(
+        e.inputTokens,
+        e.outputTokens,
+        e.cacheCreationTokens,
+        e.cacheReadTokens,
+        sessionId,
+        e.msgIndex,
+      );
+    }
+    this.db.run('UPDATE sessions SET tokens_estimated = 1 WHERE id = ?', sessionId);
   }
 
   onSubagent(slug: string, sessionId: string, transcript: SubagentTranscript): void {
@@ -566,11 +608,15 @@ class IngestServiceImpl implements IngestService {
   }
 
   onSessionComplete(_slug: string, sessionId: string, _messageCount: number, _lastBytePosition: number): void {
-    // Codex: if no per-turn last_token_usage was applied (sparse events),
-    // stamp the final cumulative total onto the last assistant message so
-    // session/project SUM(token columns) still reflects real usage.
+    // Codex: prefer official token_count (per-turn or cumulative fallback);
+    // otherwise tiktoken-estimate visible text and mark tokens_estimated.
     if (this.sourceId === 'codex') {
       this.applyCodexSessionTotalFallback(sessionId);
+      if (!this.attributedTurnBySession.has(sessionId)) {
+        this.applyCodexTokenEstimate(sessionId);
+      } else {
+        this.db.run('UPDATE sessions SET tokens_estimated = 0 WHERE id = ?', sessionId);
+      }
       this.lastAssistantBySession.delete(sessionId);
       this.lastTotalBySession.delete(sessionId);
       this.attributedTurnBySession.delete(sessionId);

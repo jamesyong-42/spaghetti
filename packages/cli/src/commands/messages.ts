@@ -141,7 +141,9 @@ export async function messagesCommand(
     metaParts.push(`${theme.label('Branch:')} ${theme.accent(session.gitBranch)}`);
   }
   metaParts.push(`${theme.label('Messages:')} ${formatNumber(session.messageCount)}`);
-  metaParts.push(`${theme.label('Tokens:')} ${theme.tokens(formatTokenUsage(session.tokenUsage, session.sourceId))}`);
+  metaParts.push(
+    `${theme.label('Tokens:')} ${theme.tokens(formatTokenUsage(session.tokenUsage, session.sourceId, session.tokensEstimated))}`,
+  );
   metaParts.push(`${theme.label('Duration:')} ${formatDuration(session.lifespanMs)}`);
   metaParts.push(`${theme.label('Last active:')} ${formatRelativeTime(session.lastUpdate)}`);
 

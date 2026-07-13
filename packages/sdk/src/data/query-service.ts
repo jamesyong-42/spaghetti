@@ -110,6 +110,7 @@ interface ProjectSummaryRow {
   output_tokens: number;
   cache_creation_tokens: number;
   cache_read_tokens: number;
+  tokens_estimated: number;
   last_active_at: string;
   first_active_at: string;
   latest_git_branch: string | null;
@@ -133,6 +134,7 @@ interface SessionSummaryRow {
   output_tokens: number;
   cache_creation_tokens: number;
   cache_read_tokens: number;
+  tokens_estimated: number;
   todo_count: number;
   plan_slug: string | null;
   has_task: number;
@@ -267,6 +269,7 @@ class QueryServiceImpl implements QueryService {
         COALESCE((SELECT SUM(output_tokens) FROM messages WHERE project_slug = p.slug AND source_id = p.source_id), 0) as output_tokens,
         COALESCE((SELECT SUM(cache_creation_tokens) FROM messages WHERE project_slug = p.slug AND source_id = p.source_id), 0) as cache_creation_tokens,
         COALESCE((SELECT SUM(cache_read_tokens) FROM messages WHERE project_slug = p.slug AND source_id = p.source_id), 0) as cache_read_tokens,
+        COALESCE((SELECT MAX(tokens_estimated) FROM sessions WHERE project_slug = p.slug AND source_id = p.source_id), 0) as tokens_estimated,
         COALESCE((SELECT MAX(modified_at) FROM sessions WHERE project_slug = p.slug AND source_id = p.source_id), '1970-01-01') as last_active_at,
         COALESCE((SELECT MIN(created_at) FROM sessions WHERE project_slug = p.slug AND source_id = p.source_id), '1970-01-01') as first_active_at,
         (SELECT git_branch FROM sessions WHERE project_slug = p.slug AND source_id = p.source_id ORDER BY modified_at DESC LIMIT 1) as latest_git_branch,
@@ -306,6 +309,7 @@ class QueryServiceImpl implements QueryService {
         COALESCE((SELECT SUM(output_tokens) FROM messages WHERE session_id = s.id AND project_slug = s.project_slug AND source_id = s.source_id), 0) as output_tokens,
         COALESCE((SELECT SUM(cache_creation_tokens) FROM messages WHERE session_id = s.id AND project_slug = s.project_slug AND source_id = s.source_id), 0) as cache_creation_tokens,
         COALESCE((SELECT SUM(cache_read_tokens) FROM messages WHERE session_id = s.id AND project_slug = s.project_slug AND source_id = s.source_id), 0) as cache_read_tokens,
+        COALESCE(s.tokens_estimated, 0) as tokens_estimated,
         COALESCE((SELECT COUNT(*) FROM todos WHERE session_id = s.id), 0) as todo_count,
         s.plan_slug,
         COALESCE(s.has_task, 0) as has_task
@@ -670,6 +674,7 @@ class QueryServiceImpl implements QueryService {
       sessionCount: row.session_count,
       messageCount: row.message_count,
       tokenUsage,
+      tokensEstimated: !!row.tokens_estimated,
       lastActiveAt: row.last_active_at,
       firstActiveAt: row.first_active_at,
       latestGitBranch: row.latest_git_branch ?? '',
@@ -707,6 +712,7 @@ class QueryServiceImpl implements QueryService {
       lastUpdate: modifiedAt,
       lifespanMs,
       tokenUsage,
+      tokensEstimated: !!row.tokens_estimated,
       messageCount: row.message_count,
       fullPath: row.full_path ?? '',
       summary: row.summary ?? '',

@@ -28,7 +28,9 @@ use thiserror::Error;
 /// cwd, so two sources on the same directory would collide on slug alone. The
 /// Rust writer still omits `source_id` (default 'claude-code'), so claude-only
 /// parity is unaffected; the conflict target just moves to `(source_id, slug)`.
-pub const SCHEMA_VERSION: u32 = 6;
+/// v7: `sessions.tokens_estimated` — optional local estimate flag (TS Codex
+/// path); Rust writer leaves the DEFAULT 0.
+pub const SCHEMA_VERSION: u32 = 7;
 
 /// Full DDL for the current schema — lifted verbatim from the TS `SCHEMA_SQL`
 /// template literal. Whitespace differs; structure does not.
@@ -79,7 +81,8 @@ CREATE TABLE IF NOT EXISTS sessions (
   file_mtime REAL,
   plan_slug TEXT,
   has_task INTEGER,
-  updated_at INTEGER
+  updated_at INTEGER,
+  tokens_estimated INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS messages (

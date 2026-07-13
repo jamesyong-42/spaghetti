@@ -40,6 +40,11 @@ export interface ProjectListItem {
   sessionCount: number;
   messageCount: number;
   tokenUsage: TokenUsageSummary;
+  /**
+   * True when tokenUsage includes local estimates (e.g. Codex without
+   * token_count events). UI should show "~" / "est".
+   */
+  tokensEstimated: boolean;
   lastActiveAt: string;
   firstActiveAt: string;
   latestGitBranch: string;
@@ -54,6 +59,10 @@ export interface SessionListItem {
   lastUpdate: string;
   lifespanMs: number;
   tokenUsage: TokenUsageSummary;
+  /**
+   * True when tokenUsage is a local estimate, not agent-emitted usage.
+   */
+  tokensEstimated: boolean;
   messageCount: number;
   fullPath: string;
   summary: string;

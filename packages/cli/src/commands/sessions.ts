@@ -194,7 +194,7 @@ export async function sessionsCommand(
   const rows = sessions.map((s: SessionListItem, i: number) => ({
     ...s,
     _index: i + 1,
-    _tokens: formatTokenUsage(s.tokenUsage, s.sourceId),
+    _tokens: formatTokenUsage(s.tokenUsage, s.sourceId, s.tokensEstimated),
     _summary: s.summary || s.firstPrompt || '',
   }));
 

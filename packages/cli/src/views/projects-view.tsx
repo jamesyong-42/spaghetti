@@ -53,7 +53,7 @@ function ProjectCard({ project, firstPrompt, selected, cols }: ProjectCardProps)
   const truncatedPrompt = trunc(promptText, maxWidth - 4);
 
   // Line 3: stats (tokens: "—" when the agent has no per-message counts)
-  const tok = formatTokenUsage(p.tokenUsage, p.sourceId);
+  const tok = formatTokenUsage(p.tokenUsage, p.sourceId, p.tokensEstimated);
   const stats = `${formatNumber(p.sessionCount)} sessions \u00B7 ${formatNumber(p.messageCount)} msgs \u00B7 ${tok} tokens \u00B7 ${formatRelativeTime(p.lastActiveAt)}`;
   const truncatedStats = trunc(stats, maxWidth - 4);
 

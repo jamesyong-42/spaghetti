@@ -116,7 +116,7 @@ export async function projectsCommand(api: SpaghettiAPI, opts: ProjectsOptions):
   const rows = projects.map((p: ProjectListItem, i: number) => ({
     ...p,
     _index: i + 1,
-    _tokens: formatTokenUsage(p.tokenUsage, p.sourceId),
+    _tokens: formatTokenUsage(p.tokenUsage, p.sourceId, p.tokensEstimated),
   }));
 
   const table = renderTable(rows, columns);

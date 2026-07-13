@@ -39,7 +39,7 @@ import type { LiveWatch } from '../live/live-watch.js';
  * re-reading rollouts even if mtime is unchanged. Absent or mismatched →
  * force a full Codex re-read once, then stamp the new version.
  */
-const CODEX_EXTRACT_VERSION = 'token_count_v1';
+const CODEX_EXTRACT_VERSION = 'token_count_v2_estimate';
 const CODEX_EXTRACT_META_KEY = 'codex_extract_version';
 
 export class CodexLifecycleOwner extends EventEmitter implements LifecycleOwner {

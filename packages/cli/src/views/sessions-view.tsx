@@ -47,7 +47,7 @@ function SessionCard({ session, index, selected, cols }: SessionCardProps): Reac
   const msgCount = selected
     ? `\x1b[37m${formatNumber(s.messageCount)}\x1b[0m`
     : `\x1b[2m${formatNumber(s.messageCount)}\x1b[0m`;
-  const tokLabel = formatTokenUsage(s.tokenUsage, s.sourceId);
+  const tokLabel = formatTokenUsage(s.tokenUsage, s.sourceId, s.tokensEstimated);
   const tokenCount = selected ? `\x1b[33m${tokLabel}\x1b[0m` : `\x1b[2m${tokLabel}\x1b[0m`;
   const duration = selected
     ? `\x1b[37m${formatDuration(s.lifespanMs)}\x1b[0m`

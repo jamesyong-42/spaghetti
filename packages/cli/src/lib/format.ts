@@ -14,8 +14,11 @@ export function formatTokens(n: number): string {
 }
 
 /**
- * Format token usage for display. Sources that do not attribute per-message
- * tokens (e.g. Codex) show "—" so zero is not read as "used zero tokens".
+ * Format token usage for display.
+ * - `tokensEstimated`: prefix with "~" so local estimates aren't read as
+ *   API-accurate counts (Codex tiktoken fallback).
+ * - `sourceId` without per-message tokens still shows "—" when nothing
+ *   was attributed (legacy sources).
  */
 export function formatTokenUsage(
   usage: {
@@ -25,11 +28,16 @@ export function formatTokenUsage(
     cacheReadTokens: number;
   },
   sourceId?: string,
+  tokensEstimated?: boolean,
 ): string {
+  const n = totalTokens(usage);
+  if (tokensEstimated) {
+    return n > 0 ? `~${formatTokens(n)}` : '—';
+  }
   if (sourceId && !sourceReportsPerMessageTokens(sourceId)) {
     return '—';
   }
-  return formatTokens(totalTokens(usage));
+  return formatTokens(n);
 }
 
 export function formatBytes(n: number): string {
