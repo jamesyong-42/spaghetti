@@ -34,6 +34,14 @@ import type { IngestService } from './ingest-service.js';
 import type { LifecycleOwner } from './lifecycle-owner.js';
 import type { LiveWatch } from '../live/live-watch.js';
 
+/**
+ * Bump when Codex message/token extraction changes in a way that requires
+ * re-reading rollouts even if mtime is unchanged. Absent or mismatched →
+ * force a full Codex re-read once, then stamp the new version.
+ */
+const CODEX_EXTRACT_VERSION = 'token_count_v2_estimate';
+const CODEX_EXTRACT_META_KEY = 'codex_extract_version';
+
 export class CodexLifecycleOwner extends EventEmitter implements LifecycleOwner {
   readonly sourceId = 'codex';
   private ready = false;
@@ -59,12 +67,18 @@ export class CodexLifecycleOwner extends EventEmitter implements LifecycleOwner 
       this.ingestService.open(this.dbPath);
       this.emit('progress', { phase: 'parsing', message: 'Ingesting Codex sessions…' });
 
+      // One-shot re-read when token attribution (or future extract) bumps.
+      const extractVer = this.ingestService.getMeta(CODEX_EXTRACT_META_KEY);
+      const forceReread = extractVer !== CODEX_EXTRACT_VERSION;
+
       const reader = new CodexReader(this.fileService, this.source.paths.sessionsDir);
       this.ingestService.beginTransaction();
       try {
         reader.readAll(this.ingestService, {
-          // Warm-start: skip a rollout whose fingerprint is unchanged.
+          // Warm-start: skip a rollout whose fingerprint is unchanged —
+          // unless extract version requires a full Codex pass.
           shouldReadMessages: (file, mtimeMs) => {
+            if (forceReread) return true;
             const fp = this.ingestService.getFingerprint(file);
             return !fp || fp.mtimeMs !== mtimeMs;
           },
@@ -72,6 +86,9 @@ export class CodexLifecycleOwner extends EventEmitter implements LifecycleOwner 
             this.ingestService.upsertFingerprint({ path: file, mtimeMs, size, bytePosition: lastByte });
           },
         });
+        if (forceReread) {
+          this.ingestService.setMeta(CODEX_EXTRACT_META_KEY, CODEX_EXTRACT_VERSION);
+        }
         this.ingestService.commitTransaction();
       } catch (error) {
         this.ingestService.rollbackTransaction();

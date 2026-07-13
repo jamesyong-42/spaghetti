@@ -35,7 +35,7 @@ export async function subagentsCommand(
   }
 
   // Resolve session
-  const sessions = api.getSessionList(project.slug);
+  const sessions = api.getSessionList(project.slug, { sourceId: project.sourceId });
 
   if (sessions.length === 0) {
     throw new UserError(

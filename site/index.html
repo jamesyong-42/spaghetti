@@ -3,11 +3,11 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Spaghetti — Untangle your Claude Code history</title>
-  <meta name="description" content="Local-first CLI and SDK for Claude Code. Index ~/.claude into SQLite, search conversations, browse sessions, and build tools on top of your agent history." />
+  <title>Spaghetti — Untangle your agent history</title>
+  <meta name="description" content="Local-first CLI and SDK for agent history. Index Claude Code and Codex into SQLite, search conversations, browse sessions, and build tools on top of your local agent data." />
   <meta name="theme-color" content="#050607" />
-  <meta property="og:title" content="Spaghetti — Untangle your Claude Code history" />
-  <meta property="og:description" content="Local-first CLI and SDK that turns Claude Code history into a searchable workspace." />
+  <meta property="og:title" content="Spaghetti — Untangle your agent history" />
+  <meta property="og:description" content="Local-first CLI and SDK that turns Claude Code + Codex history into a searchable multi-agent workspace." />
   <meta property="og:type" content="website" />
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%232dd4bf'/%3E%3Ctext x='16' y='22' text-anchor='middle' font-family='monospace' font-size='14' font-weight='700' fill='%23042f2e'%3Esp%3C/text%3E%3C/svg%3E" />
   <script>
@@ -59,15 +59,15 @@
     <div class="wrap wrap-wide">
       <div class="hero-grid">
         <div class="hero-copy">
-          <div class="eyebrow">Local-first · Claude Code · SQLite</div>
+          <div class="eyebrow">Local-first · Multi-agent · SQLite</div>
           <h1>
             Untangle your<br />
-            <span class="grad">Claude Code history</span>
+            <span class="grad">agent history</span>
           </h1>
           <p class="lead">
-            Claude Code already writes everything to disk. Spaghetti turns
-            <code>~/.claude</code> into a fast, local SQLite workspace — searchable
-            conversations, browsable artifacts, and an SDK you can build on.
+            Coding agents already write everything to disk. Spaghetti indexes
+            <code>~/.claude</code> and <code>~/.codex</code> into one local SQLite workspace —
+            searchable conversations, browsable artifacts, and an SDK you can build on.
           </p>
           <div class="hero-ctas">
             <a class="btn btn-primary" href="#install">
@@ -79,8 +79,8 @@
           <div class="hero-meta">
             <span><span class="dot"></span> MIT License</span>
             <span>Node ≥ 18</span>
-            <span>v0.5.15</span>
-            <span>Rust + TypeScript</span>
+            <span>v0.5.17</span>
+            <span>Claude · Codex</span>
           </div>
         </div>
 
@@ -89,20 +89,20 @@
             <span class="terminal-dot"></span>
             <span class="terminal-dot"></span>
             <span class="terminal-dot"></span>
-            <span class="terminal-title">spag · ~/.claude</span>
+            <span class="terminal-title">spag · multi-agent</span>
           </div>
           <div class="terminal-body terminal-body-mock dash-mock">
             <div class="dash-frame">
               <div class="dash-title">
-                <span>Spaghetti v0.5.15</span>
+                <span>Spaghetti v0.5.17</span>
               </div>
               <div class="dash-top">
                 <div class="dash-brand">
                   <div class="wordmark t-bold">▄▀▀ █▀█ ▄▀▄ █▀▀ █ █ █▀▀ ▀█▀ ▀█▀ █
 ▀▄▄ █▀▀ █▀█ █ █ █▀█ █▀   █   █  █
 ▄▄▀ █   █ █ ▀▀▀ ▀ ▀ ▀▀▀  ▀   ▀  ▀</div>
-                  <div class="t-muted dash-tagline">untangle your claude code history</div>
-                  <div class="t-dim dash-meta">~/.claude · 512 MB · 28ms</div>
+                  <div class="t-muted dash-tagline">untangle your agent history</div>
+                  <div class="t-dim dash-meta">~/.claude + ~/.codex · 512 MB · 28ms</div>
                 </div>
                 <div class="term-stats">
                   <div class="stat-line"><span class="stat-label">Projects</span><span class="stat-val t-accent">79</span></div>
@@ -153,18 +153,18 @@
       <div class="section-header center">
         <div class="eyebrow">Why Spaghetti</div>
         <h2>Your agent history, finally usable</h2>
-        <p class="lead">Not another chat archive. A structured index of everything Claude Code leaves behind — built for search, inspection, and tooling.</p>
+        <p class="lead">Not another chat archive. A structured multi-agent index of what coding agents leave on disk — built for search, inspection, and tooling.</p>
       </div>
       <div class="features-grid">
         <article class="feature-card">
           <div class="feature-icon">⌕</div>
           <h3>Search that scales</h3>
-          <p>Content-synced FTS5 over every message. Query across projects and years of agent work — hundreds of thousands of rows stay responsive.</p>
+          <p>Content-synced FTS5 over every message. Query across projects, agents, and years of work — hundreds of thousands of rows stay responsive.</p>
         </article>
         <article class="feature-card">
           <div class="feature-icon amber">▣</div>
-          <h3>Artifacts, not just chat</h3>
-          <p>Projects, sessions, messages, plans, todos, memory, subagents, workflows, teams, and tool results — the full Claude Code surface.</p>
+          <h3>Multi-agent by design</h3>
+          <p>Claude Code and OpenAI Codex side by side in one index. Agent tabs in the TUI, an Agent column in lists, and source-scoped session reads so slugs never collide.</p>
         </article>
         <article class="feature-card">
           <div class="feature-icon green">⬡</div>
@@ -174,7 +174,7 @@
         <article class="feature-card">
           <div class="feature-icon magenta">⚡</div>
           <h3>Native Rust ingest</h3>
-          <p>Default path is a napi-rs addon with rayon parallelism. Pure TypeScript fallback when the binary is missing — zero configuration.</p>
+          <p>Claude bulk path is a napi-rs addon with rayon parallelism. Pure TypeScript for Codex and as automatic fallback — zero configuration.</p>
         </article>
         <article class="feature-card">
           <div class="feature-icon blue">⧉</div>
@@ -183,8 +183,8 @@
         </article>
         <article class="feature-card">
           <div class="feature-icon">◎</div>
-          <h3>Live while you work</h3>
-          <p>Opt into filesystem watchers that keep SQLite warm as Claude Code writes. Typed change events for reactive UIs.</p>
+          <h3>Three ingest planes</h3>
+          <p>Static disk index, live filesystem deltas, and runtime hooks/channels — keep history warm while agents write without polluting the durable store.</p>
         </article>
       </div>
     </div>
@@ -286,12 +286,12 @@
           <div class="terminal-body terminal-body-mock terminal-body-compact">
             <div>  <span class="t-accent t-bold">acme-api</span> <span class="t-muted">(18 sessions)</span></div>
             <div class="t-blank"></div>
-            <div class="t-muted">   #  Branch    Msgs     Tokens    Duration  Summary</div>
-            <div class="t-dim">────  ──────  ──────  ─────────  ──────────  ─────────</div>
-            <div>   <span class="t-dim">1</span>  <span class="t-white">main</span>     <span class="t-white">1,728</span>     <span class="t-amber">47.9M</span>       <span class="t-dim">2h 14m</span>  <span class="t-dim">Refactor ingest…</span></div>
-            <div>   <span class="t-dim">2</span>  <span class="t-white">feat/…</span>     <span class="t-white">856</span>      <span class="t-amber">8.5M</span>       <span class="t-dim">48m</span>  <span class="t-dim">Wire FTS triggers</span></div>
-            <div>   <span class="t-dim">3</span>  <span class="t-white">main</span>       <span class="t-white">378</span>      <span class="t-amber">3.7M</span>       <span class="t-dim">22m</span>  <span class="t-dim">Debug warm start</span></div>
-            <div>   <span class="t-dim">4</span>  <span class="t-white">fix/…</span>      <span class="t-white">68</span>    <span class="t-amber">575.8K</span>        <span class="t-dim">9m</span>  <span class="t-dim">Tidy CLI colors</span></div>
+            <div class="t-muted">   #  Agent    Branch    Msgs     Tokens    Duration  Summary</div>
+            <div class="t-dim">────  ───────  ──────  ──────  ─────────  ──────────  ─────────</div>
+            <div>   <span class="t-dim">1</span>  <span class="t-accent">claude</span>  <span class="t-white">main</span>     <span class="t-white">1,728</span>     <span class="t-amber">47.9M</span>       <span class="t-dim">2h 14m</span>  <span class="t-dim">Refactor ingest…</span></div>
+            <div>   <span class="t-dim">2</span>  <span class="t-magenta">codex</span>   <span class="t-white">feat/…</span>     <span class="t-white">856</span>      <span class="t-amber">~8.5M</span>       <span class="t-dim">48m</span>  <span class="t-dim">Wire FTS triggers</span></div>
+            <div>   <span class="t-dim">3</span>  <span class="t-accent">claude</span>  <span class="t-white">main</span>       <span class="t-white">378</span>      <span class="t-amber">3.7M</span>       <span class="t-dim">22m</span>  <span class="t-dim">Debug warm start</span></div>
+            <div>   <span class="t-dim">4</span>  <span class="t-accent">claude</span>  <span class="t-white">fix/…</span>      <span class="t-white">68</span>    <span class="t-amber">575.8K</span>        <span class="t-dim">9m</span>  <span class="t-dim">Tidy CLI colors</span></div>
             <div class="t-blank"></div>
             <div class="t-muted">  showing 4/18 · 5,241 messages · 190.6M tokens</div>
           </div>
@@ -301,7 +301,7 @@
           </div>
         </div>
       </div>
-      <p class="shot-note">Illustrative output · your numbers come from your own ~/.claude after install</p>
+      <p class="shot-note">Illustrative output · your numbers come from your own ~/.claude and ~/.codex after install</p>
     </div>
   </section>
 
@@ -310,13 +310,13 @@
     <div class="wrap wrap-wide">
       <div class="section-header center">
         <div class="eyebrow">Architecture</div>
-        <h2>One pipeline. Two engines. One index.</h2>
-        <p class="lead">Stream from disk, write once to SQLite, resume with fingerprints. Built for multi-gigabyte <code>~/.claude</code> trees without loading them into RAM.</p>
+        <h2>One pipeline. Multiple agents. One index.</h2>
+        <p class="lead">Stream from disk, write once to SQLite, resume with fingerprints. Claude Code and Codex share a single <code>source_id</code>-tagged store — no per-agent databases.</p>
       </div>
 
       <div class="arch-panel">
         <!-- Custom SVG architecture diagram -->
-        <svg class="arch-svg" viewBox="0 0 1040 520" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Spaghetti architecture: ~/.claude source flows through dual engines into SQLite and out to CLI, SDK, and React consumers">
+        <svg class="arch-svg" viewBox="0 0 1040 520" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Spaghetti architecture: multi-agent sources flow through dual engines into one SQLite index and out to CLI, SDK, and React consumers">
           <defs>
             <linearGradient id="g-src" x1="0" y1="0" x2="1" y2="1">
               <stop offset="0%" stop-color="#181c26"/>
@@ -362,31 +362,31 @@
 
           <!-- Source box -->
           <rect x="32" y="60" width="200" height="400" rx="14" fill="url(#g-src)" stroke="rgba(255,255,255,0.08)" stroke-width="1"/>
-          <text x="132" y="92" text-anchor="middle" fill="#eef1f6" font-family="Instrument Sans, sans-serif" font-size="14" font-weight="600">~/.claude</text>
-          <text x="132" y="110" text-anchor="middle" fill="#6b7388" font-family="JetBrains Mono, monospace" font-size="10">Claude Code data</text>
+          <text x="132" y="88" text-anchor="middle" fill="#eef1f6" font-family="Instrument Sans, sans-serif" font-size="13" font-weight="600">AgentSources</text>
+          <text x="132" y="106" text-anchor="middle" fill="#6b7388" font-family="JetBrains Mono, monospace" font-size="10">multi-agent roots</text>
 
           <!-- Source items -->
           <g font-family="JetBrains Mono, monospace" font-size="11">
-            <rect x="48" y="130" width="168" height="32" rx="6" fill="#0c0e12" stroke="rgba(45,212,191,0.2)"/>
-            <text x="60" y="150" fill="#5eead4">projects/{slug}/</text>
+            <rect x="48" y="124" width="168" height="32" rx="6" fill="#0c0e12" stroke="rgba(45,212,191,0.35)"/>
+            <text x="60" y="144" fill="#5eead4">~/.claude</text>
 
-            <rect x="48" y="172" width="168" height="32" rx="6" fill="#0c0e12" stroke="rgba(255,255,255,0.06)"/>
-            <text x="60" y="192" fill="#a8b0c0">*.jsonl sessions</text>
+            <rect x="48" y="166" width="168" height="32" rx="6" fill="#0c0e12" stroke="rgba(232,121,249,0.35)"/>
+            <text x="60" y="186" fill="#e879f9">~/.codex</text>
 
-            <rect x="48" y="214" width="168" height="32" rx="6" fill="#0c0e12" stroke="rgba(255,255,255,0.06)"/>
-            <text x="60" y="234" fill="#a8b0c0">subagents · tools</text>
+            <rect x="48" y="208" width="168" height="32" rx="6" fill="#0c0e12" stroke="rgba(255,255,255,0.06)"/>
+            <text x="60" y="228" fill="#a8b0c0">sessions · rollouts</text>
 
-            <rect x="48" y="256" width="168" height="32" rx="6" fill="#0c0e12" stroke="rgba(255,255,255,0.06)"/>
-            <text x="60" y="276" fill="#a8b0c0">todos · plans</text>
+            <rect x="48" y="250" width="168" height="32" rx="6" fill="#0c0e12" stroke="rgba(255,255,255,0.06)"/>
+            <text x="60" y="270" fill="#a8b0c0">subagents · tools</text>
 
-            <rect x="48" y="298" width="168" height="32" rx="6" fill="#0c0e12" stroke="rgba(255,255,255,0.06)"/>
-            <text x="60" y="318" fill="#a8b0c0">memory · history</text>
+            <rect x="48" y="292" width="168" height="32" rx="6" fill="#0c0e12" stroke="rgba(255,255,255,0.06)"/>
+            <text x="60" y="312" fill="#a8b0c0">todos · plans</text>
 
-            <rect x="48" y="340" width="168" height="32" rx="6" fill="#0c0e12" stroke="rgba(255,255,255,0.06)"/>
-            <text x="60" y="360" fill="#a8b0c0">settings · plugins</text>
+            <rect x="48" y="334" width="168" height="32" rx="6" fill="#0c0e12" stroke="rgba(255,255,255,0.06)"/>
+            <text x="60" y="354" fill="#a8b0c0">memory · history</text>
 
-            <rect x="48" y="382" width="168" height="32" rx="6" fill="#0c0e12" stroke="rgba(251,191,36,0.2)"/>
-            <text x="60" y="402" fill="#fbbf24">workflows · teams</text>
+            <rect x="48" y="376" width="168" height="32" rx="6" fill="#0c0e12" stroke="rgba(251,191,36,0.2)"/>
+            <text x="60" y="396" fill="#fbbf24">source_id column</text>
           </g>
 
           <!-- Flow lines source → engines -->
@@ -417,8 +417,8 @@
           <text x="680" y="220" text-anchor="middle" fill="#5eead4" font-family="JetBrains Mono, monospace" font-size="10" letter-spacing="1">SQLITE</text>
           <text x="680" y="248" text-anchor="middle" fill="#eef1f6" font-family="Instrument Sans, sans-serif" font-size="15" font-weight="600">Local Index</text>
           <text x="680" y="272" text-anchor="middle" fill="#6b7388" font-family="JetBrains Mono, monospace" font-size="10">~/.spaghetti/cache/</text>
-          <text x="680" y="298" text-anchor="middle" fill="#a8b0c0" font-family="JetBrains Mono, monospace" font-size="11">tables · FTS5 · WAL</text>
-          <text x="680" y="318" text-anchor="middle" fill="#6b7388" font-family="JetBrains Mono, monospace" font-size="10">single writer</text>
+          <text x="680" y="298" text-anchor="middle" fill="#a8b0c0" font-family="JetBrains Mono, monospace" font-size="11">source_id · FTS5</text>
+          <text x="680" y="318" text-anchor="middle" fill="#6b7388" font-family="JetBrains Mono, monospace" font-size="10">one index · schema v7</text>
 
           <!-- Flow SQLite → consumers -->
           <path d="M770 220 C800 220, 800 120, 830 120" stroke="url(#g-line)" stroke-width="1.5" fill="none" marker-end="url(#arrow)"/>
@@ -470,37 +470,61 @@
           <div class="pipeline-num">01</div>
           <div>
             <h4>Discover</h4>
-            <p>Walk <code>~/.claude/projects</code> and classify every source file by category.</p>
+            <p>Per-source adapters walk <code>~/.claude</code> and <code>~/.codex</code>; each owns classify + extract.</p>
           </div>
         </div>
         <div class="pipeline-step">
           <div class="pipeline-num">02</div>
           <div>
             <h4>Stream parse</h4>
-            <p>64KB buffered JSONL reads — sessions never need to fit in RAM.</p>
+            <p>Buffered JSONL reads — Claude sessions and Codex rollouts never need to fit in RAM.</p>
           </div>
         </div>
         <div class="pipeline-step">
           <div class="pipeline-num">03</div>
           <div>
             <h4>Single-write</h4>
-            <p>One SQLite connection, batched UPSERTs, FTS rebuilt at finalize.</p>
+            <p>One SQLite connection, rows stamped with <code>source_id</code>, FTS rebuilt at finalize.</p>
           </div>
         </div>
         <div class="pipeline-step">
           <div class="pipeline-num">04</div>
           <div>
             <h4>Fingerprint</h4>
-            <p>Store path, mtime, size, and byte offset for incremental warm starts.</p>
+            <p>Store path, mtime, size, and byte offset for incremental warm starts per source.</p>
           </div>
         </div>
         <div class="pipeline-step">
           <div class="pipeline-num">05</div>
           <div>
             <h4>Query</h4>
-            <p>SQL aggregates + FTS5 search power the CLI, SDK, and React surfaces.</p>
+            <p>Source-scoped lists, FTS5 search, and token totals (official or estimated) across agents.</p>
           </div>
         </div>
+      </div>
+
+      <!-- Three planes -->
+      <div class="section-header center mt-48">
+        <div class="eyebrow">Three planes</div>
+        <h2>History, deltas, and live agent state</h2>
+        <p class="lead">Planes 1–2 share the durable index. Plane 3 is a separate event stream — runtime events never write SQLite.</p>
+      </div>
+      <div class="features-grid" style="margin-top:28px">
+        <article class="feature-card">
+          <div class="feature-icon">1</div>
+          <h3>Static disk</h3>
+          <p>Cold/warm full parse of agent homes into SQLite + FTS5. Schema v7 with composite project keys <code>(source_id, slug)</code>.</p>
+        </article>
+        <article class="feature-card">
+          <div class="feature-icon amber">2</div>
+          <h3>Live disk Δ</h3>
+          <p>Opt-in watchers for Claude and Codex files. Typed <code>Change</code> events after commit — <code>{ live: true }</code> → <code>api.live</code>.</p>
+        </article>
+        <article class="feature-card">
+          <div class="feature-icon magenta">3</div>
+          <h3>Runtime</h3>
+          <p>Hooks and channel sessions via plugins. Read-only relative to the index; if it matters historically, the agent wrote a file first.</p>
+        </article>
       </div>
     </div>
   </section>
@@ -519,7 +543,7 @@
           <h3>Native Rust</h3>
           <p>napi-rs addon with rayon-parallel project parse and a dedicated rusqlite writer thread. Roughly 2× faster cold start on multi-GB histories.</p>
           <ul class="engine-list">
-            <li>Project/session bulk ingest + live batch writes</li>
+            <li>Claude Code project/session bulk + live batch writes</li>
             <li>FTS triggers dropped during bulk, rebuilt once</li>
             <li>Prebuilt binaries: macOS + Linux (x64/arm64)</li>
             <li>Default when the native module loads</li>
@@ -528,11 +552,11 @@
         <div class="engine-card">
           <div class="engine-badge" style="color:var(--blue)">◈ engine: 'ts'</div>
           <h3>TypeScript</h3>
-          <p>Full streaming pipeline with worker threads. Ground truth for development, automatic fallback when native is unavailable.</p>
+          <p>Full streaming pipeline with worker threads. Ground truth for Claude, exclusive path for Codex today, automatic fallback when native is unavailable.</p>
           <ul class="engine-list">
-            <li>Complete coverage: config, analytics, plugins</li>
+            <li>Claude config, analytics, plugins · full Codex reader</li>
+            <li>Codex <code>token_count</code> + tiktoken estimate fallback</li>
             <li>Worker pool with sequential fallback</li>
-            <li>No native deps required</li>
             <li>Pin with <code>SPAG_ENGINE=ts</code></li>
           </ul>
         </div>
@@ -559,44 +583,44 @@
       </div>
       <div class="index-grid">
         <div class="index-item">
-          <div class="tag">Both engines</div>
+          <div class="tag">Both agents</div>
           <h4>Projects &amp; sessions</h4>
-          <p>Slugs, paths, summaries, branches, sidechains, token totals</p>
+          <p><code>source_id</code>, composite project PK, branches, token totals (official or <code>~</code> estimated)</p>
         </div>
         <div class="index-item">
-          <div class="tag">Both engines</div>
+          <div class="tag">Both agents</div>
           <h4>Messages</h4>
-          <p>Full JSONL with FTS text extraction and token breakdowns</p>
+          <p>Full JSONL / rollouts with FTS text; Claude usage columns · Codex token_count</p>
         </div>
         <div class="index-item">
-          <div class="tag">Both engines</div>
+          <div class="tag">Claude</div>
           <h4>Subagents</h4>
           <p>Transcripts, agent types, nested workflow agents</p>
         </div>
         <div class="index-item">
-          <div class="tag">Both engines</div>
+          <div class="tag">Claude</div>
           <h4>Workflows</h4>
           <p>Agent-orchestration runs with nested subagent graphs</p>
         </div>
         <div class="index-item">
-          <div class="tag">Both engines</div>
+          <div class="tag">Claude</div>
           <h4>Todos &amp; plans</h4>
           <p>Session todos, plan markdown, task metadata</p>
         </div>
         <div class="index-item">
-          <div class="tag">Both engines</div>
+          <div class="tag">Claude</div>
           <h4>Memory &amp; tools</h4>
           <p>MEMORY.md, persisted tool results, file history</p>
         </div>
         <div class="index-item">
-          <div class="tag ts-only">TS only</div>
-          <h4>Config &amp; plugins</h4>
-          <p>Settings, marketplaces, statsig, IDE locks</p>
+          <div class="tag">Codex</div>
+          <h4>Rollouts &amp; tokens</h4>
+          <p><code>sessions/**/rollout-*.jsonl</code>, <code>token_count</code> events, tiktoken estimate</p>
         </div>
         <div class="index-item">
           <div class="tag ts-only">TS only</div>
-          <h4>Analytics</h4>
-          <p>history.jsonl, debug logs, telemetry, session-env</p>
+          <h4>Config · plugins · analytics</h4>
+          <p>Claude settings, marketplaces, telemetry, session-env</p>
         </div>
       </div>
     </div>
@@ -653,17 +677,17 @@
             </div>
             <div class="terminal-body terminal-body-mock terminal-body-compact">
               <div class="t-bold t-accent">Home</div>
-              <div class="t-white"> ├─ <span class="t-accent">Projects</span></div>
-              <div class="t-muted"> │   ├─ Sessions</div>
-              <div class="t-muted"> │   │   ├─ Messages</div>
+              <div class="t-white"> ├─ <span class="t-accent">Projects</span> <span class="t-dim">←→ claude · codex</span></div>
+              <div class="t-muted"> │   ├─ Sessions <span class="t-dim">(source-scoped)</span></div>
+              <div class="t-muted"> │   │   ├─ Messages <span class="t-dim">CODEX / CLAUDE</span></div>
               <div class="t-muted"> │   │   ├─ Todos · Plan · Subagents</div>
               <div class="t-muted"> │   │   └─ Workflows</div>
-              <div class="t-muted"> │   └─ Memory</div>
+              <div class="t-muted"> │   └─ Memory <span class="t-dim">(Claude only)</span></div>
               <div class="t-white"> ├─ Hooks Monitor</div>
               <div class="t-white"> ├─ Stats · Help · Doctor</div>
-              <div class="t-white"> └─ Chat <span class="t-dim">(live channel)</span></div>
+              <div class="t-white"> └─ Chat <span class="t-dim">(Claude channel)</span></div>
               <hr class="term-divider" />
-              <div class="t-dim">Resolve with <span class="t-green">.</span> · <span class="t-green">latest</span> · fuzzy · UUID prefix</div>
+              <div class="t-dim">Auto-detects <span class="t-green">~/.codex</span> · resolve with <span class="t-green">.</span> · <span class="t-green">latest</span></div>
             </div>
             <div class="shot-caption">
               <strong>Interactive TUI</strong>
@@ -694,18 +718,25 @@
             <span>example.ts</span>
             <button class="copy-btn" type="button" data-copy>Copy</button>
           </div>
-          <pre><code><span class="c-kw">import</span> { createSpaghettiService } <span class="c-kw">from</span> <span class="c-str">'@vibecook/spaghetti-sdk'</span>;
+          <pre><code><span class="c-kw">import</span> {
+  createSpaghettiService,
+  createCodexSource,
+} <span class="c-kw">from</span> <span class="c-str">'@vibecook/spaghetti-sdk'</span>;
 
-<span class="c-kw">const</span> spaghetti = <span class="c-fn">createSpaghettiService</span>();
-<span class="c-kw">await</span> spaghetti.<span class="c-fn">initialize</span>();
+<span class="c-kw">const</span> api = <span class="c-fn">createSpaghettiService</span>({
+  additionalSources: [<span class="c-fn">createCodexSource</span>()],
+  live: <span class="c-kw">true</span>,
+});
+<span class="c-kw">await</span> api.<span class="c-fn">initialize</span>();
 
-<span class="c-kw">const</span> projects = spaghetti.<span class="c-fn">getProjectList</span>();
-<span class="c-kw">const</span> results = spaghetti.<span class="c-fn">search</span>({ text: <span class="c-str">'worker thread'</span> });
+<span class="c-kw">const</span> sources = api.<span class="c-fn">getSourceIds</span>(); <span class="c-cm">// ['claude-code','codex']</span>
+<span class="c-kw">const</span> projects = api.<span class="c-fn">getProjectList</span>();
+<span class="c-kw">const</span> sessions = api.<span class="c-fn">getSessionList</span>(
+  projects[<span class="c-num">0</span>].slug,
+  { sourceId: projects[<span class="c-num">0</span>].sourceId },
+);
 
-<span class="c-cm">// Opt into live filesystem updates</span>
-<span class="c-kw">const</span> live = <span class="c-fn">createSpaghettiService</span>({ live: <span class="c-kw">true</span> });
-
-spaghetti.<span class="c-fn">shutdown</span>();</code></pre>
+<span class="c-kw">await</span> api.<span class="c-fn">dispose</span>();</code></pre>
         </div>
       </div>
     </div>
@@ -744,7 +775,7 @@ spag</code></pre>
             <span class="nav-logo" aria-hidden="true">sp</span>
             Spaghetti
           </a>
-          <p>Local-first Claude Code explorer. Index, search, and build on your agent history — without leaving the machine.</p>
+          <p>Local-first multi-agent explorer. Index Claude Code and Codex, search, and build on your history — without leaving the machine.</p>
         </div>
         <div>
           <h4>Product</h4>
@@ -776,7 +807,7 @@ spag</code></pre>
       </div>
       <div class="footer-bottom">
         <span>© 2026 James Yong</span>
-        <span>Built for Claude Code power users</span>
+        <span>Built for multi-agent power users</span>
       </div>
     </div>
   </footer>

@@ -24,6 +24,7 @@ export default defineConfig({
         /^@parcel\/watcher-/,
         'chokidar',
         'ws',
+        'js-tiktoken',
         'react',
         'react-dom',
         'react/jsx-runtime',

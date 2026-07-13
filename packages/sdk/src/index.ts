@@ -49,12 +49,26 @@ export { createSpaghettiService, type SpaghettiServiceOptions } from './create.j
 export { createSpaghettiAppService } from './app-service.js';
 
 // Agent sources (three-plane architecture — Claude Code today)
-export type { AgentSource, AgentSourceId, AgentSourcePaths } from './sources/types.js';
+export type {
+  AgentSource,
+  AgentSourceId,
+  AgentSourcePaths,
+  ExtractedMessage,
+  MessageExtractor,
+} from './sources/types.js';
 export {
   createClaudeCodeSource,
   defaultClaudeDir,
   defaultSpaghettiStateDir,
   type ClaudeCodeSourceOptions,
+  createCodexSource,
+  defaultCodexDir,
+  parseCodexTokenCount,
+  type CodexSourceOptions,
+  type CodexTokenUsage,
+  sourceReportsPerMessageTokens,
+  sourceDisplayName,
+  sourceDisplayRoot,
 } from './sources/index.js';
 
 // Durable store + plane façades (composition helpers; prefer createSpaghettiService)

@@ -8,7 +8,7 @@ import type { ProjectListItem, SessionListItem } from '@vibecook/spaghetti-sdk';
 import { useViewNav } from './context.js';
 import { useApi } from './shell.js';
 import { useListNavigation } from './hooks.js';
-import { formatTokens, formatRelativeTime, formatNumber, formatDuration, totalTokens } from '../lib/format.js';
+import { formatTokenUsage, formatRelativeTime, formatNumber, formatDuration } from '../lib/format.js';
 import { SessionTabView } from './session-tab-view.js';
 import type { ViewEntry } from './types.js';
 
@@ -47,9 +47,8 @@ function SessionCard({ session, index, selected, cols }: SessionCardProps): Reac
   const msgCount = selected
     ? `\x1b[37m${formatNumber(s.messageCount)}\x1b[0m`
     : `\x1b[2m${formatNumber(s.messageCount)}\x1b[0m`;
-  const tokenCount = selected
-    ? `\x1b[33m${formatTokens(totalTokens(s.tokenUsage))}\x1b[0m`
-    : `\x1b[2m${formatTokens(totalTokens(s.tokenUsage))}\x1b[0m`;
+  const tokLabel = formatTokenUsage(s.tokenUsage, s.sourceId, s.tokensEstimated);
+  const tokenCount = selected ? `\x1b[33m${tokLabel}\x1b[0m` : `\x1b[2m${tokLabel}\x1b[0m`;
   const duration = selected
     ? `\x1b[37m${formatDuration(s.lifespanMs)}\x1b[0m`
     : `\x1b[2m${formatDuration(s.lifespanMs)}\x1b[0m`;
@@ -85,8 +84,8 @@ export function SessionsView({ project, initialIndex }: SessionsViewProps): Reac
   const cols = stdout?.columns ?? 80;
 
   const sessions = useMemo(() => {
-    return api.getSessionList(project.slug);
-  }, [api, project.slug]);
+    return api.getSessionList(project.slug, { sourceId: project.sourceId });
+  }, [api, project.slug, project.sourceId]);
 
   const { selectedIndex, scrollOffset, moveUp, moveDown } = useListNavigation({
     itemCount: sessions.length,

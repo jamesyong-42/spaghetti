@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>API Reference — Spaghetti</title>
-  <meta name="description" content="Spaghetti SDK API reference: createSpaghettiService, SpaghettiAPI methods, types, live updates, and React exports." />
+  <meta name="description" content="Spaghetti SDK API reference: multi-agent createSpaghettiService, SourceFilter, Codex source, live updates, and React exports." />
   <meta name="theme-color" content="#050607" />
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%232dd4bf'/%3E%3Ctext x='16' y='22' text-anchor='middle' font-family='monospace' font-size='14' font-weight='700' fill='%23042f2e'%3Esp%3C/text%3E%3C/svg%3E" />
   <script>
@@ -55,6 +55,7 @@
       <a href="#install">Install</a>
       <a href="#quickstart">Quickstart</a>
       <a href="#create">createSpaghettiService</a>
+      <a href="#multi-source">Multi-source</a>
       <a href="#engines">Engine selection</a>
 
       <h4>SpaghettiAPI</h4>
@@ -64,6 +65,7 @@
       <a href="#search">Search &amp; stats</a>
       <a href="#events">Events</a>
       <a href="#live">Live updates</a>
+      <a href="#runtime">Runtime</a>
 
       <h4>Types</h4>
       <a href="#types-list">List &amp; page types</a>
@@ -83,9 +85,9 @@
       <div class="eyebrow">@vibecook/spaghetti-sdk</div>
       <h1 style="font-size:clamp(2rem,4vw,2.75rem);margin-bottom:12px">API reference</h1>
       <p class="lead">
-        Index Claude Code data, query SQLite, run full-text search, and subscribe
-        to live updates. This is the same surface the CLI uses — version
-        <strong>0.5.15</strong>.
+        Index Claude Code and Codex data into one SQLite store, query with
+        source-scoped reads, run full-text search, and subscribe to live updates.
+        Same surface the CLI uses — version <strong>0.5.17</strong>.
       </p>
 
       <!-- Install -->
@@ -120,9 +122,14 @@ pnpm add @vibecook/spaghetti-sdk</code></pre>
             <span>app.ts</span>
             <button class="copy-btn" type="button" data-copy>Copy</button>
           </div>
-          <pre><code><span class="c-kw">import</span> { createSpaghettiService } <span class="c-kw">from</span> <span class="c-str">'@vibecook/spaghetti-sdk'</span>;
+          <pre><code><span class="c-kw">import</span> {
+  createSpaghettiService,
+  createCodexSource,
+} <span class="c-kw">from</span> <span class="c-str">'@vibecook/spaghetti-sdk'</span>;
 
-<span class="c-kw">const</span> api = <span class="c-fn">createSpaghettiService</span>();
+<span class="c-kw">const</span> api = <span class="c-fn">createSpaghettiService</span>({
+  additionalSources: [<span class="c-fn">createCodexSource</span>()],
+});
 
 api.<span class="c-fn">onProgress</span>((p) => {
   console.<span class="c-fn">log</span>(p.phase, p.message, p.current, p.total);
@@ -131,12 +138,14 @@ api.<span class="c-fn">onProgress</span>((p) => {
 <span class="c-kw">await</span> api.<span class="c-fn">initialize</span>();
 
 <span class="c-kw">const</span> projects = api.<span class="c-fn">getProjectList</span>();
-<span class="c-kw">const</span> sessions = api.<span class="c-fn">getSessionList</span>(projects[<span class="c-num">0</span>].slug);
+<span class="c-kw">const</span> p = projects[<span class="c-num">0</span>];
+<span class="c-kw">const</span> sessions = api.<span class="c-fn">getSessionList</span>(p.slug, { sourceId: p.sourceId });
 <span class="c-kw">const</span> page = api.<span class="c-fn">getSessionMessages</span>(
-  projects[<span class="c-num">0</span>].slug,
+  p.slug,
   sessions[<span class="c-num">0</span>].sessionId,
   <span class="c-num">50</span>,
   <span class="c-num">0</span>,
+  { sourceId: p.sourceId },
 );
 <span class="c-kw">const</span> hits = api.<span class="c-fn">search</span>({ text: <span class="c-str">'refactor parser'</span>, limit: <span class="c-num">20</span> });
 
@@ -168,7 +177,19 @@ api.<span class="c-fn">onProgress</span>((p) => {
               <td>claudeDir</td>
               <td>string</td>
               <td><code>~/.claude</code></td>
-              <td>Source directory to parse.</td>
+              <td>Claude Code data root. Ignored when <code>source</code> is set.</td>
+            </tr>
+            <tr>
+              <td>source</td>
+              <td>AgentSource</td>
+              <td>Claude Code</td>
+              <td>Primary agent adapter. Defaults to <code>createClaudeCodeSource()</code>.</td>
+            </tr>
+            <tr>
+              <td>additionalSources</td>
+              <td>AgentSource[]</td>
+              <td><code>[]</code></td>
+              <td>Extra agents into the <strong>same</strong> store (e.g. <code>createCodexSource()</code>). CLI auto-detects <code>~/.codex/sessions</code>.</td>
             </tr>
             <tr>
               <td>dbPath</td>
@@ -180,13 +201,13 @@ api.<span class="c-fn">onProgress</span>((p) => {
               <td>engine</td>
               <td><code>'rs' | 'ts'</code></td>
               <td>resolved</td>
-              <td>Pin ingest engine for this instance. Wins over env and config.</td>
+              <td>Pin ingest engine for this instance. Wins over env and config. Codex always uses the TS path.</td>
             </tr>
             <tr>
               <td>live</td>
               <td>boolean</td>
               <td><code>false</code></td>
-              <td>Start filesystem watchers and expose <code>api.live</code>.</td>
+              <td>Start filesystem watchers and expose <code>api.live</code> (Claude + Codex when present).</td>
             </tr>
             <tr>
               <td>dataService</td>
@@ -202,6 +223,43 @@ api.<span class="c-fn">onProgress</span>((p) => {
             </tr>
           </tbody>
         </table>
+      </section>
+
+      <!-- Multi-source -->
+      <section class="api-section" id="multi-source">
+        <h2>Multi-source (RFC 006)</h2>
+        <p class="section-desc">
+          One index, <code>source_id</code> column — not one DB per agent. Project PK is
+          composite <code>(source_id, slug)</code> so Claude and Codex on the same cwd stay distinct.
+          Always pass <code>{ sourceId }</code> when drilling from a project list item.
+        </p>
+        <div class="code-block mb-24">
+          <div class="code-header"><span>multi-source.ts</span><button class="copy-btn" type="button" data-copy>Copy</button></div>
+          <pre><code><span class="c-kw">import</span> {
+  createSpaghettiService,
+  createCodexSource,
+  defaultCodexDir,
+} <span class="c-kw">from</span> <span class="c-str">'@vibecook/spaghetti-sdk'</span>;
+
+<span class="c-kw">const</span> api = <span class="c-fn">createSpaghettiService</span>({
+  additionalSources: [<span class="c-fn">createCodexSource</span>({ rootDir: <span class="c-fn">defaultCodexDir</span>() })],
+});
+<span class="c-kw">await</span> api.<span class="c-fn">initialize</span>();
+
+api.<span class="c-fn">getSourceIds</span>();                        <span class="c-cm">// ['claude-code', 'codex']</span>
+api.<span class="c-fn">getProjectList</span>({ sourceId: <span class="c-str">'codex'</span> }); <span class="c-cm">// Codex only</span>
+
+<span class="c-kw">const</span> p = api.<span class="c-fn">getProjectList</span>().<span class="c-fn">find</span>((x) =&gt; x.sourceId === <span class="c-str">'codex'</span>)!;
+api.<span class="c-fn">getSessionList</span>(p.slug, { sourceId: p.sourceId });</code></pre>
+        </div>
+        <div class="callout">
+          <span>ⓘ</span>
+          <div>
+            <strong>Codex tokens:</strong> official usage from <code>token_count</code> events;
+            when missing, tiktoken estimates visible text and sets
+            <code>tokensEstimated: true</code> (UI shows <code>~N</code>).
+          </div>
+        </div>
       </section>
 
       <!-- Engines -->
@@ -313,12 +371,12 @@ api.<span class="c-fn">onProgress</span>((p) => {
             <div class="method-header" data-toggle>
               <span class="method-chevron">▶</span>
               <div class="method-sig">
-                <span class="name">getProjectList</span><span class="params">()</span>: <span class="ret">ProjectListItem[]</span>
+                <span class="name">getSourceIds</span><span class="params">()</span>: <span class="ret">string[]</span>
               </div>
               <span class="method-badge sync">sync</span>
             </div>
             <div class="method-body">
-              <p>All projects sorted by last active date. Includes session counts, token totals, and memory flag.</p>
+              <p>Distinct agent sources present in the index (e.g. <code>['claude-code', 'codex']</code>).</p>
             </div>
           </div>
 
@@ -326,16 +384,16 @@ api.<span class="c-fn">onProgress</span>((p) => {
             <div class="method-header" data-toggle>
               <span class="method-chevron">▶</span>
               <div class="method-sig">
-                <span class="name">getSessionList</span><span class="params">(projectSlug)</span>: <span class="ret">SessionListItem[]</span>
+                <span class="name">getProjectList</span><span class="params">(options?)</span>: <span class="ret">ProjectListItem[]</span>
               </div>
               <span class="method-badge sync">sync</span>
             </div>
             <div class="method-body">
-              <p>Sessions for a project sorted by last update. Includes first prompt, summary, branch, todos, plan, and sidechain flag.</p>
+              <p>All projects sorted by last active date. Each item includes <code>sourceId</code>, session counts, token totals, and <code>tokensEstimated</code>.</p>
               <table class="param-table">
                 <thead><tr><th>Param</th><th>Type</th><th>Description</th></tr></thead>
                 <tbody>
-                  <tr><td>projectSlug</td><td>string</td><td>Project directory slug under <code>~/.claude/projects/</code>.</td></tr>
+                  <tr><td>options.sourceId</td><td>string?</td><td>Optional filter to one agent source.</td></tr>
                 </tbody>
               </table>
             </div>
@@ -345,21 +403,55 @@ api.<span class="c-fn">onProgress</span>((p) => {
             <div class="method-header" data-toggle>
               <span class="method-chevron">▶</span>
               <div class="method-sig">
-                <span class="name">getSessionMessages</span><span class="params">(projectSlug, sessionId, limit?, offset?)</span>: <span class="ret">MessagePage</span>
+                <span class="name">getSessionList</span><span class="params">(projectSlug, options?)</span>: <span class="ret">SessionListItem[]</span>
               </div>
               <span class="method-badge sync">sync</span>
             </div>
             <div class="method-body">
-              <p>Paginated messages for a session. Message payloads preserve original Claude Code JSONL structure.</p>
+              <p>Sessions for a project sorted by last update. <strong>Pass <code>sourceId</code></strong> when multiple agents share a slug (same cwd).</p>
+              <table class="param-table">
+                <thead><tr><th>Param</th><th>Type</th><th>Description</th></tr></thead>
+                <tbody>
+                  <tr><td>projectSlug</td><td>string</td><td>Project slug (encoded path).</td></tr>
+                  <tr><td>options.sourceId</td><td>string?</td><td>Scope to one agent — required for correct multi-source drill-down.</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div class="method">
+            <div class="method-header" data-toggle>
+              <span class="method-chevron">▶</span>
+              <div class="method-sig">
+                <span class="name">getSessionMessages</span><span class="params">(projectSlug, sessionId, limit?, offset?, options?)</span>: <span class="ret">MessagePage</span>
+              </div>
+              <span class="method-badge sync">sync</span>
+            </div>
+            <div class="method-body">
+              <p>Paginated messages. Payloads preserve the source-native record (Claude JSONL or Codex rollout line). Optional <code>sourceId</code> for defense in depth.</p>
               <table class="param-table">
                 <thead><tr><th>Param</th><th>Type</th><th>Description</th></tr></thead>
                 <tbody>
                   <tr><td>projectSlug</td><td>string</td><td>Project slug.</td></tr>
                   <tr><td>sessionId</td><td>string</td><td>Session UUID.</td></tr>
-                  <tr><td>limit</td><td>number?</td><td>Page size.</td></tr>
+                  <tr><td>limit</td><td>number?</td><td>Page size (default 30).</td></tr>
                   <tr><td>offset</td><td>number?</td><td>Row offset.</td></tr>
+                  <tr><td>options.sourceId</td><td>string?</td><td>Optional agent scope.</td></tr>
                 </tbody>
               </table>
+            </div>
+          </div>
+
+          <div class="method">
+            <div class="method-header" data-toggle>
+              <span class="method-chevron">▶</span>
+              <div class="method-sig">
+                <span class="name">getProjectMemory</span><span class="params">(projectSlug, options?)</span>: <span class="ret">string | null</span>
+              </div>
+              <span class="method-badge sync">sync</span>
+            </div>
+            <div class="method-body">
+              <p>Project <code>MEMORY.md</code>. Claude-only today — returns <code>null</code> when <code>sourceId</code> is not <code>claude-code</code>.</p>
             </div>
           </div>
         </div>
@@ -693,6 +785,23 @@ dispose();</code></pre>
         </div>
       </section>
 
+      <!-- Runtime (Plane 3) -->
+      <section class="api-section" id="runtime">
+        <h2>Runtime (Plane 3)</h2>
+        <p class="section-desc">
+          <code>api.runtime</code> exposes hooks streams and channel session discovery.
+          Always attached on the default factory path; watchers start lazily on first subscribe.
+          <strong>Runtime events do not write the SQLite index</strong> — the durable store is a pure function of files on disk.
+        </p>
+        <div class="code-block">
+          <div class="code-header"><span>runtime.ts</span><button class="copy-btn" type="button" data-copy>Copy</button></div>
+          <pre><code><span class="c-kw">const</span> unsub = api.runtime?.<span class="c-fn">onHookEvent</span>((ev) =&gt; {
+  console.<span class="c-fn">log</span>(ev.hookName, ev.sessionId);
+});
+<span class="c-kw">const</span> channels = api.runtime?.<span class="c-fn">listChannelSessions</span>() ?? [];</code></pre>
+        </div>
+      </section>
+
       <!-- Types: list -->
       <section class="api-section" id="types-list">
         <h2>List &amp; page types</h2>
@@ -706,11 +815,13 @@ dispose();</code></pre>
           <div class="code-block">
             <pre><code>{
   slug: <span class="c-type">string</span>
+  sourceId: <span class="c-type">string</span>                 <span class="c-cm">// 'claude-code' | 'codex' | …</span>
   folderName: <span class="c-type">string</span>
   absolutePath: <span class="c-type">string</span>
   sessionCount: <span class="c-type">number</span>
   messageCount: <span class="c-type">number</span>
   tokenUsage: <span class="c-type">TokenUsageSummary</span>
+  tokensEstimated: <span class="c-type">boolean</span>        <span class="c-cm">// true → show "~" (tiktoken fallback)</span>
   lastActiveAt: <span class="c-type">string</span>
   firstActiveAt: <span class="c-type">string</span>
   latestGitBranch: <span class="c-type">string</span>
@@ -727,10 +838,12 @@ dispose();</code></pre>
           <div class="code-block">
             <pre><code>{
   sessionId: <span class="c-type">string</span>
+  sourceId: <span class="c-type">string</span>
   startTime: <span class="c-type">string</span>
   lastUpdate: <span class="c-type">string</span>
   lifespanMs: <span class="c-type">number</span>
   tokenUsage: <span class="c-type">TokenUsageSummary</span>
+  tokensEstimated: <span class="c-type">boolean</span>
   messageCount: <span class="c-type">number</span>
   fullPath: <span class="c-type">string</span>
   summary: <span class="c-type">string</span>
@@ -741,6 +854,16 @@ dispose();</code></pre>
   hasTask: <span class="c-type">boolean</span>
   isSidechain: <span class="c-type">boolean</span>
 }</code></pre>
+          </div>
+        </div>
+
+        <div class="type-card">
+          <div class="type-card-header">
+            <h3>SourceFilter</h3>
+            <span class="kind">interface</span>
+          </div>
+          <div class="code-block">
+            <pre><code>{ sourceId?: <span class="c-type">string</span> }</code></pre>
           </div>
         </div>
 
@@ -954,8 +1077,12 @@ dispose();</code></pre>
               <td>Claude Code source data (read-only for Spaghetti).</td>
             </tr>
             <tr>
+              <td><code>~/.codex</code></td>
+              <td>OpenAI Codex CLI data; rollouts under <code>sessions/YYYY/MM/DD/</code>.</td>
+            </tr>
+            <tr>
               <td><code>~/.spaghetti/cache/spaghetti-rs.db</code></td>
-              <td>Default SQLite index for Rust engine.</td>
+              <td>Default SQLite index for Rust engine (schema v7+).</td>
             </tr>
             <tr>
               <td><code>~/.spaghetti/cache/spaghetti-ts.db</code></td>
@@ -969,6 +1096,10 @@ dispose();</code></pre>
               <td><code>~/.spaghetti/channel/</code></td>
               <td>Live chat channel discovery (CLI chat / plugins).</td>
             </tr>
+            <tr>
+              <td><code>~/.spaghetti/hooks/</code></td>
+              <td>Hook event stream from spaghetti-hooks plugin.</td>
+            </tr>
           </tbody>
         </table>
       </section>
@@ -976,7 +1107,7 @@ dispose();</code></pre>
       <!-- Errors -->
       <section class="api-section" id="errors">
         <h2>Errors &amp; disposal</h2>
-        <p class="section-desc">Initialize throws if the Claude data directory is missing or unreadable. Live pipeline errors route through <code>errorSink</code> rather than crashing the process.</p>
+        <p class="section-desc">Initialize throws if the primary source root is missing or unreadable. Codex failures are non-fatal (additive source). Live pipeline errors route through <code>errorSink</code> rather than crashing the process.</p>
         <div class="callout">
           <span>ⓘ</span>
           <div>

@@ -13,6 +13,7 @@ import type {
   SubagentListItem,
   WorkflowListItem,
   SubagentMessagePage,
+  SourceFilter,
 } from './api.js';
 import type { ClaudeCodeAgentDataService } from './data/agent-data-service.js';
 import type { LifecycleInternal } from './data/lifecycle-owner.js';
@@ -125,20 +126,26 @@ class SpaghettiAppService extends EventEmitter implements SpaghettiAPI {
     return this.dataService.getSourceIds();
   }
 
-  getProjectList(options?: { sourceId?: string }): ProjectListItem[] {
+  getProjectList(options?: SourceFilter): ProjectListItem[] {
     const summaries = this.dataService.getProjectSummaries(options);
     summaries.sort((a, b) => (a.lastActiveAt > b.lastActiveAt ? -1 : 1));
     return summaries.map(toProjectListItem);
   }
 
-  getSessionList(projectSlug: string): SessionListItem[] {
-    const summaries = this.dataService.getSessionSummaries(projectSlug);
+  getSessionList(projectSlug: string, options?: SourceFilter): SessionListItem[] {
+    const summaries = this.dataService.getSessionSummaries(projectSlug, options);
     summaries.sort((a, b) => (a.lastUpdate > b.lastUpdate ? -1 : 1));
     return summaries.map(toSessionListItem);
   }
 
-  getSessionMessages(projectSlug: string, sessionId: string, limit = 30, offset = 0): MessagePage {
-    const result = this.dataService.getSessionMessages(projectSlug, sessionId, limit, offset);
+  getSessionMessages(
+    projectSlug: string,
+    sessionId: string,
+    limit = 30,
+    offset = 0,
+    options?: SourceFilter,
+  ): MessagePage {
+    const result = this.dataService.getSessionMessages(projectSlug, sessionId, limit, offset, options);
     return {
       messages: result.segments.map((s) => s.data),
       total: result.total,
@@ -147,8 +154,8 @@ class SpaghettiAppService extends EventEmitter implements SpaghettiAPI {
     };
   }
 
-  getProjectMemory(projectSlug: string): string | null {
-    return this.dataService.getProjectMemory(projectSlug);
+  getProjectMemory(projectSlug: string, options?: SourceFilter): string | null {
+    return this.dataService.getProjectMemory(projectSlug, options);
   }
 
   getSessionTodos(projectSlug: string, sessionId: string): unknown[] {
@@ -232,6 +239,7 @@ function toProjectListItem(data: ProjectSummaryData): ProjectListItem {
     sessionCount: data.sessionCount,
     messageCount: data.messageCount,
     tokenUsage: data.tokenUsage,
+    tokensEstimated: data.tokensEstimated,
     lastActiveAt: data.lastActiveAt,
     firstActiveAt: data.firstActiveAt,
     latestGitBranch: data.latestGitBranch,
@@ -247,6 +255,7 @@ function toSessionListItem(data: SessionSummaryData): SessionListItem {
     lastUpdate: data.lastUpdate,
     lifespanMs: data.lifespanMs,
     tokenUsage: data.tokenUsage,
+    tokensEstimated: data.tokensEstimated,
     messageCount: data.messageCount,
     fullPath: data.fullPath,
     summary: data.summary,

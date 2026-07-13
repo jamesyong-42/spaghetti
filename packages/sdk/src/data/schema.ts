@@ -20,7 +20,11 @@ import type { SqliteService } from '../io/index.js';
 // so only `projects` needs the composite key. `project_memories` stays keyed by
 // `project_slug` for now — only Claude Code writes memories, so there is no
 // cross-source collision there yet (see RFC 006 §8).
-export const SCHEMA_VERSION = 6;
+//
+// v7: `sessions.tokens_estimated` — Codex (and future sources) may fill token
+// columns via tiktoken when official usage events are missing. The flag lets
+// the UI show "~" / "est" so estimates are never mistaken for API truth.
+export const SCHEMA_VERSION = 7;
 
 export const SCHEMA_SQL = `
 -- Meta
@@ -69,7 +73,9 @@ CREATE TABLE IF NOT EXISTS sessions (
   file_mtime REAL,
   plan_slug TEXT,
   has_task INTEGER,
-  updated_at INTEGER
+  updated_at INTEGER,
+  -- 1 when message tokens were filled by a local estimate (tiktoken), not agent usage events
+  tokens_estimated INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS messages (

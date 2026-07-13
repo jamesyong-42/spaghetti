@@ -120,31 +120,41 @@ export function SearchView({ query }: SearchViewProps): React.ReactElement {
 
   const results = resultSet.results;
 
-  // Build a lookup of project slug -> folder name
+  // Build a lookup of project slug -> folder name (first match; multi-source
+  // may share slugs — session navigation resolves by sessionId below).
   const projectNames = useMemo(() => {
     const map = new Map<string, string>();
     const projects = api.getProjectList();
     for (const p of projects) {
-      map.set(p.slug, p.folderName);
+      if (!map.has(p.slug)) map.set(p.slug, p.folderName);
     }
     return map;
   }, [api]);
 
-  // Build session index + time lookup
+  // Build session index + time lookup, scoped per project source when known.
   const sessionInfo = useMemo(() => {
-    const map = new Map<string, { index: number; time: string }>();
-    // Group results by project to batch session list lookups
+    const map = new Map<string, { index: number; time: string; sourceId: string }>();
+    const projects = api.getProjectList();
     const projectSlugs = new Set<string>();
     for (const r of results) {
       if (r.projectSlug) projectSlugs.add(r.projectSlug);
     }
     for (const slug of projectSlugs) {
-      const sessions = api.getSessionList(slug);
-      for (let i = 0; i < sessions.length; i++) {
-        map.set(`${slug}/${sessions[i].sessionId}`, {
-          index: i,
-          time: sessions[i].lastUpdate,
-        });
+      // Prefer sessions from every source that owns this slug so FTS hits resolve.
+      const matching = projects.filter((p) => p.slug === slug);
+      const scopes = matching.length > 0 ? matching.map((p) => ({ sourceId: p.sourceId })) : [undefined];
+      for (const scope of scopes) {
+        const sessions = api.getSessionList(slug, scope);
+        for (let i = 0; i < sessions.length; i++) {
+          const key = `${slug}/${sessions[i].sessionId}`;
+          if (!map.has(key)) {
+            map.set(key, {
+              index: i,
+              time: sessions[i].lastUpdate,
+              sourceId: sessions[i].sourceId,
+            });
+          }
+        }
       }
     }
     return map;
@@ -166,9 +176,12 @@ export function SearchView({ query }: SearchViewProps): React.ReactElement {
         return;
       }
 
-      // Find the project
+      // Find the project — prefer the source that owns this session when known.
       const projects = api.getProjectList();
-      const project = projects.find((p) => p.slug === slug);
+      const info = sessionId ? sessionInfo.get(`${slug}/${sessionId}`) : undefined;
+      const project =
+        (info ? projects.find((p) => p.slug === slug && p.sourceId === info.sourceId) : undefined) ??
+        projects.find((p) => p.slug === slug);
       if (!project) {
         nav.pop();
         return;
@@ -186,8 +199,8 @@ export function SearchView({ query }: SearchViewProps): React.ReactElement {
         return;
       }
 
-      // Find the session index
-      const sessions = api.getSessionList(slug);
+      // Find the session index (scoped to this agent)
+      const sessions = api.getSessionList(slug, { sourceId: project.sourceId });
       const sessIdx = sessions.findIndex((s) => s.sessionId === sessionId);
       if (sessIdx < 0) {
         // Session not found — navigate to project level
@@ -224,7 +237,7 @@ export function SearchView({ query }: SearchViewProps): React.ReactElement {
       // Multi-push: pop search, push sessions + messages
       nav.popAndPush(sessionsEntry, messagesEntry);
     },
-    [api, nav],
+    [api, nav, sessionInfo],
   );
 
   // Key handling

@@ -23,7 +23,7 @@ export interface QueryService {
   /** Distinct agent sources present in the index. */
   getSourceIds(): string[];
   getProjectSummaries(options?: { sourceId?: string }): ProjectSummaryData[];
-  getSessionSummaries(projectSlug: string): SessionSummaryData[];
+  getSessionSummaries(projectSlug: string, options?: { sourceId?: string }): SessionSummaryData[];
   /**
    * Distinct `project_slug` values present in `messages` but absent
    * from `projects`. Used by warm-start recovery to detect orphaned
@@ -38,6 +38,7 @@ export interface QueryService {
     sessionId: string,
     limit: number,
     offset: number,
+    options?: { sourceId?: string },
   ): { messages: unknown[]; total: number; offset: number; hasMore: boolean };
 
   // Subagents
@@ -74,7 +75,7 @@ export interface QueryService {
   ): Array<{ agentId: string; agentType: string; messageCount: number }>;
 
   // Details
-  getProjectMemory(slug: string): string | null;
+  getProjectMemory(slug: string, options?: { sourceId?: string }): string | null;
   getSessionTodos(slug: string, sessionId: string): unknown[];
   getSessionPlan(slug: string, sessionId: string): unknown | null;
   getSessionTask(slug: string, sessionId: string): unknown | null;
@@ -109,6 +110,7 @@ interface ProjectSummaryRow {
   output_tokens: number;
   cache_creation_tokens: number;
   cache_read_tokens: number;
+  tokens_estimated: number;
   last_active_at: string;
   first_active_at: string;
   latest_git_branch: string | null;
@@ -132,6 +134,7 @@ interface SessionSummaryRow {
   output_tokens: number;
   cache_creation_tokens: number;
   cache_read_tokens: number;
+  tokens_estimated: number;
   todo_count: number;
   plan_slug: string | null;
   has_task: number;
@@ -266,10 +269,15 @@ class QueryServiceImpl implements QueryService {
         COALESCE((SELECT SUM(output_tokens) FROM messages WHERE project_slug = p.slug AND source_id = p.source_id), 0) as output_tokens,
         COALESCE((SELECT SUM(cache_creation_tokens) FROM messages WHERE project_slug = p.slug AND source_id = p.source_id), 0) as cache_creation_tokens,
         COALESCE((SELECT SUM(cache_read_tokens) FROM messages WHERE project_slug = p.slug AND source_id = p.source_id), 0) as cache_read_tokens,
+        COALESCE((SELECT MAX(tokens_estimated) FROM sessions WHERE project_slug = p.slug AND source_id = p.source_id), 0) as tokens_estimated,
         COALESCE((SELECT MAX(modified_at) FROM sessions WHERE project_slug = p.slug AND source_id = p.source_id), '1970-01-01') as last_active_at,
         COALESCE((SELECT MIN(created_at) FROM sessions WHERE project_slug = p.slug AND source_id = p.source_id), '1970-01-01') as first_active_at,
         (SELECT git_branch FROM sessions WHERE project_slug = p.slug AND source_id = p.source_id ORDER BY modified_at DESC LIMIT 1) as latest_git_branch,
-        EXISTS(SELECT 1 FROM project_memories WHERE project_slug = p.slug) as has_memory
+        CASE
+          WHEN p.source_id = 'claude-code'
+          THEN EXISTS(SELECT 1 FROM project_memories WHERE project_slug = p.slug)
+          ELSE 0
+        END as has_memory
       FROM projects p
       ${where}
     `,
@@ -279,7 +287,9 @@ class QueryServiceImpl implements QueryService {
     return rows.map((row) => this.toProjectSummary(row));
   }
 
-  getSessionSummaries(projectSlug: string): SessionSummaryData[] {
+  getSessionSummaries(projectSlug: string, options?: { sourceId?: string }): SessionSummaryData[] {
+    const sourceClause = options?.sourceId ? ' AND s.source_id = ?' : '';
+    const params: unknown[] = options?.sourceId ? [projectSlug, options.sourceId] : [projectSlug];
     const rows = this.db.all<SessionSummaryRow>(
       `
       SELECT
@@ -294,18 +304,19 @@ class QueryServiceImpl implements QueryService {
         COALESCE(s.is_sidechain, 0) as is_sidechain,
         COALESCE(s.created_at, '1970-01-01') as created_at,
         COALESCE(s.modified_at, '1970-01-01') as modified_at,
-        COALESCE((SELECT COUNT(*) FROM messages WHERE session_id = s.id AND project_slug = s.project_slug), 0) as message_count,
-        COALESCE((SELECT SUM(input_tokens) FROM messages WHERE session_id = s.id AND project_slug = s.project_slug), 0) as input_tokens,
-        COALESCE((SELECT SUM(output_tokens) FROM messages WHERE session_id = s.id AND project_slug = s.project_slug), 0) as output_tokens,
-        COALESCE((SELECT SUM(cache_creation_tokens) FROM messages WHERE session_id = s.id AND project_slug = s.project_slug), 0) as cache_creation_tokens,
-        COALESCE((SELECT SUM(cache_read_tokens) FROM messages WHERE session_id = s.id AND project_slug = s.project_slug), 0) as cache_read_tokens,
+        COALESCE((SELECT COUNT(*) FROM messages WHERE session_id = s.id AND project_slug = s.project_slug AND source_id = s.source_id), 0) as message_count,
+        COALESCE((SELECT SUM(input_tokens) FROM messages WHERE session_id = s.id AND project_slug = s.project_slug AND source_id = s.source_id), 0) as input_tokens,
+        COALESCE((SELECT SUM(output_tokens) FROM messages WHERE session_id = s.id AND project_slug = s.project_slug AND source_id = s.source_id), 0) as output_tokens,
+        COALESCE((SELECT SUM(cache_creation_tokens) FROM messages WHERE session_id = s.id AND project_slug = s.project_slug AND source_id = s.source_id), 0) as cache_creation_tokens,
+        COALESCE((SELECT SUM(cache_read_tokens) FROM messages WHERE session_id = s.id AND project_slug = s.project_slug AND source_id = s.source_id), 0) as cache_read_tokens,
+        COALESCE(s.tokens_estimated, 0) as tokens_estimated,
         COALESCE((SELECT COUNT(*) FROM todos WHERE session_id = s.id), 0) as todo_count,
         s.plan_slug,
         COALESCE(s.has_task, 0) as has_task
       FROM sessions s
-      WHERE s.project_slug = ?
+      WHERE s.project_slug = ?${sourceClause}
     `,
-      projectSlug,
+      ...params,
     );
 
     return rows.map((row) => this.toSessionSummary(row));
@@ -320,18 +331,20 @@ class QueryServiceImpl implements QueryService {
     sessionId: string,
     limit: number,
     offset: number,
+    options?: { sourceId?: string },
   ): { messages: unknown[]; total: number; offset: number; hasMore: boolean } {
+    const sourceClause = options?.sourceId ? ' AND source_id = ?' : '';
+    const baseParams: unknown[] = options?.sourceId ? [slug, sessionId, options.sourceId] : [slug, sessionId];
+
     const countRow = this.db.get<CountRow>(
-      'SELECT COUNT(*) as count FROM messages WHERE project_slug = ? AND session_id = ?',
-      slug,
-      sessionId,
+      `SELECT COUNT(*) as count FROM messages WHERE project_slug = ? AND session_id = ?${sourceClause}`,
+      ...baseParams,
     );
     const total = countRow?.count ?? 0;
 
     const rows = this.db.all<MessageDataRow>(
-      'SELECT data FROM messages WHERE project_slug = ? AND session_id = ? ORDER BY msg_index LIMIT ? OFFSET ?',
-      slug,
-      sessionId,
+      `SELECT data FROM messages WHERE project_slug = ? AND session_id = ?${sourceClause} ORDER BY msg_index LIMIT ? OFFSET ?`,
+      ...baseParams,
       limit,
       offset,
     );
@@ -464,7 +477,13 @@ class QueryServiceImpl implements QueryService {
   // Details
   // ─────────────────────────────────────────────────────────────────────────
 
-  getProjectMemory(slug: string): string | null {
+  getProjectMemory(slug: string, options?: { sourceId?: string }): string | null {
+    // project_memories is Claude-only today (no source_id column). Never
+    // surface Claude's MEMORY.md under a non-Claude project that happens to
+    // share the same slug.
+    if (options?.sourceId && options.sourceId !== 'claude-code') {
+      return null;
+    }
     const row = this.db.get<MemoryRow>('SELECT content FROM project_memories WHERE project_slug = ?', slug);
     return row?.content ?? null;
   }
@@ -655,6 +674,7 @@ class QueryServiceImpl implements QueryService {
       sessionCount: row.session_count,
       messageCount: row.message_count,
       tokenUsage,
+      tokensEstimated: !!row.tokens_estimated,
       lastActiveAt: row.last_active_at,
       firstActiveAt: row.first_active_at,
       latestGitBranch: row.latest_git_branch ?? '',
@@ -692,6 +712,7 @@ class QueryServiceImpl implements QueryService {
       lastUpdate: modifiedAt,
       lifespanMs,
       tokenUsage,
+      tokensEstimated: !!row.tokens_estimated,
       messageCount: row.message_count,
       fullPath: row.full_path ?? '',
       summary: row.summary ?? '',

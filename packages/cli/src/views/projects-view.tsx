@@ -2,15 +2,25 @@
  * ProjectsView — Scrollable list of projects
  */
 
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import { Box, Text, useInput } from 'ink';
 import type { ProjectListItem } from '@vibecook/spaghetti-sdk';
 import { useViewNav } from './context.js';
 import { useApi } from './shell.js';
 import { useListNavigation, useTerminalSize } from './hooks.js';
-import { formatTokens, formatRelativeTime, formatNumber, totalTokens } from '../lib/format.js';
+import { formatTokenUsage, formatRelativeTime, formatNumber } from '../lib/format.js';
 import { ProjectTabView } from './project-tab-view.js';
+import { TabBar } from './tab-bar.js';
 import type { ViewEntry } from './types.js';
+
+/** Short tab label for an agent source id. */
+function agentLabel(sourceId: string): string {
+  return sourceId === 'claude-code' ? 'claude' : sourceId;
+}
+
+function projectKey(p: ProjectListItem): string {
+  return `${p.sourceId}:${p.slug}`;
+}
 
 // ─── ProjectCard ───────────────────────────────────────────────────────
 
@@ -42,8 +52,9 @@ function ProjectCard({ project, firstPrompt, selected, cols }: ProjectCardProps)
   const promptText = promptFlat ? `"${promptFlat}"` : '';
   const truncatedPrompt = trunc(promptText, maxWidth - 4);
 
-  // Line 3: stats
-  const stats = `${formatNumber(p.sessionCount)} sessions \u00B7 ${formatNumber(p.messageCount)} msgs \u00B7 ${formatTokens(totalTokens(p.tokenUsage))} tokens \u00B7 ${formatRelativeTime(p.lastActiveAt)}`;
+  // Line 3: stats (tokens: "—" when the agent has no per-message counts)
+  const tok = formatTokenUsage(p.tokenUsage, p.sourceId, p.tokensEstimated);
+  const stats = `${formatNumber(p.sessionCount)} sessions \u00B7 ${formatNumber(p.messageCount)} msgs \u00B7 ${tok} tokens \u00B7 ${formatRelativeTime(p.lastActiveAt)}`;
   const truncatedStats = trunc(stats, maxWidth - 4);
 
   return (
@@ -89,33 +100,54 @@ export function ProjectsView(): React.ReactElement {
   const api = useApi();
   const { cols, rows } = useTerminalSize();
 
-  // Load data
-  const projects = useMemo(() => {
+  // Load every project across sources, most-recent first.
+  const allProjects = useMemo(() => {
     const list = api.getProjectList();
     list.sort((a, b) => new Date(b.lastActiveAt).getTime() - new Date(a.lastActiveAt).getTime());
     return list;
   }, [api]);
 
+  // Agents present, Claude first — each becomes a tab (RFC 006 multi-source).
+  const agents = useMemo(() => {
+    const ids = Array.from(new Set(allProjects.map((p) => p.sourceId)));
+    ids.sort((a, b) => (a === 'claude-code' ? -1 : b === 'claude-code' ? 1 : a.localeCompare(b)));
+    return ids;
+  }, [allProjects]);
+  const hasTabs = agents.length > 1;
+
+  const [activeTab, setActiveTab] = useState(0);
+
+  // Projects shown = the active agent's, when tabs are present.
+  const projects = useMemo(
+    () => (hasTabs ? allProjects.filter((p) => p.sourceId === agents[activeTab]) : allProjects),
+    [allProjects, agents, activeTab, hasTabs],
+  );
+
   const firstPrompts = useMemo(() => {
     const map = new Map<string, string>();
     for (const p of projects) {
-      const sess = api.getSessionList(p.slug);
+      const sess = api.getSessionList(p.slug, { sourceId: p.sourceId });
       if (sess.length > 0) {
-        map.set(p.slug, sess[0].firstPrompt || '');
+        map.set(projectKey(p), sess[0].firstPrompt || '');
       }
     }
     return map;
   }, [api, projects]);
 
-  // Viewport = terminal rows - header chrome (2 lines: breadcrumb + hrule) - footer chrome (2 lines: hrule + hints)
-  const chromeLines = 4; // header + footer
+  // Viewport = terminal rows - header/footer chrome - the agent tab bar (1 line).
+  const chromeLines = hasTabs ? 5 : 4;
   const viewportHeight = Math.max(5, rows - chromeLines);
 
-  const { selectedIndex, scrollOffset, moveUp, moveDown } = useListNavigation({
+  const { selectedIndex, scrollOffset, moveUp, moveDown, jumpTo } = useListNavigation({
     itemCount: projects.length,
     itemHeight: 4,
     viewportHeight,
   });
+
+  const switchTab = (idx: number): void => {
+    setActiveTab(idx);
+    jumpTo(0); // reset selection to the top of the new agent's list
+  };
 
   // Key handling
   useInput(
@@ -124,9 +156,14 @@ export function ProjectsView(): React.ReactElement {
         moveUp();
       } else if (key.downArrow) {
         moveDown();
+      } else if (hasTabs && key.leftArrow) {
+        switchTab(Math.max(0, activeTab - 1));
+      } else if (hasTabs && key.rightArrow) {
+        switchTab(Math.min(agents.length - 1, activeTab + 1));
       } else if (key.return) {
         if (projects.length === 0) return;
         const project = projects[selectedIndex];
+        if (!project) return;
         const entry: ViewEntry = {
           type: 'project-tabs',
           component: () => <ProjectTabView project={project} />,
@@ -141,7 +178,7 @@ export function ProjectsView(): React.ReactElement {
     { isActive: !nav.searchMode },
   );
 
-  if (projects.length === 0) {
+  if (allProjects.length === 0) {
     return (
       <Box flexDirection="column" paddingLeft={2}>
         <Text dimColor>No projects found.</Text>
@@ -155,18 +192,25 @@ export function ProjectsView(): React.ReactElement {
 
   return (
     <Box flexDirection="column">
-      {visibleProjects.map((p, i) => {
-        const actualIndex = scrollOffset + i;
-        return (
-          <ProjectCard
-            key={p.slug}
-            project={p}
-            firstPrompt={firstPrompts.get(p.slug) || ''}
-            selected={actualIndex === selectedIndex}
-            cols={cols}
-          />
-        );
-      })}
+      {hasTabs && <TabBar tabs={agents.map(agentLabel)} activeIndex={activeTab} onTabChange={switchTab} />}
+      {projects.length === 0 ? (
+        <Box paddingLeft={2}>
+          <Text dimColor>No {agentLabel(agents[activeTab])} projects.</Text>
+        </Box>
+      ) : (
+        visibleProjects.map((p, i) => {
+          const actualIndex = scrollOffset + i;
+          return (
+            <ProjectCard
+              key={projectKey(p)}
+              project={p}
+              firstPrompt={firstPrompts.get(projectKey(p)) || ''}
+              selected={actualIndex === selectedIndex}
+              cols={cols}
+            />
+          );
+        })
+      )}
     </Box>
   );
 }

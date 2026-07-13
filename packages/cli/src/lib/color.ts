@@ -21,6 +21,34 @@ export const theme = {
   session: (s: string) => pc.bold(pc.yellow(s)),
   message: (s: string) => pc.bold(pc.green(s)),
   detail: (s: string) => pc.bold(pc.magenta(s)),
+  /** Short, color-coded agent label from a `source_id` (RFC 006 multi-source). */
+  agent: (sourceId: string): string => {
+    switch (sourceId) {
+      case 'claude-code':
+        return pc.cyan('claude');
+      case 'codex':
+        return pc.magenta('codex');
+      default:
+        return pc.dim(sourceId);
+    }
+  },
+
+  /**
+   * Uppercase assistant-role label for transcript headers (TUI / messages).
+   * Claude Code → "CLAUDE", Codex → "CODEX", unknown → "ASSISTANT".
+   */
+  assistantName: (sourceId?: string): string => {
+    switch (sourceId) {
+      case 'claude-code':
+      case undefined:
+      case '':
+        return 'CLAUDE';
+      case 'codex':
+        return 'CODEX';
+      default:
+        return sourceId.replace(/-/g, ' ').toUpperCase().slice(0, 12) || 'ASSISTANT';
+    }
+  },
 
   /** Apply a named color */
   colorize: (color: string, s: string): string => {

@@ -110,7 +110,13 @@ function exportSessionAsMarkdown(session: SessionListItem, messages: SessionMess
       lines.push(extractTextContent(msg, includeTools));
       lines.push('');
     } else if (msg.type === 'assistant') {
-      lines.push('### Claude');
+      const agent =
+        session.sourceId === 'codex'
+          ? 'Codex'
+          : session.sourceId === 'claude-code'
+            ? 'Claude'
+            : session.sourceId || 'Assistant';
+      lines.push(`### ${agent}`);
       lines.push('');
       lines.push(extractTextContent(msg, includeTools));
       lines.push('');
@@ -140,7 +146,7 @@ export async function exportCommand(
   const includeTools = opts.includeTools ?? false;
 
   // Get sessions to export
-  let sessions = api.getSessionList(project.slug);
+  let sessions = api.getSessionList(project.slug, { sourceId: project.sourceId });
 
   if (opts.session) {
     // Filter to a single session
@@ -167,8 +173,9 @@ export async function exportCommand(
     parts.push(`Sessions: ${sessions.length}`);
     parts.push('');
 
+    const sourceScope = { sourceId: project.sourceId };
     for (const session of sessions) {
-      const page = api.getSessionMessages(project.slug, session.sessionId, 100000, 0);
+      const page = api.getSessionMessages(project.slug, session.sessionId, 100000, 0, sourceScope);
       parts.push(exportSessionAsMarkdown(session, page.messages, includeTools));
       parts.push('');
     }
@@ -178,9 +185,10 @@ export async function exportCommand(
   } else {
     // JSON export
     const exportedSessions: ExportedSession[] = [];
+    const sourceScope = { sourceId: project.sourceId };
 
     for (const session of sessions) {
-      const page = api.getSessionMessages(project.slug, session.sessionId, 100000, 0);
+      const page = api.getSessionMessages(project.slug, session.sessionId, 100000, 0, sourceScope);
 
       let messages = page.messages;
       if (!includeTools) {

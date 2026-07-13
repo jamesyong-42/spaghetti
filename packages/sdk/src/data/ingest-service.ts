@@ -25,6 +25,8 @@ import type { NativeAddon } from '../native.js';
 import type { IngestEngine } from '../settings.js';
 import type { MessageExtractor } from '../sources/types.js';
 import { claudeCodeMessageExtractor } from '../sources/claude-code/message-extractor.js';
+import { parseCodexTokenCount, type CodexTokenUsage } from '../sources/codex/token-usage.js';
+import { estimateTokensFromMessageRows } from '../sources/codex/estimate-tokens.js';
 import type { SourceFingerprint } from './segment-types.js';
 import { initializeSchema } from './schema.js';
 
@@ -148,8 +150,19 @@ class IngestServiceImpl implements IngestService {
   private stmtInsertTask!: PreparedStatement;
   private stmtInsertPlan!: PreparedStatement;
   private stmtUpsertFingerprint!: PreparedStatement;
+  private stmtUpdateMessageTokens!: PreparedStatement;
 
   private inTransaction = false;
+
+  /**
+   * Codex: last assistant message written per session, so a following
+   * `token_count` can attribute `last_token_usage` to that turn (ccusage style).
+   */
+  private lastAssistantBySession = new Map<string, { slug: string; msgIndex: number }>();
+  /** Codex: latest cumulative `total_token_usage` seen for a session. */
+  private lastTotalBySession = new Map<string, CodexTokenUsage>();
+  /** Codex: whether any per-turn attribution was applied for a session. */
+  private attributedTurnBySession = new Set<string>();
 
   // RFC 005 C4.3: engine pin + native addon handle for the live-ingest
   // native route. When `engine === 'rs'` and `native` is loaded,
@@ -229,8 +242,8 @@ class IngestServiceImpl implements IngestService {
     );
 
     this.stmtInsertSession = this.db.prepare(
-      `INSERT INTO sessions (id, project_slug, full_path, first_prompt, summary, git_branch, project_path, is_sidechain, created_at, modified_at, file_mtime, plan_slug, has_task, updated_at, source_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `INSERT INTO sessions (id, project_slug, full_path, first_prompt, summary, git_branch, project_path, is_sidechain, created_at, modified_at, file_mtime, plan_slug, has_task, updated_at, source_id, tokens_estimated)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(id) DO UPDATE SET
          project_slug = excluded.project_slug,
          full_path = excluded.full_path,
@@ -244,7 +257,17 @@ class IngestServiceImpl implements IngestService {
          file_mtime = excluded.file_mtime,
          plan_slug = excluded.plan_slug,
          has_task = excluded.has_task,
-         updated_at = excluded.updated_at`,
+         updated_at = excluded.updated_at,
+         tokens_estimated = excluded.tokens_estimated`,
+    );
+
+    this.stmtUpdateMessageTokens = this.db.prepare(
+      `UPDATE messages
+       SET input_tokens = ?,
+           output_tokens = ?,
+           cache_creation_tokens = ?,
+           cache_read_tokens = ?
+       WHERE session_id = ? AND msg_index = ?`,
     );
 
     this.stmtInsertMessage = this.db.prepare(
@@ -361,6 +384,10 @@ class IngestServiceImpl implements IngestService {
 
   onSession(slug: string, entry: SessionIndexEntry): void {
     const now = Date.now();
+    // Reset Codex attribution state for this session (re-ingest / new session).
+    this.lastAssistantBySession.delete(entry.sessionId);
+    this.lastTotalBySession.delete(entry.sessionId);
+    this.attributedTurnBySession.delete(entry.sessionId);
     this.stmtInsertSession.run(
       entry.sessionId,
       slug,
@@ -377,6 +404,7 @@ class IngestServiceImpl implements IngestService {
       0, // has_task — set later if found
       now,
       this.sourceId,
+      0, // tokens_estimated — set on session complete if we estimate
     );
   }
 
@@ -384,7 +412,13 @@ class IngestServiceImpl implements IngestService {
     const extracted = this.messageExtractor.extract(message);
     // null = the source's extractor declared this record a non-message row.
     // Claude Code stores a row per line, so this never fires for claude-code.
-    if (!extracted) return;
+    // Codex: non-message lines include token_count events — handle those.
+    if (!extracted) {
+      if (this.sourceId === 'codex') {
+        this.applyCodexTokenCount(slug, sessionId, message);
+      }
+      return;
+    }
     const data = JSON.stringify(message);
 
     this.stmtInsertMessage.run(
@@ -403,6 +437,109 @@ class IngestServiceImpl implements IngestService {
       byteOffset,
       this.sourceId,
     );
+
+    // Codex attributes the next token_count's last_token_usage to this turn.
+    if (this.sourceId === 'codex' && extracted.msgType === 'assistant') {
+      this.lastAssistantBySession.set(sessionId, { slug, msgIndex: index });
+    }
+  }
+
+  /**
+   * Codex: stamp turn tokens onto the most recent assistant message.
+   * Prefer `last_token_usage` (per-turn); keep cumulative total for
+   * session-complete fallback when no turn was attributed.
+   */
+  private applyCodexTokenCount(slug: string, sessionId: string, raw: unknown): void {
+    const parsed = parseCodexTokenCount(raw);
+    if (!parsed) return;
+
+    if (parsed.total) {
+      this.lastTotalBySession.set(sessionId, parsed.total);
+    }
+
+    const usage = parsed.last ?? parsed.total;
+    if (!usage) return;
+
+    const target = this.lastAssistantBySession.get(sessionId);
+    if (!target) {
+      // token_count before any assistant turn (or only rate-limits earlier).
+      // Remember total for onSessionComplete fallback.
+      return;
+    }
+
+    this.stmtUpdateMessageTokens.run(
+      usage.inputTokens,
+      usage.outputTokens,
+      usage.cacheCreationTokens,
+      usage.cacheReadTokens,
+      sessionId,
+      target.msgIndex,
+    );
+    this.attributedTurnBySession.add(sessionId);
+    // Avoid double-applying the same cumulative total if another token_count
+    // arrives before the next assistant message (duplicate snapshots).
+    // last_token_usage on a duplicate with unchanged totals is still fine to
+    // re-apply (same values); we clear the pointer only when we used total as
+    // a fallback without last.
+    if (!parsed.last && parsed.total) {
+      this.lastAssistantBySession.delete(sessionId);
+    }
+  }
+
+  private applyCodexSessionTotalFallback(sessionId: string): void {
+    if (this.attributedTurnBySession.has(sessionId)) return;
+    const total = this.lastTotalBySession.get(sessionId);
+    if (!total) return;
+    const target = this.lastAssistantBySession.get(sessionId);
+    if (!target) return;
+    this.stmtUpdateMessageTokens.run(
+      total.inputTokens,
+      total.outputTokens,
+      total.cacheCreationTokens,
+      total.cacheReadTokens,
+      sessionId,
+      target.msgIndex,
+    );
+    this.attributedTurnBySession.add(sessionId);
+    this.db.run('UPDATE sessions SET tokens_estimated = 0 WHERE id = ?', sessionId);
+  }
+
+  /**
+   * P2: when no official token_count was seen, estimate from stored text via
+   * tiktoken and mark the session `tokens_estimated = 1`.
+   */
+  private applyCodexTokenEstimate(sessionId: string): void {
+    if (this.attributedTurnBySession.has(sessionId)) {
+      this.db.run('UPDATE sessions SET tokens_estimated = 0 WHERE id = ?', sessionId);
+      return;
+    }
+
+    const rows = this.db.all<{ msg_index: number; msg_type: string; text_content: string | null }>(
+      'SELECT msg_index, msg_type, text_content FROM messages WHERE session_id = ? ORDER BY msg_index',
+      sessionId,
+    );
+    if (rows.length === 0) {
+      this.db.run('UPDATE sessions SET tokens_estimated = 0 WHERE id = ?', sessionId);
+      return;
+    }
+
+    const estimates = estimateTokensFromMessageRows(rows);
+    if (estimates.length === 0) {
+      this.db.run('UPDATE sessions SET tokens_estimated = 0 WHERE id = ?', sessionId);
+      return;
+    }
+
+    for (const e of estimates) {
+      this.stmtUpdateMessageTokens.run(
+        e.inputTokens,
+        e.outputTokens,
+        e.cacheCreationTokens,
+        e.cacheReadTokens,
+        sessionId,
+        e.msgIndex,
+      );
+    }
+    this.db.run('UPDATE sessions SET tokens_estimated = 1 WHERE id = ?', sessionId);
   }
 
   onSubagent(slug: string, sessionId: string, transcript: SubagentTranscript): void {
@@ -470,8 +607,20 @@ class IngestServiceImpl implements IngestService {
     this.stmtInsertPlan.run(slug, plan.title, plan.content, plan.size, now);
   }
 
-  onSessionComplete(_slug: string, _sessionId: string, _messageCount: number, _lastBytePosition: number): void {
-    // No-op for now. Could be used to update byte_position on source_files.
+  onSessionComplete(_slug: string, sessionId: string, _messageCount: number, _lastBytePosition: number): void {
+    // Codex: prefer official token_count (per-turn or cumulative fallback);
+    // otherwise tiktoken-estimate visible text and mark tokens_estimated.
+    if (this.sourceId === 'codex') {
+      this.applyCodexSessionTotalFallback(sessionId);
+      if (!this.attributedTurnBySession.has(sessionId)) {
+        this.applyCodexTokenEstimate(sessionId);
+      } else {
+        this.db.run('UPDATE sessions SET tokens_estimated = 0 WHERE id = ?', sessionId);
+      }
+      this.lastAssistantBySession.delete(sessionId);
+      this.lastTotalBySession.delete(sessionId);
+      this.attributedTurnBySession.delete(sessionId);
+    }
   }
 
   onProjectComplete(_slug: string): void {

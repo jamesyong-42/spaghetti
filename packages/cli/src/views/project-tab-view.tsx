@@ -44,16 +44,19 @@ function renderMarkdownLines(content: string): React.ReactElement[] {
 // ─── MemoryPanel ──────────────────────────────────────────────────────
 
 interface MemoryPanelProps {
-  projectSlug: string;
+  project: ProjectListItem;
 }
 
-function MemoryPanel({ projectSlug }: MemoryPanelProps): React.ReactElement {
+function MemoryPanel({ project }: MemoryPanelProps): React.ReactElement {
   const api = useApi();
   const nav = useViewNav();
   const { stdout } = useStdout();
   const termRows = stdout?.rows ?? 24;
 
-  const content = useMemo(() => api.getProjectMemory(projectSlug), [api, projectSlug]);
+  const content = useMemo(
+    () => api.getProjectMemory(project.slug, { sourceId: project.sourceId }),
+    [api, project.slug, project.sourceId],
+  );
   const lines = useMemo(() => (content ? renderMarkdownLines(content) : []), [content]);
 
   const [scrollOffset, setScrollOffset] = useState(0);
@@ -115,7 +118,7 @@ export function ProjectTabView({ project }: ProjectTabViewProps): React.ReactEle
     <Box flexDirection="column">
       <TabBar tabs={[...TABS]} activeIndex={activeTab} onTabChange={setActiveTab} breadcrumb={project.folderName} />
       <HRule />
-      {activeTab === 0 ? <SessionsView project={project} /> : <MemoryPanel projectSlug={project.slug} />}
+      {activeTab === 0 ? <SessionsView project={project} /> : <MemoryPanel project={project} />}
     </Box>
   );
 }

@@ -17,7 +17,9 @@ import { useViewNav } from './context.js';
 import { HRule } from './chrome.js';
 import { useApi } from './shell.js';
 import { formatTokens, formatRelativeTime, formatDuration } from '../lib/format.js';
+import { theme } from '../lib/color.js';
 import { renderMarkdownText } from '../lib/message-render.js';
+import { adaptMessagesForDisplay } from '../lib/source-messages.js';
 import {
   buildDisplayItems,
   applyDisplayFilters,
@@ -50,10 +52,27 @@ const COLORS = {
   userLabelDim: 36,
   userText: 36,
   userTextSelected: 79,
+  /** Default assistant accent (Claude peach); Codex uses magenta family. */
   claudeLabel: 216,
   claudeLabelDim: 173,
+  codexLabel: 213,
+  codexLabelDim: 170,
+  assistantLabel: 116,
+  assistantLabelDim: 73,
   timestamp: 248,
 };
+
+/** Accent colors for the assistant header bar/label by agent source. */
+function assistantColors(sourceId: string): { bright: number; dim: number } {
+  switch (sourceId) {
+    case 'codex':
+      return { bright: COLORS.codexLabel, dim: COLORS.codexLabelDim };
+    case 'claude-code':
+      return { bright: COLORS.claudeLabel, dim: COLORS.claudeLabelDim };
+    default:
+      return { bright: COLORS.assistantLabel, dim: COLORS.assistantLabelDim };
+  }
+}
 
 function stripAnsi(s: string): string {
   // eslint-disable-next-line no-control-regex
@@ -150,11 +169,20 @@ function buildUserLines(msg: SessionMessage, bodyLines: string[], cols: number, 
   return out;
 }
 
-function buildAssistantLines(msg: SessionMessage, bodyLines: string[], cols: number, selected: boolean): string[] {
-  const barColor = selected ? COLORS.claudeLabel : COLORS.claudeLabelDim;
-  const labelColor = selected ? COLORS.claudeLabel : COLORS.claudeLabelDim;
+function buildAssistantLines(
+  msg: SessionMessage,
+  bodyLines: string[],
+  cols: number,
+  selected: boolean,
+  sourceId: string,
+): string[] {
+  const colors = assistantColors(sourceId);
+  const barColor = selected ? colors.bright : colors.dim;
+  const labelColor = selected ? colors.bright : colors.dim;
   const timestamp = 'timestamp' in msg && (msg as any).timestamp ? formatRelativeTime((msg as any).timestamp) : '';
-  const header = `${selected ? BOLD : ''}${fg256(labelColor)}CLAUDE${RESET}  ${fg256(COLORS.timestamp)}${timestamp}${RESET}`;
+  // Source-aware label (was hardcoded CLAUDE — wrong for Codex / multi-agent).
+  const label = theme.assistantName(sourceId);
+  const header = `${selected ? BOLD : ''}${fg256(labelColor)}${label}${RESET}  ${fg256(COLORS.timestamp)}${timestamp}${RESET}`;
 
   const out: string[] = [buildAccentBar(cols, barColor), header];
   for (const line of bodyLines) {
@@ -303,12 +331,18 @@ function buildSystemLine(msg: SessionMessage, cols: number, selected: boolean): 
   return `${prefix} ${symbol} ${styledText}`;
 }
 
-function buildItemLines(item: DisplayItem, bodyLines: string[] | null, cols: number, selected: boolean): string[] {
+function buildItemLines(
+  item: DisplayItem,
+  bodyLines: string[] | null,
+  cols: number,
+  selected: boolean,
+  sourceId: string,
+): string[] {
   if (item.kind === 'tool-call') return [buildToolCallLine(item, cols, selected)];
   if (item.kind === 'thinking') return [buildThinkingLine(item, cols, selected)];
   const msg = item.msg;
   if (msg.type === 'user') return buildUserLines(msg, bodyLines ?? [], cols, selected);
-  if (msg.type === 'assistant') return buildAssistantLines(msg, bodyLines ?? [], cols, selected);
+  if (msg.type === 'assistant') return buildAssistantLines(msg, bodyLines ?? [], cols, selected, sourceId);
   return [buildSystemLine(msg, cols, selected)];
 }
 
@@ -402,17 +436,19 @@ export function MessagesView({
   const [loadedOffsetLow, setLoadedOffsetLow] = useState(0);
   const [totalCount, setTotalCount] = useState(0);
 
+  const sourceScope = useMemo(() => ({ sourceId: project.sourceId }), [project.sourceId]);
+
   // Initial load
   useEffect(() => {
-    const probe = api.getSessionMessages(project.slug, session.sessionId, 1, 0);
+    const probe = api.getSessionMessages(project.slug, session.sessionId, 1, 0, sourceScope);
     const total = probe.total;
     setTotalCount(total);
 
     const startOffset = Math.max(0, total - PAGE_SIZE);
-    const page = api.getSessionMessages(project.slug, session.sessionId, PAGE_SIZE, startOffset);
-    setAllMessages(page.messages);
+    const page = api.getSessionMessages(project.slug, session.sessionId, PAGE_SIZE, startOffset, sourceScope);
+    setAllMessages(adaptMessagesForDisplay(page.messages, project.sourceId));
     setLoadedOffsetLow(startOffset);
-  }, [api, project.slug, session.sessionId]);
+  }, [api, project.slug, project.sourceId, session.sessionId, sourceScope]);
 
   const allDisplayItems = useMemo(() => buildDisplayItems(allMessages), [allMessages]);
   const displayItems = useMemo(() => applyDisplayFilters(allDisplayItems, filters), [allDisplayItems, filters]);
@@ -451,14 +487,16 @@ export function MessagesView({
 
   // Flattened line stream (selection-independent). Selected item's lines are
   // patched in at render time so selection changes are cheap.
+  const sourceId = project.sourceId;
+
   const allLinesUnselected = useMemo<string[]>(() => {
     const out: string[] = [];
     displayItems.forEach((item, idx) => {
-      const lines = buildItemLines(item, itemBodyLines[idx], innerCols, false);
+      const lines = buildItemLines(item, itemBodyLines[idx], innerCols, false, sourceId);
       for (const text of lines) out.push(text);
     });
     return out;
-  }, [displayItems, itemBodyLines, innerCols]);
+  }, [displayItems, itemBodyLines, innerCols, sourceId]);
 
   const [selectedIndex, setSelectedIndex] = useState(initialIndex ?? 0);
   const [scrollLines, setScrollLines] = useState(0);
@@ -466,8 +504,8 @@ export function MessagesView({
   const selectedItemLines = useMemo<string[]>(() => {
     const item = displayItems[selectedIndex];
     if (!item) return [];
-    return buildItemLines(item, itemBodyLines[selectedIndex] ?? null, innerCols, true);
-  }, [displayItems, itemBodyLines, innerCols, selectedIndex]);
+    return buildItemLines(item, itemBodyLines[selectedIndex] ?? null, innerCols, true, sourceId);
+  }, [displayItems, itemBodyLines, innerCols, selectedIndex, sourceId]);
 
   // Viewport budget in lines (filter chips + hrule + footer reserved).
   const viewportLines = Math.max(termRows - 8, 5);
@@ -539,10 +577,10 @@ export function MessagesView({
     const fetchSize = loadedOffsetLow - nextOffset;
     if (fetchSize <= 0) return;
 
-    const olderPage = api.getSessionMessages(project.slug, session.sessionId, fetchSize, nextOffset);
+    const olderPage = api.getSessionMessages(project.slug, session.sessionId, fetchSize, nextOffset, sourceScope);
     setLoadedOffsetLow(nextOffset);
-    setAllMessages((prev) => [...olderPage.messages, ...prev]);
-  }, [api, project.slug, session.sessionId, loadedOffsetLow]);
+    setAllMessages((prev) => [...adaptMessagesForDisplay(olderPage.messages, project.sourceId), ...prev]);
+  }, [api, project.slug, project.sourceId, session.sessionId, loadedOffsetLow, sourceScope]);
 
   // Build filter chips + count label for display within this view
   const total = allDisplayItems.length;

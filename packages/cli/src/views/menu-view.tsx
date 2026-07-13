@@ -7,6 +7,7 @@
 
 import React, { useMemo } from 'react';
 import { Box, Text, useInput } from 'ink';
+import { sourceDisplayName, sourceDisplayRoot, sourceReportsPerMessageTokens } from '@vibecook/spaghetti-sdk';
 import { useViewNav } from './context.js';
 import { useApi } from './shell.js';
 import { useListNavigation, useTerminalSize } from './hooks.js';
@@ -69,7 +70,7 @@ export function MenuView(): React.ReactElement {
   const { cols } = useTerminalSize();
 
   // Load aggregate data for stats display
-  const { panelStats, dataSize, queryMs, projectCount, tokenStr, pluginStatStr } = useMemo(() => {
+  const { panelStats, dataSize, queryMs, projectCount, tokenStr, pluginStatStr, sourceIds } = useMemo(() => {
     const t0 = performance.now();
     const projects = api.getProjectList();
     const elapsed = Math.round(performance.now() - t0);
@@ -77,17 +78,21 @@ export function MenuView(): React.ReactElement {
     let sessions = 0;
     let messages = 0;
     let tokens = 0;
+    let anyTokenSource = false;
     for (const p of projects) {
       sessions += p.sessionCount;
       messages += p.messageCount;
-      tokens += totalTokens(p.tokenUsage);
+      if (sourceReportsPerMessageTokens(p.sourceId)) {
+        anyTokenSource = true;
+        tokens += totalTokens(p.tokenUsage);
+      }
     }
 
     const stats: WelcomePanelStats = {
       projects: projects.length,
       sessions,
       messages,
-      tokens: formatTokens(tokens),
+      tokens: anyTokenSource || projects.length === 0 ? formatTokens(tokens) : '—',
     };
 
     const s = api.getStats();
@@ -106,16 +111,26 @@ export function MenuView(): React.ReactElement {
       dataSize: formatBytes(s.dbSizeBytes),
       queryMs: elapsed,
       projectCount: projects.length,
-      tokenStr: formatTokens(tokens),
+      tokenStr: anyTokenSource || projects.length === 0 ? formatTokens(tokens) : '—',
       pluginStatStr: pluginStat,
+      sourceIds: api.getSourceIds(),
     };
   }, [api]);
+
+  // Agent-aware labels (RFC 006 multi-source): reflect whichever agents are
+  // actually indexed rather than assuming Claude Code.
+  const agentIds = sourceIds.length > 0 ? sourceIds : ['claude-code'];
+  const projectsDescription =
+    agentIds.length > 1
+      ? `Browse project conversations across ${agentIds.map(sourceDisplayName).join(' + ')}`
+      : `Browse ${sourceDisplayName(agentIds[0])} project conversations`;
+  const dataPath = agentIds.map(sourceDisplayRoot).join(' + ');
 
   // Menu items
   const menuItems = [
     {
       name: 'Projects',
-      description: 'Browse all Claude Code project conversations',
+      description: projectsDescription,
       rightStat: `${projectCount} projects`,
     },
     {
@@ -150,6 +165,7 @@ export function MenuView(): React.ReactElement {
             type: 'projects',
             component: ProjectsView,
             breadcrumb: 'Projects',
+            hints: agentIds.length > 1 ? '↑↓ navigate  ←→ switch agent  ⏎ open  Esc back' : undefined,
           };
           nav.push(entry);
         } else if (selectedIndex === 1) {
@@ -198,7 +214,7 @@ export function MenuView(): React.ReactElement {
 
   return (
     <Box flexDirection="column">
-      <WelcomePanel stats={panelStats} dataPath="~/.claude" dataSize={dataSize} initMs={queryMs} />
+      <WelcomePanel stats={panelStats} dataPath={dataPath} dataSize={dataSize} initMs={queryMs} />
       {menuItems.map((item, i) => (
         <MenuItem
           key={item.name}

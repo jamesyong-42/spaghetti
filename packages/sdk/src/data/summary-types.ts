@@ -18,6 +18,11 @@ export interface SessionSummaryData {
   lastUpdate: string;
   lifespanMs: number;
   tokenUsage: TokenUsageSummary;
+  /**
+   * True when tokenUsage was filled by a local estimate (e.g. tiktoken on
+   * Codex text) rather than agent-emitted usage events. UI should show "~".
+   */
+  tokensEstimated: boolean;
   messageCount: number;
   fullPath: string;
   summary: string;
@@ -38,6 +43,11 @@ export interface ProjectSummaryData {
   sessionCount: number;
   messageCount: number;
   tokenUsage: TokenUsageSummary;
+  /**
+   * True when any session under this project has estimated tokens (and no
+   * fully official-only mix — currently true if MAX(tokens_estimated)=1).
+   */
+  tokensEstimated: boolean;
   lastActiveAt: string;
   firstActiveAt: string;
   latestGitBranch: string;

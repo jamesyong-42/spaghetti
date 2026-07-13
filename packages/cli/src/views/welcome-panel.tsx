@@ -87,7 +87,7 @@ export function WelcomePanel({ stats, dataPath, dataSize, initMs }: WelcomePanel
     '  ▀▄▄ █▀▀ █▀█ █ █ █▀█ █▀   █   █  █',
     '  ▄▄▀ █   █ █ ▀▀▀ ▀ ▀ ▀▀▀  ▀   ▀  ▀',
   ];
-  const tagline = '  untangle your claude code history';
+  const tagline = '  untangle your agent history';
   const perfLine = `  ${dataPath} · ${dataSize}${initMs > 0 ? ` · ${initMs}ms` : ''}`;
 
   // Right column lines (if shown)

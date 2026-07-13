@@ -149,8 +149,9 @@ export class SpaghettiDataService extends EventEmitter implements ClaudeCodeAgen
     sessionId: string,
     limit: number,
     offset: number,
+    options?: { sourceId?: string },
   ): PaginatedSegmentResult<SessionMessage> {
-    const result = this.store.getSessionMessages(slug, sessionId, limit, offset);
+    const result = this.store.getSessionMessages(slug, sessionId, limit, offset, options);
     const segments: Segment<SessionMessage>[] = result.messages.map((msg, i) => ({
       key: `message:${slug}/${sessionId}/${offset + i}`,
       type: 'message' as SegmentType,
@@ -180,12 +181,12 @@ export class SpaghettiDataService extends EventEmitter implements ClaudeCodeAgen
     return this.store.getProjectSummaries(options);
   }
 
-  getSessionSummaries(projectSlug: string): SessionSummaryData[] {
-    return this.store.getSessionSummaries(projectSlug);
+  getSessionSummaries(projectSlug: string, options?: { sourceId?: string }): SessionSummaryData[] {
+    return this.store.getSessionSummaries(projectSlug, options);
   }
 
-  getProjectMemory(slug: string): string | null {
-    return this.store.getProjectMemory(slug);
+  getProjectMemory(slug: string, options?: { sourceId?: string }): string | null {
+    return this.store.getProjectMemory(slug, options);
   }
 
   getSessionTodos(slug: string, sessionId: string): unknown[] {

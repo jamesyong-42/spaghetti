@@ -4,12 +4,40 @@
  * Ported and expanded from @spaghetti/ui formatters.
  */
 
+import { sourceReportsPerMessageTokens } from '@vibecook/spaghetti-sdk';
 import { theme } from './color.js';
 
 export function formatTokens(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
   if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
   return String(n);
+}
+
+/**
+ * Format token usage for display.
+ * - `tokensEstimated`: prefix with "~" so local estimates aren't read as
+ *   API-accurate counts (Codex tiktoken fallback).
+ * - `sourceId` without per-message tokens still shows "—" when nothing
+ *   was attributed (legacy sources).
+ */
+export function formatTokenUsage(
+  usage: {
+    inputTokens: number;
+    outputTokens: number;
+    cacheCreationTokens: number;
+    cacheReadTokens: number;
+  },
+  sourceId?: string,
+  tokensEstimated?: boolean,
+): string {
+  const n = totalTokens(usage);
+  if (tokensEstimated) {
+    return n > 0 ? `~${formatTokens(n)}` : '—';
+  }
+  if (sourceId && !sourceReportsPerMessageTokens(sourceId)) {
+    return '—';
+  }
+  return formatTokens(n);
 }
 
 export function formatBytes(n: number): string {

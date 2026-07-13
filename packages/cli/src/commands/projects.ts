@@ -4,7 +4,8 @@
 
 import type { SpaghettiAPI, ProjectListItem } from '@vibecook/spaghetti-sdk';
 import { theme } from '../lib/color.js';
-import { formatTokens, formatRelativeTime, formatNumber, totalTokens } from '../lib/format.js';
+import { formatTokens, formatTokenUsage, formatRelativeTime, formatNumber, totalTokens } from '../lib/format.js';
+import { sourceReportsPerMessageTokens } from '@vibecook/spaghetti-sdk';
 import { renderTable } from '../lib/table.js';
 import type { Column } from '../lib/table.js';
 
@@ -76,6 +77,12 @@ export async function projectsCommand(api: SpaghettiAPI, opts: ProjectsOptions):
       format: (v: any) => theme.project(String(v)),
     },
     {
+      key: 'sourceId',
+      label: 'Agent',
+      width: 8,
+      format: (v: any) => theme.agent(String(v)),
+    },
+    {
       key: 'sessionCount',
       label: 'Sessions',
       width: 10,
@@ -90,14 +97,11 @@ export async function projectsCommand(api: SpaghettiAPI, opts: ProjectsOptions):
       format: (v: any) => formatNumber(Number(v)),
     },
     {
-      key: 'tokenUsage',
+      key: '_tokens',
       label: 'Tokens',
       width: 10,
       align: 'right',
-      format: (v: any) => {
-        const usage = v as ProjectListItem['tokenUsage'];
-        return theme.tokens(formatTokens(totalTokens(usage)));
-      },
+      format: (v: any) => theme.tokens(String(v)),
     },
     {
       key: 'lastActiveAt',
@@ -108,23 +112,32 @@ export async function projectsCommand(api: SpaghettiAPI, opts: ProjectsOptions):
     },
   ];
 
-  // Add index to data
-  const rows = projects.map((p: any, i: number) => ({ ...p, _index: i + 1 }));
+  // Add index + pre-formatted tokens (Codex shows "—")
+  const rows = projects.map((p: ProjectListItem, i: number) => ({
+    ...p,
+    _index: i + 1,
+    _tokens: formatTokenUsage(p.tokenUsage, p.sourceId, p.tokensEstimated),
+  }));
 
   const table = renderTable(rows, columns);
 
-  // Summary footer
+  // Summary footer — only sum tokens from sources that report them
   let totalSessions = 0;
   let totalMessages = 0;
   let totalTok = 0;
+  let anyTokenSource = false;
   for (const p of projects) {
     totalSessions += p.sessionCount;
     totalMessages += p.messageCount;
-    totalTok += totalTokens(p.tokenUsage);
+    if (sourceReportsPerMessageTokens(p.sourceId)) {
+      anyTokenSource = true;
+      totalTok += totalTokens(p.tokenUsage);
+    }
   }
 
+  const tokFooter = anyTokenSource ? `${formatTokens(totalTok)} tokens` : 'tokens n/a';
   const footer = theme.muted(
-    `  ${projects.length} projects \u00b7 ${formatNumber(totalSessions)} sessions \u00b7 ${formatNumber(totalMessages)} messages \u00b7 ${formatTokens(totalTok)} tokens`,
+    `  ${projects.length} projects \u00b7 ${formatNumber(totalSessions)} sessions \u00b7 ${formatNumber(totalMessages)} messages \u00b7 ${tokFooter}`,
   );
 
   process.stdout.write('\n' + table + '\n\n' + footer + '\n\n');
