@@ -23,6 +23,8 @@ import type { Change } from '../live/change-events.js';
 import type { ParsedRow, ParsedRowCategory } from '../live/incremental-parser.js';
 import type { NativeAddon } from '../native.js';
 import type { IngestEngine } from '../settings.js';
+import type { MessageExtractor } from '../sources/types.js';
+import { claudeCodeMessageExtractor } from '../sources/claude-code/message-extractor.js';
 import type { SourceFingerprint } from './segment-types.js';
 import { initializeSchema } from './schema.js';
 
@@ -117,138 +119,13 @@ interface SourceFileRow {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// TEXT EXTRACTION (for FTS)
+// MESSAGE EXTRACTION
 // ═══════════════════════════════════════════════════════════════════════════
-
-const MAX_TEXT_LENGTH = 2_000;
-
-function truncate(text: string): string {
-  if (text.length <= MAX_TEXT_LENGTH) return text;
-  return text.substring(0, MAX_TEXT_LENGTH);
-}
-
-/**
- * Extract searchable text content from a SessionMessage for FTS indexing.
- * Handles user messages (text content), assistant messages (text blocks),
- * and tool_use blocks (tool name + input summary).
- */
-function extractTextContent(message: SessionMessage): string {
-  const textParts: string[] = [];
-  const msg = message as unknown as Record<string, unknown>;
-  const msgType = msg.type as string | undefined;
-
-  if (msgType === 'user') {
-    const payload = msg.message as Record<string, unknown> | undefined;
-    if (payload) {
-      const content = payload.content;
-      if (typeof content === 'string') {
-        textParts.push(content);
-      } else if (Array.isArray(content)) {
-        for (const block of content) {
-          const b = block as Record<string, unknown>;
-          if (b.type === 'text' && typeof b.text === 'string') {
-            textParts.push(b.text);
-          } else if (b.type === 'tool_result') {
-            const rc = b.content;
-            if (typeof rc === 'string') {
-              textParts.push(rc);
-            } else if (Array.isArray(rc)) {
-              for (const r of rc) {
-                const rb = r as Record<string, unknown>;
-                if (rb.type === 'text' && typeof rb.text === 'string') {
-                  textParts.push(rb.text);
-                }
-              }
-            }
-          }
-        }
-      }
-    }
-  } else if (msgType === 'assistant') {
-    const payload = msg.message as Record<string, unknown> | undefined;
-    if (payload) {
-      const content = payload.content;
-      if (Array.isArray(content)) {
-        for (const block of content) {
-          const b = block as Record<string, unknown>;
-          if (b.type === 'text' && typeof b.text === 'string') {
-            textParts.push(b.text);
-          } else if (b.type === 'tool_use') {
-            const toolName = b.name as string | undefined;
-            if (toolName) textParts.push(`[tool:${toolName}]`);
-          }
-        }
-      }
-    }
-  } else if (msgType === 'summary') {
-    const summary = msg.summary as string | undefined;
-    if (summary) textParts.push(summary);
-  } else if (msgType === 'ai-title') {
-    // The model-generated session title — searchable so a query can
-    // find a session by its title.
-    const aiTitle = msg.aiTitle as string | undefined;
-    if (aiTitle) textParts.push(aiTitle);
-  } else if (msgType === 'system') {
-    // Several system subtypes carry prose (away_summary recap,
-    // local_command, compact boundaries); index whatever `content` holds.
-    const content = msg.content as string | undefined;
-    if (content) textParts.push(content);
-  }
-
-  return truncate(textParts.join('\n'));
-}
-
-/**
- * Extract token usage from an assistant message.
- */
-function extractTokens(message: SessionMessage): {
-  inputTokens: number;
-  outputTokens: number;
-  cacheCreationTokens: number;
-  cacheReadTokens: number;
-} {
-  const msg = message as unknown as Record<string, unknown>;
-  const defaults = { inputTokens: 0, outputTokens: 0, cacheCreationTokens: 0, cacheReadTokens: 0 };
-
-  if (msg.type !== 'assistant') return defaults;
-
-  const payload = msg.message as Record<string, unknown> | undefined;
-  if (!payload) return defaults;
-
-  const usage = payload.usage as Record<string, unknown> | undefined;
-  if (!usage) return defaults;
-
-  return {
-    inputTokens: typeof usage.input_tokens === 'number' ? usage.input_tokens : 0,
-    outputTokens: typeof usage.output_tokens === 'number' ? usage.output_tokens : 0,
-    cacheCreationTokens: typeof usage.cache_creation_input_tokens === 'number' ? usage.cache_creation_input_tokens : 0,
-    cacheReadTokens: typeof usage.cache_read_input_tokens === 'number' ? usage.cache_read_input_tokens : 0,
-  };
-}
-
-/**
- * Extract the message type string from a SessionMessage.
- */
-function extractMsgType(message: SessionMessage): string {
-  const msg = message as unknown as Record<string, unknown>;
-  return typeof msg.type === 'string' ? msg.type : 'unknown';
-}
-
-/**
- * Extract uuid from a SessionMessage.
- */
-function extractUuid(message: SessionMessage): string | null {
-  const msg = message as unknown as Record<string, unknown>;
-  return typeof msg.uuid === 'string' ? msg.uuid : null;
-}
-
-/**
- * Extract timestamp from a SessionMessage.
- */
-function extractTimestamp(message: SessionMessage): string | null {
-  const msg = message as unknown as Record<string, unknown>;
-  return typeof msg.timestamp === 'string' ? msg.timestamp : null;
-}
+//
+// Relocated to `sources/claude-code/message-extractor.ts` (RFC 006). The stored
+// projection (msg_type / text_content / token columns / uuid / timestamp) is now
+// produced by `source.messages.extract(record)` — see IngestServiceImpl's
+// `messageExtractor` field, which defaults to `claudeCodeMessageExtractor`.
 
 // ═══════════════════════════════════════════════════════════════════════════
 // IMPLEMENTATION
@@ -282,6 +159,7 @@ class IngestServiceImpl implements IngestService {
   // connection against the same file.
   private readonly engine: IngestEngine;
   private readonly native: NativeAddon | null;
+  private readonly messageExtractor: MessageExtractor;
   private dbPath: string | null = null;
 
   /**
@@ -302,6 +180,7 @@ class IngestServiceImpl implements IngestService {
     this.db = sqliteServiceFactory();
     this.engine = options?.engine ?? 'ts';
     this.native = options?.native ?? null;
+    this.messageExtractor = options?.messages ?? claudeCodeMessageExtractor;
   }
 
   open(dbPath: string): void {
@@ -499,26 +378,25 @@ class IngestServiceImpl implements IngestService {
   }
 
   onMessage(slug: string, sessionId: string, message: SessionMessage, index: number, byteOffset: number): void {
-    const msgType = extractMsgType(message);
-    const uuid = extractUuid(message);
-    const timestamp = extractTimestamp(message);
-    const textContent = extractTextContent(message);
-    const tokens = extractTokens(message);
+    const extracted = this.messageExtractor.extract(message);
+    // null = the source's extractor declared this record a non-message row.
+    // Claude Code stores a row per line, so this never fires for claude-code.
+    if (!extracted) return;
     const data = JSON.stringify(message);
 
     this.stmtInsertMessage.run(
       slug,
       sessionId,
       index,
-      msgType,
-      uuid,
-      timestamp,
+      extracted.msgType,
+      extracted.uuid,
+      extracted.timestamp,
       data,
-      tokens.inputTokens,
-      tokens.outputTokens,
-      tokens.cacheCreationTokens,
-      tokens.cacheReadTokens,
-      textContent,
+      extracted.tokens.inputTokens,
+      extracted.tokens.outputTokens,
+      extracted.tokens.cacheCreationTokens,
+      extracted.tokens.cacheReadTokens,
+      extracted.text,
       byteOffset,
     );
   }
@@ -792,7 +670,10 @@ class IngestServiceImpl implements IngestService {
     // fallback visible without spamming.
     if (this.engine === 'rs' && this.native && this.dbPath) {
       try {
-        this.native.liveIngestBatch(this.dbPath, rows.map(parsedRowToNativeLiveRow));
+        this.native.liveIngestBatch(
+          this.dbPath,
+          rows.map((r) => parsedRowToNativeLiveRow(r, this.messageExtractor)),
+        );
         return { changes: buildChangesFromRows(rows), durationMs: Date.now() - startedAt };
       } catch (err) {
         if (!this.nativeFallbackLogged) {
@@ -924,6 +805,12 @@ export interface CreateIngestServiceOptions {
    * `writeBatch` stays on the TS path.
    */
   native?: NativeAddon | null;
+  /**
+   * The source's message extractor (RFC 006). Defaults to
+   * {@link claudeCodeMessageExtractor}. A second `AgentSource` passes its own so
+   * the ingest writer never learns that source's message envelope.
+   */
+  messages?: MessageExtractor;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -942,7 +829,10 @@ export interface CreateIngestServiceOptions {
  * raw JSONL — pre-extracting on the TS side keeps the Rust path a pure
  * parameter bind.
  */
-function parsedRowToNativeLiveRow(row: ParsedRow): {
+function parsedRowToNativeLiveRow(
+  row: ParsedRow,
+  extractor: MessageExtractor,
+): {
   category: string;
   slug?: string;
   sessionId?: string;
@@ -950,14 +840,22 @@ function parsedRowToNativeLiveRow(row: ParsedRow): {
 } {
   switch (row.category) {
     case 'message': {
-      // Mirrors the per-field extraction `onMessage` performs for the
-      // TS path — we compute once here so the Rust writer can bind
-      // directly without re-parsing the raw JSONL.
-      const msgType = extractMsgType(row.message);
-      const uuid = extractUuid(row.message);
-      const timestamp = extractTimestamp(row.message);
-      const tokens = extractTokens(row.message);
-      const ftsText = extractTextContent(row.message);
+      // Mirrors the per-field extraction `onMessage` performs for the TS path
+      // — the source's extractor runs once here so the Rust writer can bind
+      // directly without re-parsing the raw JSONL. The `??` fallbacks are dead
+      // code for claude-code (its extractor yields a projection per line); they
+      // guard a future source whose extractor skips non-message rows.
+      const extracted = extractor.extract(row.message);
+      const msgType = extracted?.msgType ?? 'unknown';
+      const uuid = extracted?.uuid ?? null;
+      const timestamp = extracted?.timestamp ?? null;
+      const tokens = extracted?.tokens ?? {
+        inputTokens: 0,
+        outputTokens: 0,
+        cacheCreationTokens: 0,
+        cacheReadTokens: 0,
+      };
+      const ftsText = extracted?.text ?? '';
       const payload = {
         msgIndex: row.msgIndex,
         byteOffset: row.byteOffset,
