@@ -9,6 +9,8 @@
  * `docs/PR-PLAN-THREE-PLANE-SHAPE.md`.
  */
 
+import type { RouteResult } from '../live/router.js';
+
 /** Stable id for a supported agent product. Extend as sources land. */
 export type AgentSourceId = 'claude-code';
 
@@ -51,4 +53,13 @@ export interface AgentSource {
   readonly stateDir: string;
   /** Derived absolute paths for common subtrees. */
   readonly paths: AgentSourcePaths;
+  /**
+   * Classify an absolute path under this source's root into a normalized
+   * `Category` (session / subagent / tool_result / …). This is the seam that
+   * makes file-layout knowledge a property of the source: the live plane calls
+   * `source.classify(path)` rather than assuming Claude Code's directory shape,
+   * so a second AgentSource declares its own path→category mapping without the
+   * ingest engines changing. Pure — no I/O; safe in hot watcher callbacks.
+   */
+  classify(absPath: string): RouteResult;
 }

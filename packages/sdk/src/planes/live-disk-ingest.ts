@@ -41,6 +41,8 @@ export function createLiveDiskIngest(options: LiveDiskIngestOptions): LiveDiskIn
     },
     {
       claudeDir: options.source.rootDir,
+      // The source owns path classification (its file layout, its rules).
+      classify: options.source.classify,
       errorSink: options.errorSink,
       ...options.liveOptions,
     },

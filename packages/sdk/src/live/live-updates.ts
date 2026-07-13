@@ -55,6 +55,13 @@ import { createScopeAttacher, topicToScopes, type ScopeAttacher } from './scope-
 
 export interface LiveUpdatesOptions {
   claudeDir: string;
+  /**
+   * Path→category classifier for this agent source. Injected from
+   * `AgentSource.classify` so the live plane doesn't assume Claude Code's
+   * layout. Defaults to the built-in Claude Code classifier bound to
+   * `claudeDir` (backward-compatible for callers that don't pass a source).
+   */
+  classify?: (absPath: string) => RouteResult;
   /** Absolute path to the checkpoint JSON. Defaults to `<claudeDir>/.spaghetti-live-state.json`. */
   stateFilePath?: string;
   /** Time-window batching window, ms. Default 75. */
@@ -265,6 +272,8 @@ export function createLiveUpdates(deps: LiveUpdatesDeps, options: LiveUpdatesOpt
 
   // ── resolve options with defaults ──────────────────────────────────────
   const claudeDir = options.claudeDir;
+  // Source-provided classifier, or the built-in Claude Code one bound to root.
+  const classifyPath = options.classify ?? ((absPath: string) => classify(absPath, claudeDir));
   const stateFilePath = options.stateFilePath ?? path.join(claudeDir, '.spaghetti-live-state.json');
   const batchWindowMs = options.batchWindowMs ?? DEFAULT_BATCH_WINDOW_MS;
   const maxBatchRows = options.maxBatchRows ?? DEFAULT_MAX_BATCH_ROWS;
@@ -413,7 +422,7 @@ export function createLiveUpdates(deps: LiveUpdatesDeps, options: LiveUpdatesOpt
   function handleWatchEvents(events: WatchEvent[]): void {
     if (!running) return;
     for (const event of events) {
-      const route: RouteResult = classify(event.path, claudeDir);
+      const route: RouteResult = classifyPath(event.path);
       if (route.category === 'ignored') continue;
 
       // Settings (RFC 005 C5.5) bypass the SQLite path entirely: they
@@ -463,7 +472,7 @@ export function createLiveUpdates(deps: LiveUpdatesDeps, options: LiveUpdatesOpt
     const empty: ProcessedEvent = { rows: [], pendingCheckpoint: null, pendingMsgIndex: null, dropPath: null };
     if (!parser || !checkpoints) return empty;
 
-    const route = classify(evtPath, claudeDir);
+    const route = classifyPath(evtPath);
     const parserCategory = routerCategoryToParserCategory(route.category);
     if (!parserCategory) return empty;
 
