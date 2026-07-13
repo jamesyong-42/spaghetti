@@ -166,6 +166,7 @@ export async function messagesCommand(
     noTools: opts.noTools,
     noThinking: opts.noThinking,
     width,
+    sourceId: project.sourceId,
   });
 
   // Pagination footer — reflect filtered count

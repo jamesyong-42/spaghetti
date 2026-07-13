@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>CLI Commands — Spaghetti</title>
-  <meta name="description" content="Spaghetti CLI command reference: projects, sessions, messages, search, stats, export, hooks, chat, doctor, and more." />
+  <meta name="description" content="Spaghetti CLI command reference for multi-agent history: projects, sessions, messages, search, stats, export, hooks, chat, doctor, engine, and more." />
   <meta name="theme-color" content="#050607" />
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%232dd4bf'/%3E%3Ctext x='16' y='22' text-anchor='middle' font-family='monospace' font-size='14' font-weight='700' fill='%23042f2e'%3Esp%3C/text%3E%3C/svg%3E" />
   <script>
@@ -51,12 +51,13 @@
 
   <header class="hero" style="padding-bottom:24px">
     <div class="wrap">
-      <div class="eyebrow">@vibecook/spaghetti</div>
+      <div class="eyebrow">@vibecook/spaghetti · v0.5.17</div>
       <h1 style="font-size:clamp(2rem,4vw,2.75rem);margin-bottom:12px">CLI commands</h1>
       <p class="lead">
         Binaries: <code>spaghetti</code> and the shorter <code>spag</code>.
-        Bare <code>spag</code> on a TTY opens the TUI; subcommands print to the shell.
+        Bare <code>spag</code> on a TTY opens the multi-agent TUI; subcommands print to the shell.
         Most commands accept <code>--json</code> for scripting.
+        When <code>~/.codex/sessions</code> exists, Codex is auto-detected alongside Claude Code.
       </p>
     </div>
   </header>
@@ -123,11 +124,11 @@ spag doctor</code></pre>
           <h3>spag projects</h3>
           <span class="alias">alias: p</span>
         </div>
-        <p>List indexed projects with session counts, message totals, tokens, and last activity.</p>
+        <p>List indexed projects with <strong>Agent</strong> column, session counts, message totals, tokens (official or <code>~</code> estimated for Codex), and last activity. TUI groups projects into per-agent tabs when multiple sources are present.</p>
         <ul class="cmd-flags">
           <li><code>-s, --sort &lt;key&gt;</code><span>active · sessions · messages · tokens · name (default: active)</span></li>
           <li><code>-l, --limit &lt;n&gt;</code><span>Limit rows</span></li>
-          <li><code>--json</code><span>JSON output</span></li>
+          <li><code>--json</code><span>JSON output (includes <code>sourceId</code>, <code>tokensEstimated</code>)</span></li>
         </ul>
         <div class="cmd-examples">
           <code>spag projects --sort tokens --limit 20</code>
@@ -140,7 +141,7 @@ spag doctor</code></pre>
           <h3>spag sessions [project]</h3>
           <span class="alias">alias: s</span>
         </div>
-        <p>List sessions for a project — branch, message count, tokens, duration, summary.</p>
+        <p>List sessions for a project — agent, branch, message count, tokens, duration, summary. Scoped to the resolved project’s <code>sourceId</code> so Claude and Codex on the same repo stay separate.</p>
         <ul class="cmd-flags">
           <li><code>-s, --sort &lt;field&gt;</code><span>recent · tokens · messages · duration</span></li>
           <li><code>-l, --limit &lt;n&gt;</code><span>Default 20</span></li>
@@ -160,7 +161,7 @@ spag doctor</code></pre>
           <h3>spag messages [project] [session]</h3>
           <span class="alias">alias: m</span>
         </div>
-        <p>Read a session transcript with tool use, thinking blocks, and pagination.</p>
+        <p>Read a session transcript with tool use, thinking blocks, and pagination. Assistant headers show <strong>CLAUDE</strong> or <strong>CODEX</strong> based on the project’s agent source.</p>
         <ul class="cmd-flags">
           <li><code>-n, --limit &lt;n&gt;</code><span>Default 50 messages</span></li>
           <li><code>--offset &lt;n&gt;</code><span>Start at message N</span></li>

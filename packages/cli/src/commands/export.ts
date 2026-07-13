@@ -110,7 +110,13 @@ function exportSessionAsMarkdown(session: SessionListItem, messages: SessionMess
       lines.push(extractTextContent(msg, includeTools));
       lines.push('');
     } else if (msg.type === 'assistant') {
-      lines.push('### Claude');
+      const agent =
+        session.sourceId === 'codex'
+          ? 'Codex'
+          : session.sourceId === 'claude-code'
+            ? 'Claude'
+            : session.sourceId || 'Assistant';
+      lines.push(`### ${agent}`);
       lines.push('');
       lines.push(extractTextContent(msg, includeTools));
       lines.push('');

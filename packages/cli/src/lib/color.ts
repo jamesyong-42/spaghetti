@@ -33,6 +33,23 @@ export const theme = {
     }
   },
 
+  /**
+   * Uppercase assistant-role label for transcript headers (TUI / messages).
+   * Claude Code → "CLAUDE", Codex → "CODEX", unknown → "ASSISTANT".
+   */
+  assistantName: (sourceId?: string): string => {
+    switch (sourceId) {
+      case 'claude-code':
+      case undefined:
+      case '':
+        return 'CLAUDE';
+      case 'codex':
+        return 'CODEX';
+      default:
+        return sourceId.replace(/-/g, ' ').toUpperCase().slice(0, 12) || 'ASSISTANT';
+    }
+  },
+
   /** Apply a named color */
   colorize: (color: string, s: string): string => {
     const fn = (pc as unknown as Record<string, unknown>)[color];

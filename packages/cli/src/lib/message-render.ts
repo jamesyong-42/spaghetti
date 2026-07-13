@@ -78,6 +78,8 @@ export interface RenderOptions {
   noTools?: boolean;
   noThinking?: boolean;
   width?: number;
+  /** Agent source id — drives the assistant header label (Claude / Codex / …). */
+  sourceId?: string;
 }
 
 /**
@@ -143,7 +145,10 @@ function renderCompact(msg: SessionMessage, width: number, opts?: RenderOptions)
       const toolInfo = toolCount > 0 && !opts?.noTools ? theme.muted(` [${toolCount} tools]`) : '';
       const tokInfo = tokens ? theme.muted(` (${tokens})`) : '';
       const preview = cliTruncate(text, Math.max(width - 50, 20));
-      return `  ${theme.success('Claude')}  ${preview}${tokInfo}${toolInfo}`;
+      const agentLabel = theme.assistantName(opts?.sourceId);
+      // Compact list: title-case from ASSISTANT_NAME (CLAUDE → Claude, CODEX → Codex)
+      const display = agentLabel.charAt(0) + agentLabel.slice(1).toLowerCase().replace(/_/g, ' ');
+      return `  ${theme.success(display)}  ${preview}${tokInfo}${toolInfo}`;
     }
     case 'system': {
       const subtype = getSystemSubtype(msg);
@@ -226,7 +231,9 @@ function renderAssistantMessage(
     ? theme.muted(` (${formatTokens(payload.usage.input_tokens + payload.usage.output_tokens)} tokens)`)
     : '';
 
-  const headerLeft = theme.success('Claude:');
+  const agentLabel = theme.assistantName(opts?.sourceId);
+  const display = agentLabel.charAt(0) + agentLabel.slice(1).toLowerCase().replace(/_/g, ' ');
+  const headerLeft = theme.success(`${display}:`);
   const headerRight = timestamp ? theme.muted(timestamp) : '';
   lines.push(`  ${headerLeft}${tokenInfo}${headerRight ? '  ' + headerRight : ''}`);
 

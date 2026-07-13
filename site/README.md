@@ -4,16 +4,18 @@ Static product docs for GitHub Pages. No build step.
 
 | File | Role |
 |---|---|
-| `index.html` | Landing page — product story, architecture, CLI mocks, SDK |
-| `api.html` | SDK API reference |
+| `index.html` | Landing page — multi-agent product story, three-plane architecture, CLI mocks, SDK |
+| `api.html` | SDK API reference (multi-source, SourceFilter, live, runtime) |
 | `commands.html` | Full CLI command reference |
 | `styles.css` | Shared design system (dark + light) |
 | `app.js` | Theme toggle, nav, copy, accordion, scroll-spy |
 | `.nojekyll` | Disable Jekyll processing on GitHub Pages |
 
+**Aligned with product v0.5.17:** Claude Code + OpenAI Codex in one index (`source_id`), agent tabs in the TUI, source-scoped session reads, Codex `token_count` + tiktoken estimates (`tokensEstimated` / `~N`).
+
 Terminal product shots on the landing page are **HTML mocks** styled to match
 real CLI chrome (window dots, mono layout, FTS snippets). They use synthetic
-project names and numbers only — no live `~/.claude` data.
+project names and numbers only — no live `~/.claude` / `~/.codex` data.
 
 ## Preview locally
 
@@ -82,6 +84,16 @@ npx --yes gh-pages -d site
 ## Design notes
 
 - Terminal-craft dark theme (ink surfaces, teal accent) aligned with the CLI cyan theme
+- Multi-agent palette: teal for Claude, magenta for Codex in mocks
 - Self-contained SVG architecture diagram (no Mermaid runtime dependency)
 - Instrument Sans + JetBrains Mono
 - Zero framework; works offline once fonts are cached
+
+## Keeping docs current
+
+When shipping product changes, update:
+
+1. Version strings (`v0.5.x`) on landing + API/commands headers
+2. `createSpaghettiService` options and list/query signatures in `api.html`
+3. CLI mocks (Agent column, tagline, multi-agent TUI tree) in `index.html`
+4. New commands or multi-source behavior in `commands.html`
