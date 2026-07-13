@@ -1,0 +1,705 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Spaghetti Parser Engine — Proposed 4-Layer Architecture v2</title>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+<style>
+  :root {
+    --bg: #0f1115;
+    --panel: #161a22;
+    --panel-2: #1b202b;
+    --border: #262d3a;
+    --text: #e6e8eb;
+    --muted: #9aa3b2;
+    --accent: #7aa2f7;
+    --l1: #7aa2f7;
+    --l2: #bb9af7;
+    --l3: #9ece6a;
+    --l4: #e0af68;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.5;
+  }
+  header {
+    padding: 20px 32px;
+    border-bottom: 1px solid var(--border);
+    background: var(--panel);
+    position: sticky;
+    top: 0;
+    z-index: 10;
+  }
+  h1 { margin: 0 0 4px 0; font-size: 18px; font-weight: 600; }
+  header .sub { color: var(--muted); font-size: 13px; }
+  .layout {
+    display: grid;
+    grid-template-columns: 320px 1fr;
+    gap: 0;
+    min-height: calc(100vh - 70px);
+  }
+  aside {
+    border-right: 1px solid var(--border);
+    padding: 20px 24px;
+    background: var(--panel-2);
+    font-size: 13px;
+    overflow-y: auto;
+    max-height: calc(100vh - 70px);
+    position: sticky;
+    top: 70px;
+  }
+  aside h2 { font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); margin: 16px 0 8px 0; }
+  aside h2:first-child { margin-top: 0; }
+  aside ul { padding-left: 16px; margin: 6px 0 12px; }
+  aside li { margin-bottom: 4px; }
+  aside .layer-row { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; font-weight: 500; }
+  aside .swatch { width: 12px; height: 12px; border-radius: 3px; flex-shrink: 0; }
+  aside .layer-row .name { color: var(--text); }
+  aside .layer-row .role { color: var(--muted); font-weight: 400; font-size: 12px; }
+  aside p { margin: 6px 0; color: var(--muted); }
+  aside code { background: var(--panel); padding: 1px 4px; border-radius: 3px; font-size: 12px; }
+  main {
+    padding: 24px;
+    overflow: auto;
+  }
+  .toolbar {
+    margin-bottom: 12px;
+    display: flex;
+    gap: 8px;
+    align-items: center;
+  }
+  .toolbar button {
+    background: var(--panel);
+    color: var(--text);
+    border: 1px solid var(--border);
+    padding: 6px 12px;
+    border-radius: 6px;
+    font-size: 12px;
+    cursor: pointer;
+  }
+  .toolbar button:hover { background: var(--panel-2); border-color: var(--accent); }
+  .toolbar .spacer { flex: 1; }
+  .toolbar .info { color: var(--muted); font-size: 12px; }
+  .diagram-wrap {
+    background: #fafbfc;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px;
+    overflow: auto;
+    min-height: 600px;
+  }
+  /* Layer-color tinting for namespaces (mermaid namespace boxes) */
+  .mermaid svg .nodeLabel { font-family: inherit !important; }
+  .mermaid svg .cluster rect { rx: 8; ry: 8; stroke-width: 2 !important; }
+  .legend {
+    display: flex;
+    gap: 16px;
+    margin-top: 12px;
+    flex-wrap: wrap;
+    color: var(--muted);
+    font-size: 12px;
+  }
+  .legend .item { display: flex; align-items: center; gap: 6px; }
+  .legend .swatch { width: 14px; height: 14px; border-radius: 3px; }
+
+  details {
+    margin-top: 24px;
+    padding: 12px 16px;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+  }
+  details summary { cursor: pointer; font-weight: 600; color: var(--text); }
+  details > div { margin-top: 12px; color: var(--muted); font-size: 13px; }
+  details code { background: var(--panel-2); padding: 1px 5px; border-radius: 3px; font-family: ui-monospace, monospace; font-size: 12px; color: var(--text); }
+  details ul { padding-left: 20px; }
+  details li { margin-bottom: 4px; }
+  table { border-collapse: collapse; margin: 8px 0; }
+  th, td { padding: 6px 10px; border: 1px solid var(--border); text-align: left; font-size: 12px; }
+  th { background: var(--panel-2); }
+</style>
+</head>
+<body>
+<header>
+  <h1>Spaghetti Parser Engine — Proposed 4-Layer Architecture v2</h1>
+  <div class="sub">Refactor proposal post-RFC 005 · 2026-04-29 · iterate via this page</div>
+</header>
+
+<div class="layout">
+  <aside>
+    <h2>Layers</h2>
+    <div class="layer-row"><span class="swatch" style="background: var(--l1)"></span><span class="name">L1 Public API</span></div>
+    <div class="layer-row"><span class="role">What consumers call. Pure facade. Knows L2 only.</span></div>
+
+    <div class="layer-row"><span class="swatch" style="background: var(--l2)"></span><span class="name">L2 Domain Services</span></div>
+    <div class="layer-row"><span class="role">DataStore = state of the world. HotUpdate = deltas to that state. Two siblings.</span></div>
+
+    <div class="layer-row"><span class="swatch" style="background: var(--l3)"></span><span class="name">L3 Composing Services</span></div>
+    <div class="layer-row"><span class="role">Lifecycle + heavy lifting. Cache, LiveComposer, Pipeline, QueryEngine, Bus.</span></div>
+
+    <div class="layer-row"><span class="swatch" style="background: var(--l4)"></span><span class="name">L4 Atomic Services</span></div>
+    <div class="layer-row"><span class="role">Pure / stateless-ish. File, sqlite, parsers, watchers, native bridge.</span></div>
+
+    <h2>Key boundary fixes</h2>
+    <ul>
+      <li><b>DataStore</b> owns reads + caches + subscriber bus. Does NOT own writes — writes notify it via <code>apply(change)</code>.</li>
+      <li><b>HotUpdate</b> owns the entire live pipeline. Reaches DataStore only through <code>apply()</code>.</li>
+      <li><b>CacheService</b> owns ingest engine selection (TS/RS), cold/warm start, idle compaction, worker pool.</li>
+      <li><b>IngestPipeline</b> (L3) is owned by CacheService, borrowed by LiveComposer. Single writer, single statement cache.</li>
+      <li><b>NativeAddon</b> (L4) hides the <code>ingest()</code> vs <code>live_ingest_batch()</code> split from upper layers.</li>
+    </ul>
+
+    <h2>Key flows</h2>
+    <p><b>Bootstrap (cold):</b> API → DataStore.init() → Cache.bootstrap() → [WorkerPool ‖ Native] → IngestPipeline → SQLite → DataStore.refresh()</p>
+    <p><b>Live delta (warm):</b> Watcher → LiveComposer (Queue → IncrementalParser) → IngestPipeline → DataStore.apply(change) → SubscriberBus → listeners</p>
+    <p><b>Read:</b> API → DataStore → QueryEngine → SQLite</p>
+
+    <h2>Notation</h2>
+    <p><code>*--</code> composition · <code>o--</code> aggregation · <code>..|&gt;</code> realization · <code>..&gt;</code> dependency</p>
+  </aside>
+
+  <main>
+    <div class="toolbar">
+      <button onclick="document.querySelector('.diagram-wrap').requestFullscreen()">Fullscreen</button>
+      <button onclick="zoom(1.1)">Zoom +</button>
+      <button onclick="zoom(0.9)">Zoom −</button>
+      <button onclick="zoom(0, true)">Reset</button>
+      <span class="spacer"></span>
+      <span class="info">Edit <code>docs/parser-architecture-v2.html</code> and refresh to iterate.</span>
+    </div>
+
+    <div class="diagram-wrap">
+      <pre class="mermaid" id="diagram">
+classDiagram
+  direction TB
+
+  namespace L1_PublicAPI {
+    class SpaghettiAPI
+    class SpaghettiAppService
+    class SpaghettiLive
+    class createSpaghettiService
+  }
+
+  namespace L2_DomainServices {
+    class DataStoreService
+    class HotUpdateService
+  }
+
+  namespace L3_ComposingServices {
+    class CacheService
+    class LiveComposer
+    class IngestPipeline
+    class QueryEngine
+    class SubscriberBus
+    class WorkerPool
+    class IdleMaintenance
+  }
+
+  namespace L4_AtomicServices {
+    class FileService
+    class SqliteService
+    class StreamingJsonlReader
+    class ProjectParser
+    class ConfigParser
+    class AnalyticsParser
+    class IncrementalParser
+    class Watcher
+    class CheckpointStore
+    class CoalescingQueue
+    class ScopeAttacher
+    class Router
+    class SettingsHandler
+    class FilenameConventions
+    class NativeAddon
+    class Schema
+    class SearchIndexer
+    class ErrorSink
+    class ChangeEvent
+  }
+
+  class SpaghettiAPI {
+    <<interface>>
+    +initialize() Promise
+    +shutdown() Promise
+    +rebuildIndex() Promise
+    +getProjectList() ProjectListItem
+    +getSessionList(slug) SessionListItem
+    +getSessionMessages(slug, sid, limit, offset) MessagePage
+    +search(query) SearchResultSet
+    +getStats() StoreStats
+    +onChange(cb) Dispose
+    +live SpaghettiLive
+  }
+
+  class SpaghettiAppService {
+    -dataStore DataStoreService
+    -hotUpdate HotUpdateService
+    +live SpaghettiLive
+  }
+
+  class SpaghettiLive {
+    <<interface>>
+    +onChange(listener, opts) Dispose
+    +onChangeScoped(topic, listener, opts) Dispose
+    +events(opts) AsyncIterable
+    +prewarm(topic) Dispose
+    +isSaturated() bool
+  }
+
+  class createSpaghettiService {
+    <<factory>>
+    +create(opts) SpaghettiAPI
+  }
+
+  class DataStoreService {
+    <<owns-data>>
+    -queryEngine QueryEngine
+    -subscriberBus SubscriberBus
+    -cacheService CacheService
+    -configCache AgentConfig
+    -analyticsCache AgentAnalytic
+    +initialize() Promise
+    +rebuild() Promise
+    +getConfig() AgentConfig
+    +getAnalytics() AgentAnalytic
+    +subscribe(topic, listener, opts) Dispose
+    +apply(change) void
+    +bulkApply(changes) void
+    +stats() StoreStats
+  }
+
+  class HotUpdateService {
+    <<live-mgr>>
+    -liveComposer LiveComposer
+    -dataStore DataStoreService
+    +start() Promise
+    +stop() Promise
+    +isRunning() bool
+    +isSaturated() bool
+    +prewarm(topic) Dispose
+  }
+
+  class CacheService {
+    <<ingest-lifecycle>>
+    -ingestPipeline IngestPipeline
+    -workerPool WorkerPool
+    -idleMaintenance IdleMaintenance
+    -engine string
+    +bootstrap() Promise
+    +rebuild() Promise
+    +shutdown() Promise
+    -coldStartTS() Promise
+    -coldStartRS() Promise
+    -warmStart() Promise
+  }
+
+  class LiveComposer {
+    <<watch-to-delta>>
+    -watcher Watcher
+    -scopeAttacher ScopeAttacher
+    -queue CoalescingQueue
+    -checkpoints CheckpointStore
+    -incrementalParser IncrementalParser
+    -settingsHandler SettingsHandler
+    -ingestPipeline IngestPipeline
+    +start() Promise
+    +stop() Promise
+    +prewarm(topic) Dispose
+    +isSaturated() bool
+    +onChanges(cb) Dispose
+  }
+
+  class IngestPipeline {
+    <<single-writer>>
+    -sqlite SqliteService
+    -nativeAddon NativeAddon
+    -searchIndexer SearchIndexer
+    -stmts PreparedStatements
+    +open(dbPath) void
+    +close() void
+    +beginBulkIngest() void
+    +endBulkIngest() void
+    +applyParseEvent(event) Change
+    +writeBatch(rows) WriteResult
+    +getFingerprint(path) Fingerprint
+    +upsertFingerprint(fp) void
+    +vacuum() void
+    +rebuildFts() void
+  }
+
+  class QueryEngine {
+    <<reads>>
+    -sqlite SqliteService
+    +getProjectSlugs() string
+    +getProjectSummaries() ProjectSummary
+    +getSessionSummaries(slug) SessionSummary
+    +getSessionMessages(slug, sid, limit, offset) MessagePage
+    +getSessionSubagents(slug, sid) SubagentItem
+    +getSubagentMessages(slug, sid, agentId) Page
+    +getProjectMemory(slug) string
+    +getSessionTodos(slug, sid) Todo
+    +getSessionPlan(slug, sid) Plan
+    +getSessionTask(slug, sid) Task
+    +getToolResult(slug, sid, tuid) string
+    +search(query) SearchResultSet
+    +stats() StoreStats
+  }
+
+  class SubscriberBus {
+    <<fan-out>>
+    -firehose Set
+    -byTopic Map
+    +subscribe(topic, listener, opts) Dispose
+    +emit(change) void
+    +listenerCount() number
+  }
+
+  class WorkerPool {
+    <<cold-parallel>>
+    -workers Worker
+    -maxWorkers number
+    +parseProjects(dir, slugs, onEvent) Promise
+    +shutdown() void
+  }
+
+  class IdleMaintenance {
+    <<db-hygiene>>
+    -sqlite SqliteService
+    +start() void
+    +stop() void
+    -walCheckpoint() void
+    -ftsMerge(n) void
+    -pragmaOptimize() void
+  }
+
+  class FileService {
+    <<interface>>
+    +read(path) string
+    +readBytes(path, start, end) Buffer
+    +write(path, content) void
+    +exists(path) bool
+    +stat(path) FileStats
+    +scan(dir, opts) string
+    +readJsonlStreaming(path, cb, opts) Promise
+    +watchDirectory(path, cb, opts) Unsubscribe
+  }
+
+  class SqliteService {
+    <<interface>>
+    +open(config) void
+    +close() void
+    +exec(sql) void
+    +run(sql, params) RunResult
+    +all(sql, params) Row
+    +prepare(sql) PreparedStatement
+    +transaction(fn) any
+    +vacuum() void
+  }
+
+  class StreamingJsonlReader {
+    <<fn>>
+    +readJsonlStreaming(path, cb, opts) Result
+  }
+
+  class ProjectParser {
+    <<interface>>
+    +parseAllProjectsStreaming(dir, sink) void
+    +parseProjectStreaming(dir, slug, sink) void
+    +parseSession(dir, slug, id) Session
+  }
+
+  class ConfigParser {
+    <<interface>>
+    +parseConfig(dir) AgentConfig
+  }
+
+  class AnalyticsParser {
+    <<interface>>
+    +parseAnalytics(dir) AgentAnalytic
+  }
+
+  class IncrementalParser {
+    <<fn>>
+    +parseFileDelta(path, cat, checkpoint, fs) Promise
+  }
+
+  class Watcher {
+    <<interface>>
+    +subscribe(root, onEvents, opts) Promise
+    +writeSnapshot(root, file) Promise
+    +getEventsSince(root, file) Promise
+  }
+
+  class CheckpointStore {
+    <<interface>>
+    +get(path) Checkpoint
+    +set(path, cp) void
+    +delete(path) void
+    +load(file) Promise
+    +flush() Promise
+  }
+
+  class CoalescingQueue {
+    <<interface>>
+    +enqueue(evt) void
+    +drain(windowMs, maxRows) Promise
+    +saturated() bool
+  }
+
+  class ScopeAttacher {
+    <<interface>>
+    +acquire(key) Promise
+    +detachAll() Promise
+    +getRefCount(key) number
+  }
+
+  class Router {
+    <<fn>>
+    +classify(path, claudeDir) RouteResult
+  }
+
+  class SettingsHandler {
+    <<interface>>
+    +handle(path) Promise
+  }
+
+  class FilenameConventions {
+    <<module>>
+    +parseSubagent(name) AgentInfo
+    +parseTodo(name) AgentInfo
+    +parsePlan(name) PlanInfo
+    +parseFileHistory(name) HashInfo
+    +inferSubagentType(name) SubagentType
+  }
+
+  class NativeAddon {
+    <<napi>>
+    +ingest(opts, onProgress) Promise
+    +liveIngestBatch(dbPath, rows) LiveBatchResult
+    +nativeVersion() string
+  }
+
+  class Schema {
+    <<module>>
+    +SCHEMA_VERSION
+    +SCHEMA_SQL
+    +initializeSchema(db) void
+  }
+
+  class SearchIndexer {
+    <<interface>>
+    +extractSearchEntry(type, data, ctx) Entry
+  }
+
+  class ErrorSink {
+    <<type>>
+    +call(err, ctx) void
+  }
+
+  class ChangeEvent {
+    <<union>>
+    +sessionCreated
+    +sessionRewritten
+    +sessionMessageAdded
+    +subagentUpdated
+    +toolResultAdded
+    +fileHistoryAdded
+    +todoUpdated
+    +taskUpdated
+    +planUpdated
+    +settingsUpdated
+  }
+
+  %% L1 wiring
+  SpaghettiAppService ..|> SpaghettiAPI
+  createSpaghettiService ..> SpaghettiAppService : creates
+  SpaghettiAppService o-- DataStoreService
+  SpaghettiAppService o-- HotUpdateService : optional
+  SpaghettiAppService o-- SpaghettiLive : optional
+  SpaghettiLive ..> DataStoreService : subscribe
+  SpaghettiLive ..> HotUpdateService : prewarm
+
+  %% L2 wiring
+  DataStoreService *-- QueryEngine
+  DataStoreService *-- SubscriberBus
+  DataStoreService o-- CacheService : delegates bootstrap
+  DataStoreService ..> ChangeEvent : emit via bus
+
+  HotUpdateService *-- LiveComposer
+  HotUpdateService ..> DataStoreService : apply(changes)
+
+  %% L3 wiring
+  CacheService *-- IngestPipeline
+  CacheService *-- IdleMaintenance
+  CacheService o-- WorkerPool : ts engine
+  CacheService ..> ProjectParser : streams events
+  CacheService ..> ConfigParser
+  CacheService ..> AnalyticsParser
+  CacheService ..> NativeAddon : rs cold path
+  CacheService ..> ErrorSink
+
+  LiveComposer o-- IngestPipeline : borrowed
+  LiveComposer *-- Watcher
+  LiveComposer *-- ScopeAttacher
+  LiveComposer *-- CoalescingQueue
+  LiveComposer *-- CheckpointStore
+  LiveComposer *-- IncrementalParser
+  LiveComposer *-- SettingsHandler
+  LiveComposer ..> Router : classify
+  LiveComposer ..> ChangeEvent : produces
+  LiveComposer ..> ErrorSink
+
+  IngestPipeline ..> SqliteService
+  IngestPipeline ..> Schema
+  IngestPipeline ..> SearchIndexer
+  IngestPipeline ..> NativeAddon : rs warm path
+  IngestPipeline ..> ChangeEvent : returns
+
+  QueryEngine ..> SqliteService
+
+  WorkerPool ..> ProjectParser : runs in threads
+
+  IdleMaintenance ..> SqliteService
+
+  SubscriberBus ..> ChangeEvent : routes
+
+  %% L4 internal deps (minimal)
+  ProjectParser ..> FileService
+  ProjectParser ..> StreamingJsonlReader
+  ProjectParser ..> FilenameConventions
+  ConfigParser ..> FileService
+  AnalyticsParser ..> FileService
+  IncrementalParser ..> FileService
+  IncrementalParser ..> FilenameConventions
+  Watcher ..> FileService
+  ScopeAttacher ..> Watcher
+  SettingsHandler ..> FileService
+  CheckpointStore ..> FileService
+
+  %% Layer color hints (mermaid classDef)
+  classDef L1 fill:#1e2a4a,stroke:#7aa2f7,color:#cbd5ff
+  classDef L2 fill:#2a1e4a,stroke:#bb9af7,color:#dccbf7
+  classDef L3 fill:#1e3a1e,stroke:#9ece6a,color:#d4f5b6
+  classDef L4 fill:#3a2e1e,stroke:#e0af68,color:#f5dca0
+
+  cssClass "SpaghettiAPI" L1
+  cssClass "SpaghettiAppService" L1
+  cssClass "SpaghettiLive" L1
+  cssClass "createSpaghettiService" L1
+  cssClass "DataStoreService" L2
+  cssClass "HotUpdateService" L2
+  cssClass "CacheService" L3
+  cssClass "LiveComposer" L3
+  cssClass "IngestPipeline" L3
+  cssClass "QueryEngine" L3
+  cssClass "SubscriberBus" L3
+  cssClass "WorkerPool" L3
+  cssClass "IdleMaintenance" L3
+  cssClass "FileService" L4
+  cssClass "SqliteService" L4
+  cssClass "StreamingJsonlReader" L4
+  cssClass "ProjectParser" L4
+  cssClass "ConfigParser" L4
+  cssClass "AnalyticsParser" L4
+  cssClass "IncrementalParser" L4
+  cssClass "Watcher" L4
+  cssClass "CheckpointStore" L4
+  cssClass "CoalescingQueue" L4
+  cssClass "ScopeAttacher" L4
+  cssClass "Router" L4
+  cssClass "SettingsHandler" L4
+  cssClass "FilenameConventions" L4
+  cssClass "NativeAddon" L4
+  cssClass "Schema" L4
+  cssClass "SearchIndexer" L4
+  cssClass "ErrorSink" L4
+  cssClass "ChangeEvent" L4
+      </pre>
+
+      <div class="legend">
+        <div class="item"><span class="swatch" style="background: #1e2a4a; border: 1px solid #7aa2f7"></span>L1 Public API</div>
+        <div class="item"><span class="swatch" style="background: #2a1e4a; border: 1px solid #bb9af7"></span>L2 Domain Services</div>
+        <div class="item"><span class="swatch" style="background: #1e3a1e; border: 1px solid #9ece6a"></span>L3 Composing Services</div>
+        <div class="item"><span class="swatch" style="background: #3a2e1e; border: 1px solid #e0af68"></span>L4 Atomic Services</div>
+      </div>
+    </div>
+
+    <details open>
+      <summary>Migration map — current ↔ proposed</summary>
+      <div>
+        <table>
+          <tr><th>Today (post-RFC 005)</th><th>Proposed v2</th><th>Layer</th></tr>
+          <tr><td><code>SpaghettiAppService</code></td><td><code>SpaghettiAppService</code> (slimmed to facade)</td><td>L1</td></tr>
+          <tr><td><code>LifecycleOwner</code> / <code>ClaudeCodeAgentDataService</code></td><td>Split: facade work → L1, ingest lifecycle → <code>CacheService</code> (L3)</td><td>—</td></tr>
+          <tr><td><code>AgentDataStore</code></td><td><code>DataStoreService</code> (L2) + <code>SubscriberBus</code> extracted (L3)</td><td>L2/L3</td></tr>
+          <tr><td><code>LiveUpdates</code></td><td><code>HotUpdateService</code> (L2 thin) wrapping <code>LiveComposer</code> (L3)</td><td>L2/L3</td></tr>
+          <tr><td><code>IngestService</code> (interface + impl)</td><td><code>IngestPipeline</code> (L3, single owner = CacheService, borrowed by LiveComposer)</td><td>L3</td></tr>
+          <tr><td><code>QueryService</code></td><td><code>QueryEngine</code> (L3, owned by DataStoreService)</td><td>L3</td></tr>
+          <tr><td><code>SubscriberRegistry</code></td><td><code>SubscriberBus</code> (L3, owned by DataStoreService)</td><td>L3</td></tr>
+          <tr><td><code>IdleMaintenance</code></td><td>Same name, moves under <code>CacheService</code> ownership (was conceptually misfiled as "live")</td><td>L3</td></tr>
+          <tr><td><code>SettingsHandler</code></td><td>Stays — owned by <code>LiveComposer</code></td><td>L4</td></tr>
+          <tr><td><code>ProjectParseSink</code> interface</td><td>Folded into <code>IngestPipeline.applyParseEvent(event)</code> — no separate sink contract</td><td>—</td></tr>
+          <tr><td><code>NativeAddon</code> exposing <code>ingest()</code>+<code>live_ingest_batch()</code></td><td>Same, but L4 facade hides the split from upper layers</td><td>L4</td></tr>
+        </table>
+      </div>
+    </details>
+
+    <details>
+      <summary>Open questions / iteration points</summary>
+      <div>
+        <ul>
+          <li><b>DataStoreService.apply vs notify:</b> should writes flow <i>through</i> DataStore (it calls IngestPipeline) or alongside (CacheService/LiveComposer write, then notify)? Diagram shows <i>alongside</i> — DataStore stays read+cache+bus, never holds the writer. Tradeoff: simpler dependency graph but two write entry points instead of one.</li>
+          <li><b>ProjectParseSink:</b> proposed to fold it into <code>IngestPipeline.applyParseEvent(event)</code> rather than keep it as a separate interface. Alternative: keep the sink so a TS-only test can drive IngestPipeline without the full pipeline.</li>
+          <li><b>WorkerPool ownership:</b> shown owned by CacheService. Alternative: extract a <code>ColdStartRunner</code> (L3) that owns pool + parser invocation, so CacheService becomes pure orchestration.</li>
+          <li><b>HotUpdateService thinness:</b> currently it's almost a pass-through to LiveComposer. Could collapse them into one L2 service. Kept separate to keep "policy" (L2 — when/whether) distinct from "mechanism" (L3 — how).</li>
+          <li><b>NativeAddon facade:</b> should L3 IngestPipeline see two methods (ingest, liveIngestBatch) or one (<code>write(events)</code>)? Latter is cleaner but means hiding cold-vs-warm semantic at L4.</li>
+          <li><b>Cold-start engine='rs':</b> currently bypasses IngestPipeline entirely (Native does parse+write). Proposed: keep that bypass for performance, but route progress events through CacheService so DataStore is notified consistently.</li>
+        </ul>
+      </div>
+    </details>
+
+    <details>
+      <summary>What's intentionally NOT in this diagram</summary>
+      <div>
+        <ul>
+          <li>Type modules (<code>packages/sdk/src/types/</code>, <code>crates/spaghetti-napi/src/types/</code>).</li>
+          <li>React adapter (<code>packages/sdk/src/react/</code>) — pure consumer.</li>
+          <li>Channel + hooks plugin packages — separate MCP concerns.</li>
+          <li>App-level wiring (<code>apps/</code>, CLI, Electron) — calls <code>createSpaghettiService</code>.</li>
+          <li>Legacy <code>segment-store</code> / <code>segment-types</code> — deprecated; would be deleted in this refactor.</li>
+        </ul>
+      </div>
+    </details>
+  </main>
+</div>
+
+<script>
+  mermaid.initialize({
+    startOnLoad: true,
+    theme: 'default',
+    themeVariables: {
+      fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif',
+      fontSize: '13px',
+    },
+    class: { useMaxWidth: false },
+    securityLevel: 'loose',
+  });
+
+  let currentZoom = 1;
+  function zoom(factor, reset = false) {
+    if (reset) { currentZoom = 1; }
+    else { currentZoom *= factor; }
+    const svg = document.querySelector('.diagram-wrap svg');
+    if (svg) {
+      svg.style.transformOrigin = '0 0';
+      svg.style.transform = `scale(${currentZoom})`;
+    }
+  }
+</script>
+</body>
+</html>

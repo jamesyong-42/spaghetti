@@ -11,6 +11,8 @@ export interface TokenUsageSummary {
 
 export interface SessionSummaryData {
   sessionId: string;
+  /** Which agent product this session came from (e.g. 'claude-code'). */
+  sourceId: string;
   projectSlug: string;
   startTime: string;
   lastUpdate: string;
@@ -29,6 +31,8 @@ export interface SessionSummaryData {
 
 export interface ProjectSummaryData {
   slug: string;
+  /** Which agent product this project came from (e.g. 'claude-code'). */
+  sourceId: string;
   folderName: string;
   absolutePath: string;
   sessionCount: number;

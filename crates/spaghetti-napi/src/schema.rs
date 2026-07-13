@@ -21,7 +21,10 @@ use thiserror::Error;
 /// tables on the next call to [`initialize_schema`].
 ///
 /// Keep in sync with `SCHEMA_VERSION` in `packages/sdk/src/data/schema.ts`.
-pub const SCHEMA_VERSION: u32 = 4;
+/// v5: `source_id` on source_files/projects/sessions/messages (default
+/// 'claude-code'). Writers omit the column, so the default applies and both
+/// engines produce identical rows — parity stays green with no writer change.
+pub const SCHEMA_VERSION: u32 = 5;
 
 /// Full DDL for the current schema — lifted verbatim from the TS `SCHEMA_SQL`
 /// template literal. Whitespace differs; structure does not.
@@ -32,6 +35,7 @@ CREATE TABLE IF NOT EXISTS schema_meta (key TEXT PRIMARY KEY, value TEXT NOT NUL
 -- Source file tracking
 CREATE TABLE IF NOT EXISTS source_files (
   path TEXT PRIMARY KEY,
+  source_id TEXT NOT NULL DEFAULT 'claude-code',
   mtime_ms REAL,
   size INTEGER,
   byte_position INTEGER,
@@ -43,6 +47,7 @@ CREATE TABLE IF NOT EXISTS source_files (
 -- Core entities
 CREATE TABLE IF NOT EXISTS projects (
   slug TEXT PRIMARY KEY,
+  source_id TEXT NOT NULL DEFAULT 'claude-code',
   original_path TEXT,
   sessions_index TEXT,
   updated_at INTEGER
@@ -56,6 +61,7 @@ CREATE TABLE IF NOT EXISTS project_memories (
 
 CREATE TABLE IF NOT EXISTS sessions (
   id TEXT PRIMARY KEY,
+  source_id TEXT NOT NULL DEFAULT 'claude-code',
   project_slug TEXT,
   full_path TEXT,
   first_prompt TEXT,
@@ -73,6 +79,7 @@ CREATE TABLE IF NOT EXISTS sessions (
 
 CREATE TABLE IF NOT EXISTS messages (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
+  source_id TEXT NOT NULL DEFAULT 'claude-code',
   project_slug TEXT,
   session_id TEXT,
   msg_index INTEGER,

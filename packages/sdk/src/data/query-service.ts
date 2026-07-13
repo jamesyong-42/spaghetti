@@ -20,7 +20,9 @@ export interface QueryService {
 
   // Projects
   getProjectSlugs(): string[];
-  getProjectSummaries(): ProjectSummaryData[];
+  /** Distinct agent sources present in the index. */
+  getSourceIds(): string[];
+  getProjectSummaries(options?: { sourceId?: string }): ProjectSummaryData[];
   getSessionSummaries(projectSlug: string): SessionSummaryData[];
   /**
    * Distinct `project_slug` values present in `messages` but absent
@@ -99,6 +101,7 @@ interface ProjectSlugRow {
 
 interface ProjectSummaryRow {
   slug: string;
+  source_id: string;
   original_path: string;
   session_count: number;
   message_count: number;
@@ -114,6 +117,7 @@ interface ProjectSummaryRow {
 
 interface SessionSummaryRow {
   id: string;
+  source_id: string;
   project_slug: string;
   full_path: string;
   first_prompt: string;
@@ -244,9 +248,18 @@ class QueryServiceImpl implements QueryService {
     return rows.map((r) => r.project_slug);
   }
 
-  getProjectSummaries(): ProjectSummaryData[] {
-    const rows = this.db.all<ProjectSummaryRow>(`
-      SELECT p.slug, p.original_path,
+  /** Distinct agent sources present in the index. */
+  getSourceIds(): string[] {
+    const rows = this.db.all<{ source_id: string }>('SELECT DISTINCT source_id FROM sessions ORDER BY source_id');
+    return rows.map((r) => r.source_id);
+  }
+
+  getProjectSummaries(options?: { sourceId?: string }): ProjectSummaryData[] {
+    const where = options?.sourceId ? 'WHERE p.source_id = ?' : '';
+    const params = options?.sourceId ? [options.sourceId] : [];
+    const rows = this.db.all<ProjectSummaryRow>(
+      `
+      SELECT p.slug, p.source_id, p.original_path,
         (SELECT COUNT(*) FROM sessions WHERE project_slug = p.slug) as session_count,
         COALESCE((SELECT SUM(mc.cnt) FROM (SELECT COUNT(*) as cnt FROM messages WHERE project_slug = p.slug GROUP BY session_id) mc), 0) as message_count,
         COALESCE((SELECT SUM(input_tokens) FROM messages WHERE project_slug = p.slug), 0) as input_tokens,
@@ -258,7 +271,10 @@ class QueryServiceImpl implements QueryService {
         (SELECT git_branch FROM sessions WHERE project_slug = p.slug ORDER BY modified_at DESC LIMIT 1) as latest_git_branch,
         EXISTS(SELECT 1 FROM project_memories WHERE project_slug = p.slug) as has_memory
       FROM projects p
-    `);
+      ${where}
+    `,
+      ...params,
+    );
 
     return rows.map((row) => this.toProjectSummary(row));
   }
@@ -268,6 +284,7 @@ class QueryServiceImpl implements QueryService {
       `
       SELECT
         s.id,
+        s.source_id,
         s.project_slug,
         s.full_path,
         COALESCE(s.first_prompt, '') as first_prompt,
@@ -632,6 +649,7 @@ class QueryServiceImpl implements QueryService {
 
     return {
       slug: row.slug,
+      sourceId: row.source_id,
       folderName,
       absolutePath: originalPath,
       sessionCount: row.session_count,
@@ -668,6 +686,7 @@ class QueryServiceImpl implements QueryService {
 
     return {
       sessionId: row.id,
+      sourceId: row.source_id,
       projectSlug: row.project_slug,
       startTime: createdAt,
       lastUpdate: modifiedAt,

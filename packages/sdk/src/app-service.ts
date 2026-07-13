@@ -121,8 +121,12 @@ class SpaghettiAppService extends EventEmitter implements SpaghettiAPI {
     return this.dataService.isReady();
   }
 
-  getProjectList(): ProjectListItem[] {
-    const summaries = this.dataService.getProjectSummaries();
+  getSourceIds(): string[] {
+    return this.dataService.getSourceIds();
+  }
+
+  getProjectList(options?: { sourceId?: string }): ProjectListItem[] {
+    const summaries = this.dataService.getProjectSummaries(options);
     summaries.sort((a, b) => (a.lastActiveAt > b.lastActiveAt ? -1 : 1));
     return summaries.map(toProjectListItem);
   }
@@ -222,6 +226,7 @@ class SpaghettiAppService extends EventEmitter implements SpaghettiAPI {
 function toProjectListItem(data: ProjectSummaryData): ProjectListItem {
   return {
     slug: data.slug,
+    sourceId: data.sourceId,
     folderName: data.folderName,
     absolutePath: data.absolutePath,
     sessionCount: data.sessionCount,
@@ -237,6 +242,7 @@ function toProjectListItem(data: ProjectSummaryData): ProjectListItem {
 function toSessionListItem(data: SessionSummaryData): SessionListItem {
   return {
     sessionId: data.sessionId,
+    sourceId: data.sourceId,
     startTime: data.startTime,
     lastUpdate: data.lastUpdate,
     lifespanMs: data.lifespanMs,
