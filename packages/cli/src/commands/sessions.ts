@@ -148,6 +148,12 @@ export async function sessionsCommand(
       format: (v: any) => theme.muted(String(v)),
     },
     {
+      key: 'sourceId',
+      label: 'Agent',
+      width: 8,
+      format: (v: any) => theme.agent(String(v)),
+    },
+    {
       key: 'gitBranch',
       label: 'Branch',
       format: (v: any) => {

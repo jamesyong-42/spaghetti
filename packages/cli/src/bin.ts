@@ -9,7 +9,7 @@
  */
 
 import { createProgram } from './index.js';
-import { initService, shutdownService, registerService, disposeService } from './lib/init.js';
+import { initService, shutdownService, registerService, disposeService, detectAdditionalSources } from './lib/init.js';
 import { handleError } from './lib/error.js';
 import { checkForUpdates } from './lib/updater.js';
 
@@ -59,7 +59,7 @@ async function main(): Promise<void> {
 
       // Plane 2 on for the long-lived TUI so session lists / search stay warm
       // while Claude Code writes. One-shot commands (initService) stay pull-only.
-      const service = createSpaghettiService({ live: true });
+      const service = createSpaghettiService({ live: true, additionalSources: detectAdditionalSources() });
       registerService(service);
       // Don't initialize here — let Shell handle it with BootView
       const { waitUntilExit } = render(React.createElement(Shell, { api: service }), { exitOnCtrlC: true });

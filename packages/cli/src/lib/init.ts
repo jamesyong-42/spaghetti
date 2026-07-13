@@ -6,10 +6,27 @@
  * synchronous parsing. A spinner relying on setInterval would freeze.
  */
 
-import { createSpaghettiService } from '@vibecook/spaghetti-sdk';
-import type { SpaghettiAPI } from '@vibecook/spaghetti-sdk';
+import { createSpaghettiService, createCodexSource, defaultCodexDir } from '@vibecook/spaghetti-sdk';
+import type { SpaghettiAPI, AgentSource } from '@vibecook/spaghetti-sdk';
+import { existsSync } from 'node:fs';
+import { join } from 'node:path';
 import pc from 'picocolors';
 import { isTTY } from './terminal.js';
+
+/**
+ * Auto-detect other installed agents on this machine and return their
+ * `AgentSource`s to ingest alongside Claude Code (RFC 006 multi-source).
+ * Only sources whose data actually exists are added, so a machine without
+ * Codex pays nothing.
+ */
+export function detectAdditionalSources(): AgentSource[] {
+  const sources: AgentSource[] = [];
+  // Codex CLI: ~/.codex/sessions
+  if (existsSync(join(defaultCodexDir(), 'sessions'))) {
+    sources.push(createCodexSource());
+  }
+  return sources;
+}
 
 let _service: SpaghettiAPI | null = null;
 
@@ -91,6 +108,7 @@ export async function initService(opts?: InitOptions): Promise<SpaghettiAPI> {
   const service = createSpaghettiService({
     claudeDir: opts?.claudeDir,
     dbPath: opts?.dbPath,
+    additionalSources: detectAdditionalSources(),
   });
 
   registerService(service);

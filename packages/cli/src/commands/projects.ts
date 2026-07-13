@@ -76,6 +76,12 @@ export async function projectsCommand(api: SpaghettiAPI, opts: ProjectsOptions):
       format: (v: any) => theme.project(String(v)),
     },
     {
+      key: 'sourceId',
+      label: 'Agent',
+      width: 8,
+      format: (v: any) => theme.agent(String(v)),
+    },
+    {
       key: 'sessionCount',
       label: 'Sessions',
       width: 10,
