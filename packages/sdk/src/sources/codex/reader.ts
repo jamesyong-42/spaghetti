@@ -65,6 +65,18 @@ function textOfContent(content: unknown): string {
   return parts.join('\n');
 }
 
+/** Warm-start hooks (RFC 006). Let a caller skip unchanged files + track them. */
+export interface CodexReadOptions {
+  /**
+   * Return false to SKIP streaming a rollout's messages (warm-start: the file
+   * is unchanged and already ingested). `onProject`/`onSession` still fire, so
+   * project/session metadata stays current. Default: read everything.
+   */
+  shouldReadMessages?(file: string, mtimeMs: number): boolean;
+  /** Called after each discovered file with its stats — for fingerprint upserts. */
+  onFileSeen?(file: string, mtimeMs: number, size: number, lastByte: number): void;
+}
+
 export class CodexReader {
   constructor(
     private readonly fileService: FileService,
@@ -72,13 +84,13 @@ export class CodexReader {
   ) {}
 
   /** Discover, group, and stream all rollout files into the sink. */
-  readAll(sink: ProjectParseSink): void {
+  readAll(sink: ProjectParseSink, opts?: CodexReadOptions): void {
     const files = this.discover();
 
     // Group sessions by project (cwd-derived slug); one rollout file = one session.
     const projects = new Map<
       string,
-      { originalPath: string; sessions: { file: string; entry: SessionIndexEntry }[] }
+      { originalPath: string; sessions: { file: string; entry: SessionIndexEntry; mtimeMs: number; size: number }[] }
     >();
 
     for (const file of files) {
@@ -86,11 +98,12 @@ export class CodexReader {
       if (!meta) continue;
       const slug = encodeSlug(meta.cwd);
       const stats = this.fileService.getStats(file);
-      const modifiedIso = stats ? new Date(stats.mtimeMs).toISOString() : (meta.timestamp ?? '');
+      const mtimeMs = stats?.mtimeMs ?? 0;
+      const modifiedIso = stats ? new Date(mtimeMs).toISOString() : (meta.timestamp ?? '');
       const entry: SessionIndexEntry = {
         sessionId: meta.sessionId,
         fullPath: file,
-        fileMtime: stats?.mtimeMs ?? 0,
+        fileMtime: mtimeMs,
         firstPrompt: meta.firstPrompt || 'No prompt',
         summary: '',
         messageCount: 0,
@@ -105,7 +118,7 @@ export class CodexReader {
         proj = { originalPath: meta.cwd, sessions: [] };
         projects.set(slug, proj);
       }
-      proj.sessions.push({ file, entry });
+      proj.sessions.push({ file, entry, mtimeMs, size: stats?.size ?? 0 });
     }
 
     for (const [slug, proj] of projects) {
@@ -116,24 +129,28 @@ export class CodexReader {
       };
       sink.onProject(slug, proj.originalPath, sessionsIndex);
 
-      for (const { file, entry } of proj.sessions) {
+      for (const { file, entry, mtimeMs, size } of proj.sessions) {
         sink.onSession(slug, entry);
         let lineCount = 0;
         let lastByte = 0;
-        try {
-          const res = this.fileService.readJsonlStreaming<unknown>(file, (line, index, byteOffset) => {
-            // Every line goes to onMessage; the Codex extractor skips the
-            // non-message lines (session_meta / event_msg / non-message
-            // response_items) by returning null.
-            sink.onMessage(slug, entry.sessionId, line as never, index, byteOffset);
-            lineCount++;
-            lastByte = byteOffset;
-          });
-          lastByte = res.finalBytePosition;
-        } catch {
-          // unreadable rollout file — skip
+        const read = opts?.shouldReadMessages ? opts.shouldReadMessages(file, mtimeMs) : true;
+        if (read) {
+          try {
+            const res = this.fileService.readJsonlStreaming<unknown>(file, (line, index, byteOffset) => {
+              // Every line goes to onMessage; the Codex extractor skips the
+              // non-message lines (session_meta / event_msg / non-message
+              // response_items) by returning null.
+              sink.onMessage(slug, entry.sessionId, line as never, index, byteOffset);
+              lineCount++;
+              lastByte = byteOffset;
+            });
+            lastByte = res.finalBytePosition;
+          } catch {
+            // unreadable rollout file — skip
+          }
         }
         sink.onSessionComplete(slug, entry.sessionId, lineCount, lastByte);
+        opts?.onFileSeen?.(file, mtimeMs, size, lastByte);
       }
 
       sink.onProjectComplete(slug);
