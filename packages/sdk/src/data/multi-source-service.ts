@@ -27,7 +27,7 @@ import type {
 import type { SessionSummaryData, ProjectSummaryData } from './summary-types.js';
 import type { Project, Session, SessionMessage, AgentConfig, AgentAnalytic } from '../types/index.js';
 import type { AgentDataStore } from './agent-data-store.js';
-import type { LiveUpdates } from '../live/live-updates.js';
+import type { LiveWatch } from '../live/live-watch.js';
 import type { ClaudeCodeAgentDataService, LifecycleInternal, LifecycleOwner } from './lifecycle-owner.js';
 
 export class SpaghettiDataService extends EventEmitter implements ClaudeCodeAgentDataService, LifecycleInternal {
@@ -106,11 +106,13 @@ export class SpaghettiDataService extends EventEmitter implements ClaudeCodeAgen
     return this.store;
   }
 
-  getLiveUpdates(): LiveUpdates | undefined {
-    // Live is per-owner (only Claude has a pipeline today); return the first
-    // owner that exposes one.
+  getLiveWatch(): LiveWatch | undefined {
+    // Each source runs its own LiveWatch (started by its owner) and emits into
+    // the shared store, which `api.live` observes. This returns the primary
+    // (first) owner's — Claude's, which carries the `prewarm` scope surface
+    // `api.live` exposes; other sources' watches run alongside via the store.
     for (const owner of this.owners) {
-      const live = owner.getLiveUpdates();
+      const live = owner.getLiveWatch();
       if (live) return live;
     }
     return undefined;

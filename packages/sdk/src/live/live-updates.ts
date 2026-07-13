@@ -45,6 +45,7 @@ import {
   type ParsedRowCategory,
 } from './incremental-parser.js';
 import { classify, type Category, type RouteResult } from './router.js';
+import type { LiveWatch } from './live-watch.js';
 import { createParcelWatcher, createChokidarWatcher, type Watcher, type WatchEvent } from './watcher.js';
 import { createSettingsHandler, type SettingsHandler } from './settings-handler.js';
 import { createScopeAttacher, topicToScopes, type ScopeAttacher } from './scope-attacher.js';
@@ -114,7 +115,13 @@ export interface LiveUpdatesOptions {
   };
 }
 
-export interface LiveUpdates {
+/**
+ * Claude Code's live pipeline — the rich {@link LiveWatch} implementation
+ * (multi-scope watcher + coalescing queue). `prewarm` / `isSaturated` are
+ * Claude-specific and required here; the general `LiveWatch` keeps them optional.
+ */
+export interface LiveUpdates extends LiveWatch {
+  readonly sourceId: 'claude-code';
   /**
    * Load checkpoints + spawn the writer loop. As of C3.2 this does NOT
    * attach any filesystem watchers — attachment is driven on demand by
@@ -614,6 +621,7 @@ export function createLiveUpdates(deps: LiveUpdatesDeps, options: LiveUpdatesOpt
   // ── public surface ─────────────────────────────────────────────────────
 
   return {
+    sourceId: 'claude-code',
     async start(): Promise<void> {
       if (running) return;
 

@@ -28,6 +28,7 @@ import type { AgentDataStore } from '../../data/agent-data-store.js';
 import type { ParsedRow } from '../../live/incremental-parser.js';
 import type { SessionIndexEntry, SessionsIndex } from '../../types/index.js';
 import { createParcelWatcher, createChokidarWatcher, type Watcher, type Unsubscribe } from '../../live/watcher.js';
+import type { LiveWatch } from '../../live/live-watch.js';
 
 const ROLLOUT_FILE = /rollout-.*\.jsonl$/;
 const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
@@ -51,9 +52,9 @@ export interface CodexLiveWatchDeps {
   errorSink: ErrorSink;
 }
 
-export interface CodexLiveWatch {
-  start(): Promise<void>;
-  stop(): Promise<void>;
+/** Codex's {@link LiveWatch} — a plain whole-tree watcher (no prewarm scopes). */
+export interface CodexLiveWatch extends LiveWatch {
+  readonly sourceId: 'codex';
 }
 
 function encodeSlug(cwd: string): string {
@@ -171,6 +172,7 @@ export function createCodexLiveWatch(deps: CodexLiveWatchDeps): CodexLiveWatch {
   }
 
   return {
+    sourceId: 'codex',
     async start(): Promise<void> {
       if (watcher) return;
       watcher = createParcelWatcher();

@@ -45,7 +45,7 @@ import type {
 } from './change-events.js';
 import type { AgentDataStore } from '../data/agent-data-store.js';
 import type { ErrorSink } from '../io/error-sink.js';
-import type { LiveUpdates } from './live-updates.js';
+import type { LiveWatch } from './live-watch.js';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // PUBLIC TYPES
@@ -97,7 +97,7 @@ export interface SpaghettiLive {
 class SpaghettiLiveImpl implements SpaghettiLive {
   constructor(
     private readonly store: AgentDataStore,
-    private readonly liveUpdates: LiveUpdates,
+    private readonly liveWatch: LiveWatch,
     private readonly errorSink: ErrorSink | undefined,
   ) {}
 
@@ -121,7 +121,7 @@ class SpaghettiLiveImpl implements SpaghettiLive {
 
     // Firehose: don't force every scope online. See the module
     // doc-comment for the rationale.
-    const prewarmDispose: Dispose | undefined = topic !== undefined ? this.liveUpdates.prewarm(topic) : undefined;
+    const prewarmDispose: Dispose | undefined = topic !== undefined ? this.liveWatch.prewarm?.(topic) : undefined;
     // Forward to the store's overloaded subscribe through a widened
     // signature — the public overloads above keep the caller's
     // listener/options shapes aligned.
@@ -153,11 +153,13 @@ class SpaghettiLiveImpl implements SpaghettiLive {
   }
 
   prewarm(topic: ChangeTopic): Dispose {
-    return this.liveUpdates.prewarm(topic);
+    // Optional on the general LiveWatch — a source that watches its whole tree
+    // (Codex) has no scopes to ref-count, so this is a no-op Dispose.
+    return this.liveWatch.prewarm?.(topic) ?? (() => {});
   }
 
   isSaturated(): boolean {
-    return this.liveUpdates.isSaturated();
+    return this.liveWatch.isSaturated?.() ?? false;
   }
 
   // ── private ──────────────────────────────────────────────────────────
@@ -253,10 +255,6 @@ class SpaghettiLiveImpl implements SpaghettiLive {
 // FACTORY
 // ═══════════════════════════════════════════════════════════════════════════
 
-export function createSpaghettiLive(
-  store: AgentDataStore,
-  liveUpdates: LiveUpdates,
-  errorSink?: ErrorSink,
-): SpaghettiLive {
-  return new SpaghettiLiveImpl(store, liveUpdates, errorSink);
+export function createSpaghettiLive(store: AgentDataStore, liveWatch: LiveWatch, errorSink?: ErrorSink): SpaghettiLive {
+  return new SpaghettiLiveImpl(store, liveWatch, errorSink);
 }

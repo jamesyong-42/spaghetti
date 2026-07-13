@@ -50,6 +50,7 @@ import type { AgentDataStore } from './agent-data-store.js';
 import type { ClaudeCodeParser } from '../parser/claude-code-parser.js';
 import type { FileService } from '../io/index.js';
 import type { LiveUpdates } from '../live/live-updates.js';
+import type { LiveWatch } from '../live/live-watch.js';
 import { createWorkerPool, isWorkerThreadsAvailable, type WorkerToMainMessage } from '../workers/index.js';
 import { loadNativeAddon } from '../native.js';
 import { defaultDbPathForEngine, resolveEngine, type IngestEngine } from '../settings.js';
@@ -157,7 +158,8 @@ export interface ClaudeCodeAgentDataService extends EventEmitter {
  */
 export interface LifecycleInternal {
   getStore(): AgentDataStore;
-  getLiveUpdates(): LiveUpdates | undefined;
+  /** This source's live pipeline (RFC 006), or undefined when not live. */
+  getLiveWatch(): LiveWatch | undefined;
 }
 
 /**
@@ -1466,7 +1468,7 @@ export class ClaudeCodeLifecycleOwner extends EventEmitter implements ClaudeCode
    * Expose the optional live-updates orchestrator. `undefined` when
    * the service was constructed with `{ live: false }`.
    */
-  getLiveUpdates(): LiveUpdates | undefined {
+  getLiveWatch(): LiveWatch | undefined {
     return this.liveUpdates;
   }
 

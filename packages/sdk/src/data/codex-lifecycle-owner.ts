@@ -32,7 +32,7 @@ import { createCodexLiveWatch, type CodexLiveWatch } from '../sources/codex/live
 import type { AgentDataStore } from './agent-data-store.js';
 import type { IngestService } from './ingest-service.js';
 import type { LifecycleOwner } from './lifecycle-owner.js';
-import type { LiveUpdates } from '../live/live-updates.js';
+import type { LiveWatch } from '../live/live-watch.js';
 
 export class CodexLifecycleOwner extends EventEmitter implements LifecycleOwner {
   readonly sourceId = 'codex';
@@ -136,9 +136,9 @@ export class CodexLifecycleOwner extends EventEmitter implements LifecycleOwner 
     return this.store;
   }
 
-  getLiveUpdates(): LiveUpdates | undefined {
-    // Codex's live watcher emits directly to the shared store (which `api.live`
-    // observes), so it does not expose the `LiveUpdates` prewarm surface.
-    return undefined;
+  getLiveWatch(): LiveWatch | undefined {
+    // Codex's LiveWatch (no `prewarm` scopes — it watches the whole rollout
+    // tree); emits into the shared store, which `api.live` observes.
+    return this.liveWatch;
   }
 }
