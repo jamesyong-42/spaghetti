@@ -108,15 +108,16 @@ export interface ClaudeCodeAgentDataService extends EventEmitter {
     sessionId: string,
     limit: number,
     offset: number,
+    options?: { sourceId?: string },
   ): PaginatedSegmentResult<SessionMessage>;
   getConfig(): AgentConfig;
   getAnalytics(): AgentAnalytic;
 
   getSourceIds(): string[];
   getProjectSummaries(options?: { sourceId?: string }): ProjectSummaryData[];
-  getSessionSummaries(projectSlug: string): SessionSummaryData[];
+  getSessionSummaries(projectSlug: string, options?: { sourceId?: string }): SessionSummaryData[];
 
-  getProjectMemory(slug: string): string | null;
+  getProjectMemory(slug: string, options?: { sourceId?: string }): string | null;
   getSessionTodos(slug: string, sessionId: string): unknown[];
   getSessionPlan(slug: string, sessionId: string): unknown | null;
   getSessionTask(slug: string, sessionId: string): unknown | null;
@@ -1271,8 +1272,9 @@ export class ClaudeCodeLifecycleOwner extends EventEmitter implements ClaudeCode
     sessionId: string,
     limit: number,
     offset: number,
+    options?: { sourceId?: string },
   ): PaginatedSegmentResult<SessionMessage> {
-    const result = this.store.getSessionMessages(slug, sessionId, limit, offset);
+    const result = this.store.getSessionMessages(slug, sessionId, limit, offset, options);
 
     // Wrap in Segment<SessionMessage> for backward compat with app-service.
     // The store returns the raw `{ messages, total, ... }` shape; the
@@ -1332,16 +1334,16 @@ export class ClaudeCodeLifecycleOwner extends EventEmitter implements ClaudeCode
     return this.store.getProjectSummaries(options);
   }
 
-  getSessionSummaries(projectSlug: string): SessionSummaryData[] {
-    return this.store.getSessionSummaries(projectSlug);
+  getSessionSummaries(projectSlug: string, options?: { sourceId?: string }): SessionSummaryData[] {
+    return this.store.getSessionSummaries(projectSlug, options);
   }
 
   // ─────────────────────────────────────────────────────────────────────────
   // Detail queries (delegate to AgentDataStore)
   // ─────────────────────────────────────────────────────────────────────────
 
-  getProjectMemory(slug: string): string | null {
-    return this.store.getProjectMemory(slug);
+  getProjectMemory(slug: string, options?: { sourceId?: string }): string | null {
+    return this.store.getProjectMemory(slug, options);
   }
 
   getSessionTodos(slug: string, sessionId: string): unknown[] {

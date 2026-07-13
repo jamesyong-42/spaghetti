@@ -55,12 +55,42 @@ function msg(role: string, text: string, kind = role === 'assistant' ? 'output_t
   };
 }
 
-function tokenCountEvent() {
-  // A non-message line the extractor MUST skip.
+function tokenCountEvent(
+  last: {
+    input: number;
+    cached: number;
+    output: number;
+    reasoning?: number;
+    total?: number;
+  },
+  cumulative?: {
+    input: number;
+    cached: number;
+    output: number;
+    reasoning?: number;
+    total?: number;
+  },
+) {
+  const map = (u: typeof last) => ({
+    input_tokens: u.input,
+    cached_input_tokens: u.cached,
+    output_tokens: u.output,
+    reasoning_output_tokens: u.reasoning ?? 0,
+    total_tokens: u.total ?? u.input + u.output + (u.reasoning ?? 0),
+  });
+  const lastU = map(last);
+  const totalU = map(cumulative ?? last);
   return {
     timestamp: '2026-07-13T00:00:02.000Z',
     type: 'event_msg',
-    payload: { type: 'token_count', info: { total_token_usage: { total_tokens: 1234 } } },
+    payload: {
+      type: 'token_count',
+      info: {
+        total_token_usage: totalU,
+        last_token_usage: lastU,
+        model_context_window: 200_000,
+      },
+    },
   };
 }
 
@@ -82,21 +112,31 @@ describe('Codex source — end-to-end ingest', () => {
     const dayDir = path.join(codexRoot, 'sessions', '2026', '07', '13');
     mkdirSync(dayDir, { recursive: true });
 
-    // proj-a: developer + user + assistant, plus a token_count event (skipped).
+    // proj-a: developer + user + assistant + token_count (attributed to assistant).
     writeFileSync(
       path.join(dayDir, `rollout-2026-07-13T00-00-00-${SESSION_A}.jsonl`),
       rolloutLines(SESSION_A, '/tmp/proj-a', [
         msg('developer', 'system instructions here'),
         msg('user', 'how are text rendered?'),
-        tokenCountEvent(),
         msg('assistant', "I'll explore the repo."),
+        tokenCountEvent(
+          { input: 100, cached: 40, output: 20, reasoning: 5 },
+          { input: 100, cached: 40, output: 20, reasoning: 5 },
+        ),
       ]),
     );
 
-    // proj-b: a separate project (distinct cwd → distinct slug).
+    // proj-b: two turns with cumulative totals (like real Codex).
     writeFileSync(
       path.join(dayDir, `rollout-2026-07-13T00-05-00-${SESSION_B}.jsonl`),
-      rolloutLines(SESSION_B, '/tmp/proj-b', [msg('user', 'second project prompt'), msg('assistant', 'done')]),
+      rolloutLines(SESSION_B, '/tmp/proj-b', [
+        msg('user', 'second project prompt'),
+        msg('assistant', 'first reply'),
+        tokenCountEvent({ input: 50, cached: 10, output: 15 }, { input: 50, cached: 10, output: 15 }),
+        msg('user', 'follow up'),
+        msg('assistant', 'second reply'),
+        tokenCountEvent({ input: 80, cached: 30, output: 25 }, { input: 130, cached: 40, output: 40 }),
+      ]),
     );
 
     const dbPath = path.join(tempDir, 'codex.db');
@@ -148,12 +188,12 @@ describe('Codex source — end-to-end ingest', () => {
     assert.equal(sessions.length, 2);
   });
 
-  test('chat turns are extracted; session_meta and event_msg are skipped', () => {
+  test('chat turns are extracted; session_meta and event_msg are not message rows', () => {
     const rows = sqlite.all<MsgRow>(
       'SELECT msg_type, text_content, source_id, msg_index FROM messages WHERE session_id = ? ORDER BY msg_index',
       SESSION_A,
     );
-    // developer + user + assistant = 3 messages; session_meta + token_count skipped.
+    // developer + user + assistant = 3 messages; session_meta + token_count not rows.
     assert.equal(rows.length, 3);
     assert.deepEqual(
       rows.map((r) => r.msg_type),
@@ -163,12 +203,58 @@ describe('Codex source — end-to-end ingest', () => {
       rows.map((r) => r.text_content),
       ['system instructions here', 'how are text rendered?', "I'll explore the repo."],
     );
-    // msg_index reflects raw line position: session_meta=0, developer=1, user=2,
-    // token_count=3 (skipped), assistant=4 — so indexes are 1,2,4 (gaps are fine).
+    // msg_index: session_meta=0, developer=1, user=2, assistant=3, token_count=4.
     assert.deepEqual(
       rows.map((r) => r.msg_index),
-      [1, 2, 4],
+      [1, 2, 3],
     );
+  });
+
+  test('token_count last_token_usage is attributed to the preceding assistant', () => {
+    const rows = sqlite.all<{
+      msg_type: string;
+      input_tokens: number;
+      output_tokens: number;
+      cache_read_tokens: number;
+      cache_creation_tokens: number;
+    }>(
+      'SELECT msg_type, input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens FROM messages WHERE session_id = ? ORDER BY msg_index',
+      SESSION_A,
+    );
+    const asst = rows.find((r) => r.msg_type === 'assistant');
+    assert.ok(asst);
+    assert.equal(asst!.input_tokens, 100);
+    // output 20 + reasoning 5 folded into output_tokens
+    assert.equal(asst!.output_tokens, 25);
+    assert.equal(asst!.cache_read_tokens, 40);
+    assert.equal(asst!.cache_creation_tokens, 0);
+    // user/developer stay at 0
+    assert.ok(rows.filter((r) => r.msg_type !== 'assistant').every((r) => r.input_tokens === 0));
+  });
+
+  test('multi-turn token_count attributes per turn; session SUM is both turns', () => {
+    const rows = sqlite.all<{
+      msg_type: string;
+      text_content: string;
+      input_tokens: number;
+      output_tokens: number;
+    }>(
+      'SELECT msg_type, text_content, input_tokens, output_tokens FROM messages WHERE session_id = ? ORDER BY msg_index',
+      SESSION_B,
+    );
+    const assistants = rows.filter((r) => r.msg_type === 'assistant');
+    assert.equal(assistants.length, 2);
+    assert.equal(assistants[0]!.input_tokens, 50);
+    assert.equal(assistants[0]!.output_tokens, 15);
+    assert.equal(assistants[1]!.input_tokens, 80);
+    assert.equal(assistants[1]!.output_tokens, 25);
+
+    const sum = sqlite.get<{ input: number; output: number }>(
+      'SELECT SUM(input_tokens) as input, SUM(output_tokens) as output FROM messages WHERE session_id = ?',
+      SESSION_B,
+    );
+    assert.equal(sum?.input, 130);
+    assert.equal(sum?.output, 40);
   });
 
   test('the assistant turn is searchable via FTS', () => {

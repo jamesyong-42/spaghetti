@@ -1,0 +1,75 @@
+import { test, describe } from 'node:test';
+import assert from 'node:assert/strict';
+import { adaptMessageForDisplay, adaptMessagesForDisplay } from '../lib/source-messages.js';
+
+describe('adaptMessageForDisplay', () => {
+  test('passes Claude-shaped messages through', () => {
+    const raw = {
+      type: 'user',
+      uuid: 'u1',
+      message: { role: 'user', content: 'hello' },
+    };
+    const out = adaptMessageForDisplay(raw, 'claude-code');
+    assert.equal(out, raw);
+  });
+
+  test('maps Codex user response_item to type user', () => {
+    const raw = {
+      timestamp: '2026-07-13T00:00:01.000Z',
+      type: 'response_item',
+      payload: {
+        type: 'message',
+        role: 'user',
+        id: 'msg-1',
+        content: [{ type: 'input_text', text: 'codex hello' }],
+      },
+    };
+    const out = adaptMessageForDisplay(raw, 'codex');
+    assert.ok(out);
+    assert.equal(out!.type, 'user');
+    assert.equal((out as any).message.content, 'codex hello');
+  });
+
+  test('maps Codex assistant response_item to type assistant with text blocks', () => {
+    const raw = {
+      timestamp: '2026-07-13T00:00:02.000Z',
+      type: 'response_item',
+      payload: {
+        type: 'message',
+        role: 'assistant',
+        content: [{ type: 'output_text', text: 'codex reply' }],
+      },
+    };
+    const out = adaptMessageForDisplay(raw, 'codex');
+    assert.ok(out);
+    assert.equal(out!.type, 'assistant');
+    const blocks = (out as any).message.content;
+    assert.ok(Array.isArray(blocks));
+    assert.equal(blocks[0].text, 'codex reply');
+  });
+
+  test('skips non-message Codex lines', () => {
+    const raw = { type: 'session_meta', payload: { id: 'x' } };
+    assert.equal(adaptMessageForDisplay(raw, 'codex'), null);
+  });
+
+  test('adaptMessagesForDisplay filters nulls', () => {
+    const msgs = adaptMessagesForDisplay(
+      [
+        {
+          type: 'response_item',
+          payload: { type: 'message', role: 'user', content: [{ type: 'input_text', text: 'a' }] },
+        },
+        { type: 'event_msg', payload: {} },
+        {
+          type: 'response_item',
+          payload: { type: 'message', role: 'assistant', content: [{ type: 'output_text', text: 'b' }] },
+        },
+      ],
+      'codex',
+    );
+    assert.equal(msgs.length, 2);
+    assert.equal(msgs[0]!.type, 'user');
+    assert.equal(msgs[1]!.type, 'assistant');
+  });
+});

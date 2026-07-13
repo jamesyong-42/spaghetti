@@ -4,7 +4,8 @@
 
 import type { SpaghettiAPI, SessionListItem } from '@vibecook/spaghetti-sdk';
 import { theme } from '../lib/color.js';
-import { formatTokens, formatDuration, formatNumber, totalTokens } from '../lib/format.js';
+import { formatTokens, formatTokenUsage, formatDuration, formatNumber, totalTokens } from '../lib/format.js';
+import { sourceReportsPerMessageTokens } from '@vibecook/spaghetti-sdk';
 import { renderTable } from '../lib/table.js';
 import type { Column } from '../lib/table.js';
 import { resolveProject, suggestProjects } from '../lib/resolve.js';
@@ -101,7 +102,7 @@ export async function sessionsCommand(
     throw noProjectMatch(input, suggestProjects(input, projects));
   }
 
-  let sessions = api.getSessionList(project.slug);
+  let sessions = api.getSessionList(project.slug, { sourceId: project.sourceId });
 
   // Filter by --since
   if (opts.since) {
@@ -136,8 +137,8 @@ export async function sessionsCommand(
   }
 
   // Header
-  const totalSessions = api.getSessionList(project.slug).length;
-  const header = `  ${theme.project(project.folderName)} ${theme.muted(`(${totalSessions} sessions)`)}`;
+  const totalSessions = api.getSessionList(project.slug, { sourceId: project.sourceId }).length;
+  const header = `  ${theme.project(project.folderName)} ${theme.agent(project.sourceId)} ${theme.muted(`(${totalSessions} sessions)`)}`;
 
   const columns: Column[] = [
     {
@@ -169,14 +170,11 @@ export async function sessionsCommand(
       format: (v: any) => formatNumber(Number(v)),
     },
     {
-      key: 'tokenUsage',
+      key: '_tokens',
       label: 'Tokens',
       width: 9,
       align: 'right',
-      format: (v: any) => {
-        const usage = v as SessionListItem['tokenUsage'];
-        return theme.tokens(formatTokens(totalTokens(usage)));
-      },
+      format: (v: any) => theme.tokens(String(v)),
     },
     {
       key: 'lifespanMs',
@@ -193,9 +191,10 @@ export async function sessionsCommand(
   ];
 
   // Add index and summary to data
-  const rows = sessions.map((s: any, i: number) => ({
+  const rows = sessions.map((s: SessionListItem, i: number) => ({
     ...s,
     _index: i + 1,
+    _tokens: formatTokenUsage(s.tokenUsage, s.sourceId),
     _summary: s.summary || s.firstPrompt || '',
   }));
 
@@ -204,17 +203,17 @@ export async function sessionsCommand(
   // Footer
   let totalTok = 0;
   let totalMsgs = 0;
+  const tokensKnown = sourceReportsPerMessageTokens(project.sourceId);
   for (const s of sessions) {
-    totalTok += totalTokens(s.tokenUsage);
+    if (tokensKnown) totalTok += totalTokens(s.tokenUsage);
     totalMsgs += s.messageCount;
   }
 
   const showing =
     sessions.length < totalSessions ? `showing ${sessions.length}/${totalSessions}` : `${sessions.length} sessions`;
 
-  const footer = theme.muted(
-    `  ${showing} \u00b7 ${formatNumber(totalMsgs)} messages \u00b7 ${formatTokens(totalTok)} tokens`,
-  );
+  const tokFooter = tokensKnown ? `${formatTokens(totalTok)} tokens` : 'tokens n/a';
+  const footer = theme.muted(`  ${showing} \u00b7 ${formatNumber(totalMsgs)} messages \u00b7 ${tokFooter}`);
 
   process.stdout.write('\n' + header + '\n\n' + table + '\n\n' + footer + '\n\n');
 }

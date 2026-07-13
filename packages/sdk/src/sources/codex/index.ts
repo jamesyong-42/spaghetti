@@ -19,6 +19,7 @@ import { buildCodexPaths, defaultCodexDir, defaultSpaghettiStateDir } from './pa
 export { codexMessageExtractor } from './message-extractor.js';
 export { CodexReader } from './reader.js';
 export { buildCodexPaths, defaultCodexDir } from './paths.js';
+export { parseCodexTokenCount, type CodexTokenUsage, type ParsedCodexTokenCount } from './token-usage.js';
 
 const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
 

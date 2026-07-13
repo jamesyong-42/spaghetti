@@ -7,6 +7,7 @@
 
 import React, { useMemo } from 'react';
 import { Box, Text, useInput } from 'ink';
+import { sourceDisplayName, sourceDisplayRoot, sourceReportsPerMessageTokens } from '@vibecook/spaghetti-sdk';
 import { useViewNav } from './context.js';
 import { useApi } from './shell.js';
 import { useListNavigation, useTerminalSize } from './hooks.js';
@@ -77,17 +78,21 @@ export function MenuView(): React.ReactElement {
     let sessions = 0;
     let messages = 0;
     let tokens = 0;
+    let anyTokenSource = false;
     for (const p of projects) {
       sessions += p.sessionCount;
       messages += p.messageCount;
-      tokens += totalTokens(p.tokenUsage);
+      if (sourceReportsPerMessageTokens(p.sourceId)) {
+        anyTokenSource = true;
+        tokens += totalTokens(p.tokenUsage);
+      }
     }
 
     const stats: WelcomePanelStats = {
       projects: projects.length,
       sessions,
       messages,
-      tokens: formatTokens(tokens),
+      tokens: anyTokenSource || projects.length === 0 ? formatTokens(tokens) : '—',
     };
 
     const s = api.getStats();
@@ -106,7 +111,7 @@ export function MenuView(): React.ReactElement {
       dataSize: formatBytes(s.dbSizeBytes),
       queryMs: elapsed,
       projectCount: projects.length,
-      tokenStr: formatTokens(tokens),
+      tokenStr: anyTokenSource || projects.length === 0 ? formatTokens(tokens) : '—',
       pluginStatStr: pluginStat,
       sourceIds: api.getSourceIds(),
     };
@@ -114,14 +119,12 @@ export function MenuView(): React.ReactElement {
 
   // Agent-aware labels (RFC 006 multi-source): reflect whichever agents are
   // actually indexed rather than assuming Claude Code.
-  const agentName = (id: string): string => (id === 'claude-code' ? 'Claude Code' : id === 'codex' ? 'Codex' : id);
-  const agentRoot = (id: string): string => (id === 'claude-code' ? '~/.claude' : id === 'codex' ? '~/.codex' : id);
   const agentIds = sourceIds.length > 0 ? sourceIds : ['claude-code'];
   const projectsDescription =
     agentIds.length > 1
-      ? `Browse project conversations across ${agentIds.map(agentName).join(' + ')}`
-      : `Browse ${agentName(agentIds[0])} project conversations`;
-  const dataPath = agentIds.map(agentRoot).join(' + ');
+      ? `Browse project conversations across ${agentIds.map(sourceDisplayName).join(' + ')}`
+      : `Browse ${sourceDisplayName(agentIds[0])} project conversations`;
+  const dataPath = agentIds.map(sourceDisplayRoot).join(' + ');
 
   // Menu items
   const menuItems = [

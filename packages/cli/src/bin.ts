@@ -1,7 +1,7 @@
 /**
  * Spaghetti CLI — Entry point
  *
- * Claude Code data explorer for your terminal.
+ * Local-first agent history explorer for your terminal.
  *
  * Bare command (`spag`) on a TTY launches the Ink TUI.
  * Bare command piped (`spag | cat`) outputs summary JSON.

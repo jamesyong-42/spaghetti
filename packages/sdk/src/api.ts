@@ -18,6 +18,19 @@ import type { SpaghettiRuntime } from './runtime/spaghetti-runtime.js';
 // RESPONSE TYPES
 // ═══════════════════════════════════════════════════════════════════════════
 
+/**
+ * Optional agent scope for project-keyed reads.
+ *
+ * Project slugs are shared across agents that worked the same directory
+ * (cwd → slug). After schema v6, projects are distinct by `(source_id, slug)`,
+ * so callers that know which agent they mean should pass `sourceId` when
+ * listing sessions (and related project-scoped data). Omitting it keeps the
+ * legacy union-across-sources behaviour.
+ */
+export interface SourceFilter {
+  sourceId?: string;
+}
+
 export interface ProjectListItem {
   slug: string;
   /** Agent product this project came from (e.g. 'claude-code'). */
@@ -109,16 +122,34 @@ export interface SpaghettiAPI {
   /** Distinct agent sources present in the index (e.g. ['claude-code']). */
   getSourceIds(): string[];
   /** List projects, optionally scoped to one agent source. */
-  getProjectList(options?: { sourceId?: string }): ProjectListItem[];
+  getProjectList(options?: SourceFilter): ProjectListItem[];
 
-  /** Get all sessions for a project sorted by last update */
-  getSessionList(projectSlug: string): SessionListItem[];
+  /**
+   * Get all sessions for a project sorted by last update.
+   * Pass `{ sourceId }` when the project came from a multi-source index so
+   * sessions from other agents sharing the same slug are not mixed in.
+   */
+  getSessionList(projectSlug: string, options?: SourceFilter): SessionListItem[];
 
-  /** Get paginated messages for a session */
-  getSessionMessages(projectSlug: string, sessionId: string, limit?: number, offset?: number): MessagePage;
+  /**
+   * Get paginated messages for a session.
+   * Pass `{ sourceId }` to scope by agent (defense in depth; session ids are
+   * usually globally unique already).
+   */
+  getSessionMessages(
+    projectSlug: string,
+    sessionId: string,
+    limit?: number,
+    offset?: number,
+    options?: SourceFilter,
+  ): MessagePage;
 
-  /** Get project MEMORY.md content */
-  getProjectMemory(projectSlug: string): string | null;
+  /**
+   * Get project MEMORY.md content.
+   * Memory is Claude-only today; with `{ sourceId }` other than `claude-code`,
+   * returns null so a Codex project does not surface Claude's MEMORY.md.
+   */
+  getProjectMemory(projectSlug: string, options?: SourceFilter): string | null;
 
   /** Get todos for a session */
   getSessionTodos(projectSlug: string, sessionId: string): unknown[];

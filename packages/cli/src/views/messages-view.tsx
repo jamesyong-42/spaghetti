@@ -18,6 +18,7 @@ import { HRule } from './chrome.js';
 import { useApi } from './shell.js';
 import { formatTokens, formatRelativeTime, formatDuration } from '../lib/format.js';
 import { renderMarkdownText } from '../lib/message-render.js';
+import { adaptMessagesForDisplay } from '../lib/source-messages.js';
 import {
   buildDisplayItems,
   applyDisplayFilters,
@@ -402,17 +403,19 @@ export function MessagesView({
   const [loadedOffsetLow, setLoadedOffsetLow] = useState(0);
   const [totalCount, setTotalCount] = useState(0);
 
+  const sourceScope = useMemo(() => ({ sourceId: project.sourceId }), [project.sourceId]);
+
   // Initial load
   useEffect(() => {
-    const probe = api.getSessionMessages(project.slug, session.sessionId, 1, 0);
+    const probe = api.getSessionMessages(project.slug, session.sessionId, 1, 0, sourceScope);
     const total = probe.total;
     setTotalCount(total);
 
     const startOffset = Math.max(0, total - PAGE_SIZE);
-    const page = api.getSessionMessages(project.slug, session.sessionId, PAGE_SIZE, startOffset);
-    setAllMessages(page.messages);
+    const page = api.getSessionMessages(project.slug, session.sessionId, PAGE_SIZE, startOffset, sourceScope);
+    setAllMessages(adaptMessagesForDisplay(page.messages, project.sourceId));
     setLoadedOffsetLow(startOffset);
-  }, [api, project.slug, session.sessionId]);
+  }, [api, project.slug, project.sourceId, session.sessionId, sourceScope]);
 
   const allDisplayItems = useMemo(() => buildDisplayItems(allMessages), [allMessages]);
   const displayItems = useMemo(() => applyDisplayFilters(allDisplayItems, filters), [allDisplayItems, filters]);
@@ -539,10 +542,10 @@ export function MessagesView({
     const fetchSize = loadedOffsetLow - nextOffset;
     if (fetchSize <= 0) return;
 
-    const olderPage = api.getSessionMessages(project.slug, session.sessionId, fetchSize, nextOffset);
+    const olderPage = api.getSessionMessages(project.slug, session.sessionId, fetchSize, nextOffset, sourceScope);
     setLoadedOffsetLow(nextOffset);
-    setAllMessages((prev) => [...olderPage.messages, ...prev]);
-  }, [api, project.slug, session.sessionId, loadedOffsetLow]);
+    setAllMessages((prev) => [...adaptMessagesForDisplay(olderPage.messages, project.sourceId), ...prev]);
+  }, [api, project.slug, project.sourceId, session.sessionId, loadedOffsetLow, sourceScope]);
 
   // Build filter chips + count label for display within this view
   const total = allDisplayItems.length;

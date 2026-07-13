@@ -15,9 +15,10 @@
  *    same way Claude's `msgType` is its raw `type`).
  *  - text is a `content[]` of typed blocks (`input_text`/`output_text`/
  *    `input_image`); we concatenate the text blocks and drop images.
- *  - there are NO per-message tokens (Codex emits periodic `token_count`
- *    events instead), so token columns are 0 — see the appendix survey. Absent,
- *    not zero-usage; a later pass can backfill from the nearest `token_count`.
+ *  - chat lines themselves carry no tokens. Codex emits periodic
+ *    `event_msg` / `token_count` events; IngestService attributes
+ *    `last_token_usage` onto the preceding assistant row (ccusage style).
+ *    Extractor returns zeros here by design.
  *  - `timestamp` is the top-level `RolloutLine.timestamp` (ISO-8601), the
  *    cleanest per-message time in the whole survey.
  */

@@ -47,7 +47,7 @@ export interface AgentDataStore {
   getProjectSlugs(): string[];
   getSourceIds(): string[];
   getProjectSummaries(options?: { sourceId?: string }): ProjectSummaryData[];
-  getSessionSummaries(projectSlug: string): SessionSummaryData[];
+  getSessionSummaries(projectSlug: string, options?: { sourceId?: string }): SessionSummaryData[];
 
   // ── Messages ─────────────────────────────────────────────────────────────
   getSessionMessages(
@@ -55,6 +55,7 @@ export interface AgentDataStore {
     sessionId: string,
     limit: number,
     offset: number,
+    options?: { sourceId?: string },
   ): { messages: unknown[]; total: number; offset: number; hasMore: boolean };
 
   // ── Subagents ────────────────────────────────────────────────────────────
@@ -77,7 +78,7 @@ export interface AgentDataStore {
   ): { messages: unknown[]; total: number; offset: number; hasMore: boolean };
 
   // ── Details ──────────────────────────────────────────────────────────────
-  getProjectMemory(slug: string): string | null;
+  getProjectMemory(slug: string, options?: { sourceId?: string }): string | null;
   getSessionTodos(slug: string, sessionId: string): unknown[];
   getSessionPlan(slug: string, sessionId: string): unknown | null;
   getSessionTask(slug: string, sessionId: string): unknown | null;
@@ -231,8 +232,8 @@ export class AgentDataStoreImpl implements AgentDataStore {
     return this.queryService.getProjectSummaries(options);
   }
 
-  getSessionSummaries(projectSlug: string): SessionSummaryData[] {
-    return this.queryService.getSessionSummaries(projectSlug);
+  getSessionSummaries(projectSlug: string, options?: { sourceId?: string }): SessionSummaryData[] {
+    return this.queryService.getSessionSummaries(projectSlug, options);
   }
 
   // ── Messages ───────────────────────────────────────────────────────────
@@ -242,8 +243,9 @@ export class AgentDataStoreImpl implements AgentDataStore {
     sessionId: string,
     limit: number,
     offset: number,
+    options?: { sourceId?: string },
   ): { messages: unknown[]; total: number; offset: number; hasMore: boolean } {
-    return this.queryService.getSessionMessages(slug, sessionId, limit, offset);
+    return this.queryService.getSessionMessages(slug, sessionId, limit, offset, options);
   }
 
   // ── Subagents ──────────────────────────────────────────────────────────
@@ -279,8 +281,8 @@ export class AgentDataStoreImpl implements AgentDataStore {
 
   // ── Details ────────────────────────────────────────────────────────────
 
-  getProjectMemory(slug: string): string | null {
-    return this.queryService.getProjectMemory(slug);
+  getProjectMemory(slug: string, options?: { sourceId?: string }): string | null {
+    return this.queryService.getProjectMemory(slug, options);
   }
 
   getSessionTodos(slug: string, sessionId: string): unknown[] {

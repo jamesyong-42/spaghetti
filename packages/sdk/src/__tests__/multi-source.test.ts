@@ -97,11 +97,16 @@ describe('multi-source ingest (claude + codex)', () => {
   });
 
   test('the codex session and its messages are queryable', () => {
-    const codexSessions = spaghetti.getSessionList(CODEX_SLUG).filter((s) => s.sourceId === 'codex');
+    // Scoped list — no client-side sourceId filter required once the API
+    // threads the agent dimension through.
+    const codexSessions = spaghetti.getSessionList(CODEX_SLUG, { sourceId: 'codex' });
     assert.equal(codexSessions.length, 1);
     assert.equal(codexSessions[0].sessionId, CODEX_SESSION);
+    assert.equal(codexSessions[0].sourceId, 'codex');
 
-    const { messages } = spaghetti.getSessionMessages(CODEX_SLUG, CODEX_SESSION, 50, 0);
+    const { messages } = spaghetti.getSessionMessages(CODEX_SLUG, CODEX_SESSION, 50, 0, {
+      sourceId: 'codex',
+    });
     const texts = messages.map((m) => JSON.stringify(m));
     assert.ok(
       texts.some((t) => t.includes('codex hello')),
@@ -111,6 +116,19 @@ describe('multi-source ingest (claude + codex)', () => {
       texts.some((t) => t.includes('codex reply')),
       'assistant turn present',
     );
+  });
+
+  test('getSessionList scopes by sourceId when a slug is shared', () => {
+    // Even if only codex owns this slug in the fixture, the API contract is:
+    // with sourceId, never return rows from another agent.
+    const scoped = spaghetti.getSessionList(CODEX_SLUG, { sourceId: 'codex' });
+    assert.ok(scoped.every((s) => s.sourceId === 'codex'));
+    const empty = spaghetti.getSessionList(CODEX_SLUG, { sourceId: 'claude-code' });
+    assert.equal(empty.length, 0, 'claude scope on a codex-only slug returns nothing');
+  });
+
+  test('getProjectMemory is null for non-claude sources', () => {
+    assert.equal(spaghetti.getProjectMemory(CODEX_SLUG, { sourceId: 'codex' }), null);
   });
 
   test('getProjectList filters to the codex source only', () => {

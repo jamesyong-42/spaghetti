@@ -19,20 +19,23 @@ import path from 'node:path';
 export function resolveProject(input: string, projects: ProjectListItem[]): ProjectListItem | null {
   if (projects.length === 0) return null;
 
-  // 1. "." → match project whose absolutePath matches or contains cwd
+  // 1. "." → match project whose absolutePath matches or contains cwd.
+  // Multiple agents can share a cwd (same slug, different sourceId) — pick
+  // the most recently active among matches (list is usually already sorted
+  // that way; re-sort to be safe).
   if (input === '.') {
     const cwd = process.cwd();
-    // First try exact match
-    const exact = projects.find((p) => p.absolutePath === cwd);
-    if (exact) return exact;
+    const byRecency = (a: ProjectListItem, b: ProjectListItem) =>
+      new Date(b.lastActiveAt).getTime() - new Date(a.lastActiveAt).getTime();
 
-    // Then try cwd being inside a project path
-    const containing = projects.find((p) => cwd.startsWith(p.absolutePath + path.sep));
-    if (containing) return containing;
+    const exact = projects.filter((p) => p.absolutePath === cwd).sort(byRecency);
+    if (exact.length > 0) return exact[0]!;
 
-    // Then try project path being inside cwd
-    const inside = projects.find((p) => p.absolutePath.startsWith(cwd + path.sep));
-    if (inside) return inside;
+    const containing = projects.filter((p) => cwd.startsWith(p.absolutePath + path.sep)).sort(byRecency);
+    if (containing.length > 0) return containing[0]!;
+
+    const inside = projects.filter((p) => p.absolutePath.startsWith(cwd + path.sep)).sort(byRecency);
+    if (inside.length > 0) return inside[0]!;
 
     return null;
   }

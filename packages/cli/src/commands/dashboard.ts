@@ -8,7 +8,7 @@ import { formatTokens, formatBytes, formatRelativeTime, formatNumber, totalToken
 import { getTerminalWidth } from '../lib/terminal.js';
 
 function renderHeader(version: string): string {
-  return theme.heading(`  Spaghetti v${version}`) + '  ' + theme.muted('Claude Code data explorer');
+  return theme.heading(`  Spaghetti v${version}`) + '  ' + theme.muted('local agent history explorer');
 }
 
 function renderSummary(api: SpaghettiAPI): string {

@@ -123,4 +123,30 @@ describe('composite (source_id, slug) projects PK (schema v6)', () => {
     assert.equal(codexOnly.length, 1);
     assert.equal(codexOnly[0].messageCount, 1);
   });
+
+  test('getSessionSummaries without sourceId unions both agents on a shared slug', () => {
+    const query = createQueryService(() => sqlite);
+    const all = query.getSessionSummaries(SLUG);
+    assert.equal(all.length, 2);
+    assert.deepEqual(all.map((s) => s.sourceId).sort(), ['claude-code', 'codex']);
+  });
+
+  test('getSessionSummaries with sourceId returns only that agent', () => {
+    const query = createQueryService(() => sqlite);
+    const codex = query.getSessionSummaries(SLUG, { sourceId: 'codex' });
+    assert.equal(codex.length, 1);
+    assert.equal(codex[0].sessionId, 'codex-sess');
+    assert.equal(codex[0].sourceId, 'codex');
+    assert.equal(codex[0].messageCount, 1);
+
+    const claude = query.getSessionSummaries(SLUG, { sourceId: 'claude-code' });
+    assert.equal(claude.length, 1);
+    assert.equal(claude[0].sessionId, 'claude-sess');
+    assert.equal(claude[0].messageCount, 3);
+  });
+
+  test('getProjectMemory is null for non-claude sources on a shared slug', () => {
+    const query = createQueryService(() => sqlite);
+    assert.equal(query.getProjectMemory(SLUG, { sourceId: 'codex' }), null);
+  });
 });

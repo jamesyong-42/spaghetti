@@ -8,6 +8,7 @@ import React, { useState, useMemo } from 'react';
 import { Box, Text, useInput, useStdout } from 'ink';
 import { useViewNav } from './context.js';
 import { useApi } from './shell.js';
+import { sourceReportsPerMessageTokens } from '@vibecook/spaghetti-sdk';
 import { formatTokens, formatNumber, formatBytes, formatBar, totalTokens } from '../lib/format.js';
 
 export function StatsView(): React.ReactElement {
@@ -29,6 +30,9 @@ export function StatsView(): React.ReactElement {
     for (const proj of p) {
       sessions += proj.sessionCount;
       messages += proj.messageCount;
+      // Codex (and any source without per-message tokens) contributes 0s —
+      // skip so totals aren't diluted by silent zeros.
+      if (!sourceReportsPerMessageTokens(proj.sourceId)) continue;
       inputTokens += proj.tokenUsage.inputTokens;
       outputTokens += proj.tokenUsage.outputTokens;
       cacheRead += proj.tokenUsage.cacheReadTokens;
@@ -36,8 +40,9 @@ export function StatsView(): React.ReactElement {
     }
     const total = inputTokens + outputTokens + cacheRead + cacheWrite;
 
-    // Top projects by total tokens, descending
+    // Top projects by total tokens, descending (token-reporting sources only)
     const ranked = [...p]
+      .filter((proj) => sourceReportsPerMessageTokens(proj.sourceId))
       .map((proj) => ({ name: proj.folderName, tokens: totalTokens(proj.tokenUsage) }))
       .sort((a, b) => b.tokens - a.tokens)
       .slice(0, 5);

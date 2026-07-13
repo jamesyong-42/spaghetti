@@ -63,7 +63,7 @@ export async function memoryCommand(
   }
 
   // Get memory content
-  const memory = api.getProjectMemory(project.slug);
+  const memory = api.getProjectMemory(project.slug, { sourceId: project.sourceId });
 
   if (opts.json) {
     process.stdout.write(

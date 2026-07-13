@@ -4,10 +4,11 @@
 
 import type { SpaghettiAPI } from '@vibecook/spaghetti-sdk';
 import { theme } from '../lib/color.js';
-import { formatTokens, formatRelativeTime, formatDuration, formatNumber, totalTokens } from '../lib/format.js';
+import { formatTokenUsage, formatRelativeTime, formatDuration, formatNumber } from '../lib/format.js';
 import { resolveProject, resolveSession, suggestProjects } from '../lib/resolve.js';
 import { UserError, noProjectMatch, noSessionMatch } from '../lib/error.js';
 import { renderMessages, filterDisplayableMessages } from '../lib/message-render.js';
+import { adaptMessagesForDisplay } from '../lib/source-messages.js';
 import { outputWithPager } from '../lib/pager.js';
 import { getTerminalWidth } from '../lib/terminal.js';
 
@@ -38,8 +39,9 @@ export async function messagesCommand(
     throw noProjectMatch(projStr, suggestProjects(projStr, projects));
   }
 
-  // Resolve session
-  const sessions = api.getSessionList(project.slug);
+  // Resolve session (scoped to this project's agent)
+  const sourceScope = { sourceId: project.sourceId };
+  const sessions = api.getSessionList(project.slug, sourceScope);
 
   if (sessions.length === 0) {
     throw new UserError(
@@ -69,15 +71,15 @@ export async function messagesCommand(
   // The effective display limit: --last N overrides --limit
   const displayLimit = opts.last ?? requestedLimit;
 
-  // JSON/raw: fetch with exact limit, no filtering
+  // JSON/raw: fetch with exact limit, no filtering (raw stays source-native)
   if (opts.json) {
-    const page = api.getSessionMessages(project.slug, session.sessionId, displayLimit, offset);
+    const page = api.getSessionMessages(project.slug, session.sessionId, displayLimit, offset, sourceScope);
     process.stdout.write(JSON.stringify(page, null, 2) + '\n');
     return;
   }
 
   if (opts.raw) {
-    const page = api.getSessionMessages(project.slug, session.sessionId, displayLimit, offset);
+    const page = api.getSessionMessages(project.slug, session.sessionId, displayLimit, offset, sourceScope);
     for (const msg of page.messages) {
       process.stdout.write(JSON.stringify(msg) + '\n');
     }
@@ -90,8 +92,14 @@ export async function messagesCommand(
   const OVER_FETCH_MULTIPLIER = 3;
   const MAX_RETRIES = 2;
 
-  const page = api.getSessionMessages(project.slug, session.sessionId, displayLimit * OVER_FETCH_MULTIPLIER, offset);
-  let displayMessages = filterDisplayableMessages(page.messages);
+  const page = api.getSessionMessages(
+    project.slug,
+    session.sessionId,
+    displayLimit * OVER_FETCH_MULTIPLIER,
+    offset,
+    sourceScope,
+  );
+  let displayMessages = filterDisplayableMessages(adaptMessagesForDisplay(page.messages, project.sourceId));
   let totalRaw = page.total;
   let lastHasMore = page.hasMore;
   let fetchOffset = offset + page.messages.length;
@@ -102,8 +110,11 @@ export async function messagesCommand(
       session.sessionId,
       displayLimit * OVER_FETCH_MULTIPLIER,
       fetchOffset,
+      sourceScope,
     );
-    displayMessages = displayMessages.concat(filterDisplayableMessages(morePage.messages));
+    displayMessages = displayMessages.concat(
+      filterDisplayableMessages(adaptMessagesForDisplay(morePage.messages, project.sourceId)),
+    );
     totalRaw = morePage.total;
     lastHasMore = morePage.hasMore;
     fetchOffset += morePage.messages.length;
@@ -130,7 +141,7 @@ export async function messagesCommand(
     metaParts.push(`${theme.label('Branch:')} ${theme.accent(session.gitBranch)}`);
   }
   metaParts.push(`${theme.label('Messages:')} ${formatNumber(session.messageCount)}`);
-  metaParts.push(`${theme.label('Tokens:')} ${theme.tokens(formatTokens(totalTokens(session.tokenUsage)))}`);
+  metaParts.push(`${theme.label('Tokens:')} ${theme.tokens(formatTokenUsage(session.tokenUsage, session.sourceId))}`);
   metaParts.push(`${theme.label('Duration:')} ${formatDuration(session.lifespanMs)}`);
   metaParts.push(`${theme.label('Last active:')} ${formatRelativeTime(session.lastUpdate)}`);
 

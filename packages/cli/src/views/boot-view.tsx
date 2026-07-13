@@ -68,7 +68,7 @@ export function BootView({ version, progress, elapsed, error, onQuit }: BootView
 
   if (error) {
     // Error state
-    contentLines.push(padTo('  untangle your claude code history', innerWidth));
+    contentLines.push(padTo('  untangle your agent history', innerWidth));
     contentLines.push('');
     contentLines.push(padTo(`  \u2717 Failed to initialize`, innerWidth));
     contentLines.push('');
@@ -77,7 +77,7 @@ export function BootView({ version, progress, elapsed, error, onQuit }: BootView
     contentLines.push(padTo('  Press q to quit', innerWidth));
   } else {
     // Progress state
-    contentLines.push(padTo('  untangle your claude code history', innerWidth));
+    contentLines.push(padTo('  untangle your agent history', innerWidth));
     contentLines.push('');
 
     // Progress bar line

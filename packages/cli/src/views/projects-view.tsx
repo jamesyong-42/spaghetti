@@ -8,7 +8,7 @@ import type { ProjectListItem } from '@vibecook/spaghetti-sdk';
 import { useViewNav } from './context.js';
 import { useApi } from './shell.js';
 import { useListNavigation, useTerminalSize } from './hooks.js';
-import { formatTokens, formatRelativeTime, formatNumber, totalTokens } from '../lib/format.js';
+import { formatTokenUsage, formatRelativeTime, formatNumber } from '../lib/format.js';
 import { ProjectTabView } from './project-tab-view.js';
 import { TabBar } from './tab-bar.js';
 import type { ViewEntry } from './types.js';
@@ -16,6 +16,10 @@ import type { ViewEntry } from './types.js';
 /** Short tab label for an agent source id. */
 function agentLabel(sourceId: string): string {
   return sourceId === 'claude-code' ? 'claude' : sourceId;
+}
+
+function projectKey(p: ProjectListItem): string {
+  return `${p.sourceId}:${p.slug}`;
 }
 
 // ─── ProjectCard ───────────────────────────────────────────────────────
@@ -48,8 +52,9 @@ function ProjectCard({ project, firstPrompt, selected, cols }: ProjectCardProps)
   const promptText = promptFlat ? `"${promptFlat}"` : '';
   const truncatedPrompt = trunc(promptText, maxWidth - 4);
 
-  // Line 3: stats
-  const stats = `${formatNumber(p.sessionCount)} sessions \u00B7 ${formatNumber(p.messageCount)} msgs \u00B7 ${formatTokens(totalTokens(p.tokenUsage))} tokens \u00B7 ${formatRelativeTime(p.lastActiveAt)}`;
+  // Line 3: stats (tokens: "—" when the agent has no per-message counts)
+  const tok = formatTokenUsage(p.tokenUsage, p.sourceId);
+  const stats = `${formatNumber(p.sessionCount)} sessions \u00B7 ${formatNumber(p.messageCount)} msgs \u00B7 ${tok} tokens \u00B7 ${formatRelativeTime(p.lastActiveAt)}`;
   const truncatedStats = trunc(stats, maxWidth - 4);
 
   return (
@@ -121,9 +126,9 @@ export function ProjectsView(): React.ReactElement {
   const firstPrompts = useMemo(() => {
     const map = new Map<string, string>();
     for (const p of projects) {
-      const sess = api.getSessionList(p.slug);
+      const sess = api.getSessionList(p.slug, { sourceId: p.sourceId });
       if (sess.length > 0) {
-        map.set(p.slug, sess[0].firstPrompt || '');
+        map.set(projectKey(p), sess[0].firstPrompt || '');
       }
     }
     return map;
@@ -197,9 +202,9 @@ export function ProjectsView(): React.ReactElement {
           const actualIndex = scrollOffset + i;
           return (
             <ProjectCard
-              key={p.slug}
+              key={projectKey(p)}
               project={p}
-              firstPrompt={firstPrompts.get(p.slug) || ''}
+              firstPrompt={firstPrompts.get(projectKey(p)) || ''}
               selected={actualIndex === selectedIndex}
               cols={cols}
             />

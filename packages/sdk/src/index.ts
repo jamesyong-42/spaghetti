@@ -63,7 +63,12 @@ export {
   type ClaudeCodeSourceOptions,
   createCodexSource,
   defaultCodexDir,
+  parseCodexTokenCount,
   type CodexSourceOptions,
+  type CodexTokenUsage,
+  sourceReportsPerMessageTokens,
+  sourceDisplayName,
+  sourceDisplayRoot,
 } from './sources/index.js';
 
 // Durable store + plane façades (composition helpers; prefer createSpaghettiService)

@@ -4,12 +4,32 @@
  * Ported and expanded from @spaghetti/ui formatters.
  */
 
+import { sourceReportsPerMessageTokens } from '@vibecook/spaghetti-sdk';
 import { theme } from './color.js';
 
 export function formatTokens(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
   if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
   return String(n);
+}
+
+/**
+ * Format token usage for display. Sources that do not attribute per-message
+ * tokens (e.g. Codex) show "—" so zero is not read as "used zero tokens".
+ */
+export function formatTokenUsage(
+  usage: {
+    inputTokens: number;
+    outputTokens: number;
+    cacheCreationTokens: number;
+    cacheReadTokens: number;
+  },
+  sourceId?: string,
+): string {
+  if (sourceId && !sourceReportsPerMessageTokens(sourceId)) {
+    return '—';
+  }
+  return formatTokens(totalTokens(usage));
 }
 
 export function formatBytes(n: number): string {

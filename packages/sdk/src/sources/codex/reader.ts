@@ -11,8 +11,9 @@
  *   2. peeks each file's `session_meta` → project `cwd` + session id,
  *   3. groups sessions by project and emits `onProject` / `onSession`,
  *   4. streams every line through `onMessage` — the Codex `MessageExtractor`
- *      returns `null` for the non-message lines (session_meta, event_msg, …),
- *      so only chat turns are written.
+ *      returns `null` for non-chat lines; IngestService still sees
+ *      `event_msg`/`token_count` and attributes turn tokens onto the previous
+ *      assistant row (ccusage style).
  *
  * It emits the same sink-event shape the claude cold-start uses
  * (`onProject → onSession → onMessage* → onSessionComplete → onProjectComplete`),

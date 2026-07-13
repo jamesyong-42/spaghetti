@@ -17,5 +17,9 @@ export {
   CodexReader,
   defaultCodexDir,
   buildCodexPaths,
+  parseCodexTokenCount,
   type CodexSourceOptions,
+  type CodexTokenUsage,
+  type ParsedCodexTokenCount,
 } from './codex/index.js';
+export { sourceReportsPerMessageTokens, sourceDisplayName, sourceDisplayRoot } from './capabilities.js';

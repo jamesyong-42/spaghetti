@@ -69,7 +69,7 @@ async function withService<T>(fn: (api: Awaited<ReturnType<typeof initService>>)
 export function createProgram(): Command {
   const program = new Command();
 
-  program.name('spaghetti').version(VERSION, '-v, --version').description('Claude Code data explorer');
+  program.name('spaghetti').version(VERSION, '-v, --version').description('Local-first agent history explorer');
 
   // Known commands with their aliases for unknown-command detection
   const knownCommands: Array<{ name: string; alias: string; description: string }> = [
