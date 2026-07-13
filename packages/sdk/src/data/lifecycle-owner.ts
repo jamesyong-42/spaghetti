@@ -1,13 +1,14 @@
 /**
- * LifecycleOwner — Interface + lifecycle-owning implementation.
+ * ClaudeCodeLifecycleOwner — Claude Code's ingest-lifecycle owner.
  *
- * Formerly `AgentDataServiceImpl` in `agent-data-service.ts`. The class
- * is renamed to clarify responsibility (cold/warm start, engine
- * selection, progress events, start/stop of the live subsystem); all
- * read methods now delegate to `AgentDataStore`. The old public name
- * `AgentDataServiceImpl` (and the `ClaudeCodeAgentDataService`
- * interface) are re-exported verbatim from `./agent-data-service.ts`
- * so no consumer needs to change its imports — see RFC 005 / Phase 1.
+ * Implements the per-source `LifecycleOwner` interface (RFC 006): cold/warm
+ * start, engine selection (rs/ts), progress events, and start/stop of the live
+ * subsystem — all read methods delegate to the shared `AgentDataStore`, which
+ * unifies every source's rows. Formerly `AgentDataServiceImpl`; the old public
+ * name (and the `ClaudeCodeAgentDataService` interface) are re-exported verbatim
+ * from `./agent-data-service.ts` so no consumer needs to change its imports.
+ * A second agent (Codex) supplies its own `LifecycleOwner` writing into the same
+ * store under its own `sourceId`.
  */
 
 import * as os from 'node:os';
@@ -159,6 +160,29 @@ export interface LifecycleInternal {
   getLiveUpdates(): LiveUpdates | undefined;
 }
 
+/**
+ * The per-source ingest-lifecycle contract (RFC 006 multi-source).
+ *
+ * A `LifecycleOwner` owns ONE agent source's ingest into the shared store:
+ * engine selection (rs/ts), cold-start, warm-start, and (optionally) the live
+ * pipeline. It deliberately does NOT own reads — `getProjectSummaries`,
+ * `search`, etc. query the shared store, which already unifies every source's
+ * rows, so reads are a shared facade, not a per-source concern.
+ *
+ * `ClaudeCodeLifecycleOwner` is the reference implementation; a second agent
+ * (e.g. `CodexLifecycleOwner`) implements this to ingest into the SAME store
+ * under its own `sourceId`. A coordinator fans `initialize`/`shutdown`/`rebuild`
+ * across all owners.
+ */
+export interface LifecycleOwner extends LifecycleInternal {
+  /** The `AgentSource.id` this owner ingests for (stamped on its rows). */
+  readonly sourceId: string;
+  initialize(): Promise<void>;
+  shutdown(): void;
+  shutdownAsync?(): Promise<void>;
+  rebuild(): Promise<void>;
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 // OPTIONS
 // ═══════════════════════════════════════════════════════════════════════════
@@ -197,7 +221,9 @@ interface SourceStatSnapshot {
   isJsonl: boolean;
 }
 
-export class LifecycleOwner extends EventEmitter implements ClaudeCodeAgentDataService, LifecycleInternal {
+export class ClaudeCodeLifecycleOwner extends EventEmitter implements ClaudeCodeAgentDataService, LifecycleOwner {
+  /** RFC 006: the source this owner ingests for. Claude Code today. */
+  readonly sourceId = 'claude-code';
   private fileService: FileService;
   private parser: ClaudeCodeParser;
   private queryService: QueryService;
@@ -383,8 +409,8 @@ export class LifecycleOwner extends EventEmitter implements ClaudeCodeAgentDataS
 
     if (isColdStart) {
       await this.performColdStart();
-      this.ingestService.setMeta(LifecycleOwner.MSG_INDEX_HEAL_KEY, '1');
-    } else if (this.ingestService.getMeta(LifecycleOwner.MSG_INDEX_HEAL_KEY) === null) {
+      this.ingestService.setMeta(ClaudeCodeLifecycleOwner.MSG_INDEX_HEAL_KEY, '1');
+    } else if (this.ingestService.getMeta(ClaudeCodeLifecycleOwner.MSG_INDEX_HEAL_KEY) === null) {
       // One-shot heal: releases before the incremental msg_index fix
       // overwrote the head of active sessions with appended messages
       // (the streaming reader's line index restarts at 0 on resumed
@@ -392,7 +418,7 @@ export class LifecycleOwner extends EventEmitter implements ClaudeCodeAgentDataS
       // JSONL on disk is intact, so one full re-parse restores every
       // clobbered row; the marker keeps this from ever running again.
       await this.warmStartFullReparse('Healing message indexes from a previous version...');
-      this.ingestService.setMeta(LifecycleOwner.MSG_INDEX_HEAL_KEY, '1');
+      this.ingestService.setMeta(ClaudeCodeLifecycleOwner.MSG_INDEX_HEAL_KEY, '1');
     } else {
       await this.performWarmStart(fingerprints);
     }
