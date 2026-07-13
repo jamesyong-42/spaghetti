@@ -83,6 +83,31 @@ The cost we accept: cross-agent features that need rich structure (e.g. a unifie
 
 The v5 `messages` columns already match the normalized core (`msg_type`, `text_content`, the token columns, `data`). This RFC is mostly a **code relocation**, not a migration: the extraction logic moves from the parsers into a source-owned `MessageExtractor`. If the core enum for `msg_type` is tightened, that is a value convention, not a DDL change. **No schema version bump is expected** — which is a sign the boundary is falling where the storage layer already anticipated it.
 
+## 5.1 Storage layout — one index, `source_id` column, **not** per-source DB
+
+The survey raises an obvious question: OpenCode and Cursor store their transcripts in SQLite — so should Spaghetti keep a database per agent kind? **No.** One shared index, with the `source_id` column step 1 already added to every table (`source_files`, `projects`, `sessions`, `messages`). The source dimension is a **column, not a database**. This is a settled decision; recording the rationale so it is not relitigated.
+
+**Don't conflate the source's storage with Spaghetti's.** These are two different databases with two different roles:
+
+- **The agent's own store** — Cursor's `state.vscdb`, OpenCode's `opencode.db` — is a **read-only input**. The adapter's *reader* (§3.1) queries it. A source happening to use SQLite says nothing about how Spaghetti lays out its index.
+- **Spaghetti's index** — one unified, `source_id`-tagged store — is the **output** every adapter writes into via the shared writer.
+
+```
+Cursor  state.vscdb   ─┐
+OpenCode opencode.db  ─┤──►  [per-source reader + extractor]  ──►  ONE Spaghetti index
+Claude/Codex JSONL    ─┘                                            (rows tagged by source_id)
+```
+
+**Why one index, not per-source:**
+
+1. **The product is a cross-agent browser.** List / search / timeline across all agents is the reason the thing exists. With one index that is a `WHERE source_id = ?` (or no clause) and a single FTS table. Per-source DBs turn every unified read into `ATTACH` + `UNION ALL` across N databases and N merged FTS indexes — a fan-out-and-merge tax paid forever on the headline feature.
+2. **The normalized core is identical across sources.** RFC 006 normalizes every source's rows to the *same* shape. Per-source DBs would give N copies of one schema for zero schema benefit, while scattering homogeneous rows that are always read together.
+3. **Heterogeneity is already handled per row.** The verbatim native record lives in `data TEXT` (opaque, source-tagged); source-specific structure never needs a source-specific table or column.
+
+**Isolated rebuild — the one real merit of per-DB — is captured without splitting.** The only thing per-source databases buy is blast-radius isolation: Cursor's format drifts (`_v` bumps) and a Cursor-extractor fix should not force Claude to re-ingest. Inside one index that is **per-source re-ingest** — `DELETE FROM … WHERE source_id = 'cursor'`, then re-read only Cursor — plus a per-source format-version in a small `source_state` table. Ingest is already incremental per file (byte-offset / mtime), so per-source rebuild falls out of the existing model. Global DDL bumps still drop-and-rebuild everything (cheap — the index is a pure function of disk); a single adapter's fix re-ingests only its own `source_id`.
+
+**One prerequisite before a second source lands:** `projects.slug` is still the PK, so two sources with a colliding project slug would clash in the shared table. Fix is the composite **`(source_id, slug)`** PK already tracked in §8. Cheap now, a migration headache later.
+
 ## 6. The Rust question
 
 The Rust crate re-implements Claude extraction for the bulk path (`project_parser.rs`, `types/`). Two honest options:
