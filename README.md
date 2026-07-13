@@ -1,35 +1,39 @@
 # Spaghetti
 
-**Turn your local Claude Code history into a searchable workspace.**
+**Turn your local agent history into a searchable workspace.**
 
-Spaghetti is a local-first CLI and SDK for Claude Code data. It indexes `~/.claude` into SQLite so you can search conversations, inspect projects and sessions, review plans/todos/subagents, and build your own tools on top of the same data.
+Spaghetti is a local-first CLI and SDK for coding-agent data. It indexes **Claude Code** (`~/.claude`) and **OpenAI Codex** (`~/.codex`) into one SQLite store so you can search conversations, browse projects and sessions, review plans/todos/subagents, and build tools on top of the same index.
 
 [![npm version](https://img.shields.io/npm/v/@vibecook/spaghetti.svg?label=@vibecook/spaghetti)](https://www.npmjs.com/package/@vibecook/spaghetti)
 [![npm version](https://img.shields.io/npm/v/@vibecook/spaghetti-sdk.svg?label=@vibecook/spaghetti-sdk)](https://www.npmjs.com/package/@vibecook/spaghetti-sdk)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Node](https://img.shields.io/badge/node-%3E%3D18-brightgreen.svg)](https://nodejs.org/)
 [![CI](https://github.com/jamesyong-42/spaghetti/actions/workflows/ci.yml/badge.svg)](https://github.com/jamesyong-42/spaghetti/actions/workflows/ci.yml)
+[![Docs](https://img.shields.io/badge/docs-GitHub%20Pages-2dd4bf)](https://jamesyong-42.github.io/spaghetti/)
+
+**Docs:** [https://jamesyong-42.github.io/spaghetti/](https://jamesyong-42.github.io/spaghetti/) · [API reference](https://jamesyong-42.github.io/spaghetti/api.html) · [CLI commands](https://jamesyong-42.github.io/spaghetti/commands.html)
 
 ```text
-╭ Spaghetti v0.5.0 ──────────────────────────────────────────────────────╮
+╭ Spaghetti v0.5.17 ─────────────────────────────────────────────────────╮
 │                                                                        │
 │  ▄▀▀ █▀█ ▄▀▄ █▀▀ █ █ █▀▀ ▀█▀ ▀█▀ █      Projects           79         │
 │  ▀▄▄ █▀▀ █▀█ █ █ █▀█ █▀   █   █  █      Sessions        1,247         │
 │  ▄▄▀ █   █ █ ▀▀▀ ▀ ▀ ▀▀▀  ▀   ▀  ▀      Messages       86,412         │
 │                                            Tokens          66.3M      │
-│  untangle your claude code history         ──────────────────────      │
+│  untangle your agent history               ──────────────────────      │
 │                                            /search  /stats  /help      │
-│  ~/.claude · 512 MB · 28ms                                             │
+│  ~/.claude + ~/.codex · 512 MB · 28ms                                  │
 │                                                                        │
 ╰────────────────────────────────────────────────────────────────────────╯
 ```
 
 ## Why people use it
 
-- **Find anything fast** with full-text search over your Claude Code message history.
-- **Browse the important artifacts**: projects, sessions, messages, plans, todos, memory files, and subagents.
-- **Stay local-first** with a SQLite index stored on your machine.
-- **Build on top of it** with a reusable TypeScript SDK and optional React exports.
+- **Find anything fast** with full-text search over multi-agent message history.
+- **Browse Claude and Codex side by side** — agent tabs in the TUI, Agent column in lists, source-scoped sessions so the same repo never mixes agents.
+- **Artifacts, not just chat**: projects, sessions, messages, plans, todos, memory, subagents, workflows (Claude), rollouts + token usage (Codex).
+- **Stay local-first** with a SQLite index under `~/.spaghetti` — no cloud, no accounts.
+- **Build on top of it** with `@vibecook/spaghetti-sdk` and optional React exports.
 
 ## Quick start
 
@@ -44,19 +48,22 @@ Or run a one-off command without installing globally:
 npx @vibecook/spaghetti search "worker pool"
 ```
 
+If `~/.codex/sessions` exists, Codex is auto-detected and indexed alongside Claude Code (zero config).
+
 ## What you get
 
 | Surface | Best for |
 |---|---|
-| `@vibecook/spaghetti` | Interactive terminal browsing plus one-shot CLI commands |
-| `@vibecook/spaghetti-sdk` | Scripts, apps, and custom tooling over indexed Claude Code data |
-| Native Rust ingest | Faster cold starts by default, with automatic TypeScript fallback |
+| [`@vibecook/spaghetti`](https://www.npmjs.com/package/@vibecook/spaghetti) | Interactive TUI plus one-shot CLI commands |
+| [`@vibecook/spaghetti-sdk`](https://www.npmjs.com/package/@vibecook/spaghetti-sdk) | Scripts, apps, and custom tooling over the same index |
+| Native Rust ingest | Faster Claude cold starts by default, with automatic TypeScript fallback |
+| [Docs site](https://jamesyong-42.github.io/spaghetti/) | Product overview, architecture, CLI & API reference |
 
 ## Common commands
 
 ```bash
-spag                         # launch the TUI
-spag projects                # list indexed projects
+spag                         # launch the multi-agent TUI
+spag projects                # list projects (Agent column)
 spag sessions .              # sessions for the current repo
 spag messages . latest       # latest session transcript
 spag search "refactor parser"
@@ -67,46 +74,51 @@ spag doctor
 
 ## What Spaghetti indexes
 
-- Claude Code projects and sessions from `~/.claude`
-- Messages, plans, todos, memory files, and subagent transcripts
-- Hook events and active channel sessions for observability workflows
-- A local SQLite cache under `~/.spaghetti/cache`
+- **Claude Code** — projects/sessions under `~/.claude`, messages, plans, todos, memory, subagents, workflows, teams, hooks/channels
+- **OpenAI Codex** — rollouts under `~/.codex/sessions/**`, chat turns, official `token_count` usage (tiktoken estimate when events are missing)
+- One local SQLite index under `~/.spaghetti/cache` with a `source_id` column (schema v7+)
 
 ## Built for two audiences
 
 ### Terminal users
 
-Launch `spag` for the full-screen TUI, or use subcommands when you just want a fast answer in the shell.
+Launch `spag` for the full-screen TUI (agent tabs when multiple sources are present), or use subcommands when you just want a fast answer in the shell.
 
 ### Tool builders
 
-Use the SDK directly when you want to query the same indexed data from scripts or apps:
+Use the SDK when you want the same indexed data from scripts or apps:
 
 ```ts
-import { createSpaghettiService } from '@vibecook/spaghetti-sdk';
+import { createSpaghettiService, createCodexSource } from '@vibecook/spaghetti-sdk';
 
-const spaghetti = createSpaghettiService();
-await spaghetti.initialize();
+const api = createSpaghettiService({
+  additionalSources: [createCodexSource()], // optional; CLI auto-detects Codex
+});
+await api.initialize();
 
-const results = spaghetti.search({ text: 'worker thread' });
+const projects = api.getProjectList();
+const sessions = api.getSessionList(projects[0].slug, {
+  sourceId: projects[0].sourceId, // always scope multi-source drill-downs
+});
+const results = api.search({ text: 'worker thread' });
 
-spaghetti.shutdown();
+await api.dispose();
 ```
 
-## Docs site
+## Docs
 
-Official product docs (static HTML for GitHub Pages):
-
-- [`site/index.html`](site/index.html) — product overview, architecture, CLI/SDK
-- [`site/api.html`](site/api.html) — SDK API reference
-
-Preview: `npx serve site` · Publish: see [`site/README.md`](site/README.md)
+| Link | Contents |
+|---|---|
+| [Product site](https://jamesyong-42.github.io/spaghetti/) | Overview, architecture, install |
+| [CLI commands](https://jamesyong-42.github.io/spaghetti/commands.html) | Full command reference |
+| [API reference](https://jamesyong-42.github.io/spaghetti/api.html) | SDK methods, multi-source, live/runtime |
+| [`site/`](site/) | Source for GitHub Pages (preview: `npx serve site`) |
 
 ## Repo map
 
 - [`packages/cli`](packages/cli) — published CLI package
 - [`packages/sdk`](packages/sdk) — parsing, indexing, query APIs, and React exports
-- [`crates/spaghetti-napi`](crates/spaghetti-napi) — native Rust ingest engine
+- [`crates/spaghetti-napi`](crates/spaghetti-napi) — native Rust ingest engine (Claude bulk path)
 - [`apps/playground`](apps/playground) — Electron demo app
 - [`site`](site) — official documentation website
 - [`docs`](docs) — RFCs, design notes, and deeper implementation details
@@ -114,7 +126,7 @@ Preview: `npx serve site` · Publish: see [`site/README.md`](site/README.md)
 ## Requirements
 
 - Node.js `>=18` for end users
-- `~/.claude` for real data
+- `~/.claude` and/or `~/.codex` for real data
 - `pnpm` + Node.js 24 for local workspace development
 
 ## Learn more
@@ -122,6 +134,7 @@ Preview: `npx serve site` · Publish: see [`site/README.md`](site/README.md)
 - [CLI README](packages/cli/README.md)
 - [SDK README](packages/sdk/README.md)
 - [Releasing guide](RELEASING.md)
+- [Three-plane architecture](docs/THREE-PLANE-INGEST-ARCHITECTURE.md)
 
 ## License
 
