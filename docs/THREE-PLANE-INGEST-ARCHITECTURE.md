@@ -87,7 +87,7 @@ Plane **3** is a different channel: events that often never become durable Claud
 
 1. **One durable store for disk-derived truth** (planes 1–2).
 2. **Events after commit**, not instead of commit (plane 2) — no reliance on SQLite update hooks.
-3. **Runtime events as a separate stream** that can *reference* session/project IDs and optionally materialize into the store when useful (plane 3).
+3. **Runtime events as a separate stream** that can *reference* session/project IDs but never write to the store (plane 3). The index is a pure function of files on disk; if a runtime event matters historically, its emitter writes a file and Planes 1–2 ingest it.
 4. **Source adapters** later so “agent data folder” is not hardcoded forever.
 
 ### Non-goals (keep these)
@@ -224,7 +224,7 @@ Plug into the agent process for events that are not “a file grew by N bytes”
 
 **Gaps**
 
-- Runtime events are not first-class citizens of the same SQLite agent index as messages
+- Runtime events are intentionally not persisted into the index (decision 2026-07-12): they mirror transcript content at lower latency and are stream-only; the hooks JSONL is already a durable file that Plane 1 can index later if search is ever wanted
 - Two storage roots (`~/.claude` vs `~/.spaghetti/hooks|channel`) without a single query model
 - No clean, versioned “runtime bus” on `SpaghettiAPI` (hooks/chat remain mostly CLI-centric)
 - No abstract agent-runtime adapter — Claude Code plugins are hardcoded
@@ -274,7 +274,7 @@ Plug into the agent process for events that are not “a file grew by N bytes”
 
 4. **Runtime event model** in the SDK:
    - `RuntimeEvent` types (hook, permission, channel message, session start/end, …)
-   - Optional persistence (tables or append-only log under `~/.spaghetti`)
+   - **Persistence rejected (2026-07-12):** the index stays a pure function of files on disk; runtime streams serve live observation and control only. Anything that matters historically must be written to a file by its emitter and ingested via Planes 1–2
    - Join keys: `sessionId`, `projectSlug`, `toolUseId`, timestamps
 5. **Correlation** across planes: timeline that can stitch JSONL appends + hook events + channel messages
 6. **Active sessions** from `~/.claude/sessions/{pid}.json` — “what’s running” without relying only on channel discovery files
@@ -314,7 +314,7 @@ interface SpaghettiRuntime {
 Plane 2 and Plane 3 both fan out events, but:
 
 - Plane 2 events imply **store mutation** (or reconciliation with store).
-- Plane 3 events are **runtime observations** that may or may not write rows.
+- Plane 3 events are **runtime observations** that never write rows.
 
 ---
 
@@ -357,5 +357,7 @@ The main strategic work is no longer “more parsers alone.” It is:
 1. **Productizing live disk** for always-on surfaces  
 2. **Lifting hooks/channels into a first-class runtime API** beside query + live  
 3. **Keeping Claude Code as Adapter #1**, not the permanent name of the system  
+
+Control-plane concerns — spawning agents, injecting hooks, driving sessions — are explicitly out of scope: they belong to the sibling runtime project (chopsticks). Spaghetti stays read-only: it reads bytes agents leave on disk and never holds a handle to an agent process.
 
 This document is the shared map for that work.
