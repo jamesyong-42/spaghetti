@@ -115,3 +115,12 @@ export {
   isPlanUpserted,
   isSettingsChanged,
 } from './live/change-events.js';
+
+// Scoped single-session transcript tail — for consumers that know the session
+// a priori (agent runtimes holding --session-id) and don't need the full plane.
+export { watchSessionTranscript } from './live/session-tail.js';
+export type {
+  SessionTranscriptTail,
+  SessionTranscriptEvent,
+  WatchSessionTranscriptOptions,
+} from './live/session-tail.js';
