@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.5.16](https://github.com/jamesyong-42/spaghetti/compare/spaghetti-v0.5.15...spaghetti-v0.5.16) (2026-07-13)
+
+
+### Features
+
+* **cli:** show active RS/TS ingest engine indicator ([#58](https://github.com/jamesyong-42/spaghetti/issues/58)) ([f21b161](https://github.com/jamesyong-42/spaghetti/commit/f21b161dcf813266a52f6eec588b293ef8e2f2c5))
+* **sdk,cli:** three-plane architecture, live TUI, and api.runtime ([31b7f3d](https://github.com/jamesyong-42/spaghetti/commit/31b7f3dc02739095039f3c48ea9ec8f37558f020))
+* **sdk:** watchSessionTranscript — scoped single-session transcript tail ([#61](https://github.com/jamesyong-42/spaghetti/issues/61)) ([03ffe98](https://github.com/jamesyong-42/spaghetti/commit/03ffe9851d7bece6e496a1bec11dfd562a790a9f))
+
+
+### Bug Fixes
+
+* **sdk:** remove unused mkdirSync import in active-sessions test ([32462d6](https://github.com/jamesyong-42/spaghetti/commit/32462d695c3db06ef23e9c2d855b181795eef3da))
+
 ## [0.5.15](https://github.com/jamesyong-42/spaghetti/compare/spaghetti-v0.5.14...spaghetti-v0.5.15) (2026-07-03)
 
 
