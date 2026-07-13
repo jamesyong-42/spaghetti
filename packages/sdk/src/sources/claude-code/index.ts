@@ -4,6 +4,7 @@
 
 import type { AgentSource } from '../types.js';
 import { classify } from '../../live/router.js';
+import { claudeCodeMessageExtractor } from './message-extractor.js';
 import { buildClaudeCodePaths, defaultClaudeDir, defaultSpaghettiStateDir } from './paths.js';
 
 export { buildClaudeCodePaths, defaultClaudeDir, defaultSpaghettiStateDir } from './paths.js';
@@ -34,5 +35,9 @@ export function createClaudeCodeSource(options?: ClaudeCodeSourceOptions): Agent
     // engine + this source's ruleset). Binding rootDir here makes classification
     // a source responsibility: a second AgentSource supplies its own classify.
     classify: (absPath: string) => classify(absPath, rootDir),
+    // Claude Code's raw-record → stored-projection extraction (RFC 006). Owned
+    // by the source so a second AgentSource supplies its own without the ingest
+    // engines learning its message envelope.
+    messages: claudeCodeMessageExtractor,
   };
 }

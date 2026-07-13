@@ -15,6 +15,48 @@ import type { RouteResult } from '../live/router.js';
 export type AgentSourceId = 'claude-code';
 
 /**
+ * The normalized projection an ingest writer stores for one message, produced
+ * by a source's {@link MessageExtractor} (RFC 006). The verbatim source record
+ * is stored separately as `messages.data` — this is the thin, queryable core
+ * (list / FTS / token stats), not a lossless model.
+ *
+ * `msgType` is the source's message-type string. It is currently the RAW type
+ * (Claude Code: `user`/`assistant`/`summary`/`ai-title`/`system`/`unknown`);
+ * tightening it to RFC 006 §3's normalized enum is a deferred, value-changing
+ * decision, not part of the initial extractor relocation.
+ */
+export interface ExtractedMessage {
+  msgType: string;
+  /** Flattened, truncated FTS/preview text — excludes token + raw structure. */
+  text: string;
+  uuid: string | null;
+  timestamp: string | null;
+  tokens: {
+    inputTokens: number;
+    outputTokens: number;
+    cacheCreationTokens: number;
+    cacheReadTokens: number;
+  };
+}
+
+/**
+ * Per-source extraction seam (RFC 006). Maps one raw source record into the
+ * normalized {@link ExtractedMessage} the ingest writer binds to columns. This
+ * is the counterpart to {@link AgentSource.classify}: it makes message-shape
+ * knowledge a property of the source, so a second agent ships one small
+ * `extract()` instead of the ingest engines learning its envelope.
+ */
+export interface MessageExtractor {
+  /**
+   * Extract the stored projection for one raw record. Return `null` to skip a
+   * record that is not a message row (no source needs this yet — Claude Code
+   * stores a row per line). The raw record's shape is source-specific; the
+   * source's own extractor knows it, which is why the parameter is `unknown`.
+   */
+  extract(raw: unknown): ExtractedMessage | null;
+}
+
+/**
  * Paths derived from the source roots. Callers should prefer these
  * over assembling `path.join(homedir(), …)` ad hoc.
  */
@@ -62,4 +104,11 @@ export interface AgentSource {
    * ingest engines changing. Pure — no I/O; safe in hot watcher callbacks.
    */
   classify(absPath: string): RouteResult;
+  /**
+   * Extract a stored message projection from one raw transcript record (RFC
+   * 006). The ingest writer calls `source.messages.extract(record)` instead of
+   * knowing Claude Code's message envelope, so extraction — like `classify` —
+   * is a property of the source.
+   */
+  readonly messages: MessageExtractor;
 }
