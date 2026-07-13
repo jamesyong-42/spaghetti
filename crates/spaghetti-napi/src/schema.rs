@@ -24,7 +24,11 @@ use thiserror::Error;
 /// v5: `source_id` on source_files/projects/sessions/messages (default
 /// 'claude-code'). Writers omit the column, so the default applies and both
 /// engines produce identical rows — parity stays green with no writer change.
-pub const SCHEMA_VERSION: u32 = 5;
+/// v6: `projects` PK is composite `(source_id, slug)` — a slug is the encoded
+/// cwd, so two sources on the same directory would collide on slug alone. The
+/// Rust writer still omits `source_id` (default 'claude-code'), so claude-only
+/// parity is unaffected; the conflict target just moves to `(source_id, slug)`.
+pub const SCHEMA_VERSION: u32 = 6;
 
 /// Full DDL for the current schema — lifted verbatim from the TS `SCHEMA_SQL`
 /// template literal. Whitespace differs; structure does not.
@@ -46,11 +50,12 @@ CREATE TABLE IF NOT EXISTS source_files (
 
 -- Core entities
 CREATE TABLE IF NOT EXISTS projects (
-  slug TEXT PRIMARY KEY,
+  slug TEXT NOT NULL,
   source_id TEXT NOT NULL DEFAULT 'claude-code',
   original_path TEXT,
   sessions_index TEXT,
-  updated_at INTEGER
+  updated_at INTEGER,
+  PRIMARY KEY (source_id, slug)
 );
 
 CREATE TABLE IF NOT EXISTS project_memories (
