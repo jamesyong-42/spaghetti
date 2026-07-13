@@ -119,6 +119,17 @@ describe('multi-source ingest (claude + codex)', () => {
     assert.equal(codexOnly[0].slug, CODEX_SLUG);
   });
 
+  test('rebuildIndex() preserves BOTH sources (file-delete does not orphan codex)', async () => {
+    await spaghetti.rebuildIndex();
+    // The whole-DB rebuild fans across owners; every source must come back.
+    assert.deepEqual(spaghetti.getSourceIds(), ['claude-code', 'codex']);
+    const codexOnly = spaghetti.getProjectList({ sourceId: 'codex' });
+    assert.equal(codexOnly.length, 1);
+    assert.equal(codexOnly[0].slug, CODEX_SLUG);
+    // Claude side still present too.
+    assert.ok(spaghetti.getProjectList({ sourceId: 'claude-code' }).length > 0, 'claude projects survive the rebuild');
+  });
+
   test('warm re-init on the same DB does not duplicate', async () => {
     const again = createSpaghettiService({
       claudeDir: FIXTURE_CLAUDE_DIR,
