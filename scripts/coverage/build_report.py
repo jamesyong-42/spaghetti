@@ -138,10 +138,12 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
     background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius);
     padding: 16px 18px; grid-column: span 12;
   }
-  .card.sm { grid-column: span 3; }
+  /* 6 equal hero cards on a 12-col grid */
+  .card.sm { grid-column: span 2; }
   .card.md { grid-column: span 6; }
-  @media (max-width: 900px) {
-    .card.sm, .card.md { grid-column: span 6; }
+  @media (max-width: 960px) {
+    .card.sm { grid-column: span 4; }
+    .card.md { grid-column: span 6; }
   }
   @media (max-width: 560px) {
     .card.sm, .card.md { grid-column: span 12; }
@@ -297,6 +299,15 @@ function statusForRecordType(claim, rt) {
   return hits[0].status;
 }
 
+/**
+ * Primary-volume stats — same shape for every agent so the hero is comparable.
+ *
+ * Primary unit:
+ *   Claude → valid session JSONL lines (session.jsonl.line / primary.records)
+ *   Codex  → all rollout JSONL lines (rollout.record_type sum)
+ *
+ * Ingested % = share of those primary records claimed as status=ingested.
+ */
 function computeStats(agent) {
   const claim = agent.claim;
   const gt = agent.groundTruth;
@@ -304,31 +315,61 @@ function computeStats(agent) {
   const byStatus = { ingested: 0, partial: 0, ignored: 0, out_of_scope: 0, unknown: 0 };
   for (const s of surfaces) byStatus[s.status] = (byStatus[s.status] || 0) + 1;
 
-  let recordStats = null;
+  let volume = {
+    total: 0, ingested: 0, partial: 0, ignored: 0, unknown: 0,
+    pct: null, unitLabel: "primary records", rows: null, hasData: false,
+  };
+
+  // Codex-style: breakdown by record type
   if (gt && gt.buckets && gt.buckets["rollout.record_type"]) {
     const rt = gt.buckets["rollout.record_type"];
-    let total = 0, ingested = 0, partial = 0, ignored = 0, unknown = 0;
     const rows = [];
     for (const [k, v] of Object.entries(rt)) {
       const c = Number(v) || 0;
-      total += c;
+      volume.total += c;
       const st = statusForRecordType(claim, k);
-      if (st === "ingested") ingested += c;
-      else if (st === "partial") partial += c;
-      else if (st === "ignored" || st === "out_of_scope") ignored += c;
-      else unknown += c;
+      if (st === "ingested") volume.ingested += c;
+      else if (st === "partial") volume.partial += c;
+      else if (st === "ignored" || st === "out_of_scope") volume.ignored += c;
+      else volume.unknown += c;
       rows.push({ type: k, count: c, status: st });
     }
     rows.sort((a,b) => b.count - a.count);
-    recordStats = { total, ingested, partial, ignored, unknown, rows, pct: total ? (100*ingested/total) : 0 };
+    volume.rows = rows;
+    volume.unitLabel = "rollout lines";
+    volume.hasData = true;
+  } else if (gt && gt.buckets && gt.buckets["session.jsonl.line"]) {
+    // Claude-style: every valid session JSONL line is claimed ingested
+    const sl = gt.buckets["session.jsonl.line"];
+    const total = Number(sl.count) || 0;
+    volume.total = total;
+    volume.ingested = total; // claim: session.jsonl.line → ingested
+    volume.partial = 0;
+    volume.ignored = 0;
+    volume.unknown = 0;
+    volume.unitLabel = "session JSONL lines";
+    volume.hasData = total > 0 || !!gt;
+    // Optional: message-type rows for the histogram table (all ingested)
+    const mt = gt.buckets["session.message_type"];
+    if (mt && typeof mt === "object") {
+      volume.rows = Object.entries(mt)
+        .map(([type, count]) => ({ type, count: Number(count) || 0, status: "ingested" }))
+        .sort((a,b) => b.count - a.count);
+    }
   }
 
-  let sessionLines = null;
-  if (gt && gt.buckets && gt.buckets["session.jsonl.line"]) {
-    sessionLines = gt.buckets["session.jsonl.line"];
+  volume.pct = volume.total ? (100 * volume.ingested / volume.total) : (volume.hasData ? 0 : null);
+
+  const projects = gt ? (gt.projectCount != null ? Number(gt.projectCount) : null) : null;
+  let sessions = gt ? (gt.sessionCount != null ? Number(gt.sessionCount) : null) : null;
+  if (sessions == null && gt?.buckets?.["session.jsonl.line"]?.files != null) {
+    sessions = Number(gt.buckets["session.jsonl.line"].files);
+  }
+  if (sessions == null && gt?.buckets?.["rollout.file"]?.count != null) {
+    sessions = Number(gt.buckets["rollout.file"].count);
   }
 
-  return { byStatus, recordStats, sessionLines, surfaces };
+  return { byStatus, volume, projects, sessions, surfaces };
 }
 
 function statusBadge(st) {
@@ -347,72 +388,63 @@ function renderAgent(agent) {
   const stats = computeStats(agent);
   const claim = agent.claim;
   const gt = agent.groundTruth;
-  const rs = stats.recordStats;
+  const v = stats.volume;
 
-  let heroCards = "";
-  if (rs) {
-    heroCards = `
-      <div class="card sm"><h2>Ingested records</h2>
-        <div class="big" style="color:var(--ingested)">${rs.pct.toFixed(1)}%</div>
-        <div class="sub">${fmt(rs.ingested)} / ${fmt(rs.total)} rollout lines</div>
-      </div>
-      <div class="card sm"><h2>Partial</h2>
-        <div class="big" style="color:var(--partial)">${fmt(rs.partial)}</div>
-        <div class="sub">used but not fully stored</div>
-      </div>
-      <div class="card sm"><h2>Ignored</h2>
-        <div class="big">${fmt(rs.ignored)}</div>
-        <div class="sub">documented, not productized</div>
-      </div>
-      <div class="card sm"><h2>Unknown</h2>
-        <div class="big" style="color:${rs.unknown ? "var(--danger)" : "var(--muted)"}">${fmt(rs.unknown)}</div>
-        <div class="sub">${rs.unknown ? "fix claim.json!" : "none — good"}</div>
-      </div>`;
-  } else if (stats.sessionLines) {
-    heroCards = `
-      <div class="card sm"><h2>Session JSONL</h2>
-        <div class="big">${fmt(stats.sessionLines.count)}</div>
-        <div class="sub">valid lines (claimed ingested)</div>
-      </div>
-      <div class="card sm"><h2>Session files</h2>
-        <div class="big">${fmt(stats.sessionLines.files)}</div>
-        <div class="sub">${fmtBytes(stats.sessionLines.bytes)}</div>
-      </div>
-      <div class="card sm"><h2>Claim surfaces</h2>
-        <div class="big">${fmt(stats.surfaces.length)}</div>
-        <div class="sub">documented entries</div>
-      </div>
-      <div class="card sm"><h2>Projects</h2>
-        <div class="big">${fmt(gt?.projectCount)}</div>
-        <div class="sub">${esc(gt?.root || claim.rootDefault || "")}</div>
-      </div>`;
-  } else {
-    heroCards = `
+  // Same six hero cards for every agent (comparable at a glance).
+  const pctStr = v.pct == null ? "—" : v.pct.toFixed(1) + "%";
+  const pctColor = v.pct == null ? "var(--muted)" : "var(--ingested)";
+  const unknownColor = v.unknown ? "var(--danger)" : "var(--muted)";
+  const noGt = !gt;
+
+  const heroCards = noGt ? `
       <div class="card md"><h2>Ground truth</h2>
         <div class="big" style="font-size:1.2rem;color:var(--partial)">Not scanned yet</div>
         <div class="sub">Run <code>pnpm coverage:scan</code> then <code>pnpm coverage:report</code></div>
       </div>
-      <div class="card sm"><h2>Claim surfaces</h2>
-        <div class="big">${fmt(stats.surfaces.length)}</div>
+      <div class="card sm"><h2>Projects</h2><div class="big">—</div><div class="sub">needs scan</div></div>
+      <div class="card sm"><h2>Sessions</h2><div class="big">—</div><div class="sub">needs scan</div></div>
+    ` : `
+      <div class="card sm"><h2>Ingested %</h2>
+        <div class="big" style="color:${pctColor}">${pctStr}</div>
+        <div class="sub">${fmt(v.ingested)} / ${fmt(v.total)} ${esc(v.unitLabel)}</div>
       </div>
-      <div class="card sm"><h2>Root</h2>
-        <div class="sub" style="margin-top:8px;font-family:var(--mono)">${esc(claim.rootDefault || "")}</div>
+      <div class="card sm"><h2>Partial</h2>
+        <div class="big" style="color:var(--partial)">${fmt(v.partial)}</div>
+        <div class="sub">of primary stream</div>
+      </div>
+      <div class="card sm"><h2>Ignored</h2>
+        <div class="big">${fmt(v.ignored)}</div>
+        <div class="sub">of primary stream</div>
+      </div>
+      <div class="card sm"><h2>Unknown</h2>
+        <div class="big" style="color:${unknownColor}">${fmt(v.unknown)}</div>
+        <div class="sub">${v.unknown ? "fix claim.json!" : "none — good"}</div>
+      </div>
+      <div class="card sm"><h2>Projects</h2>
+        <div class="big">${fmt(stats.projects)}</div>
+        <div class="sub">${esc(gt?.root || claim.rootDefault || "")}</div>
+      </div>
+      <div class="card sm"><h2>Sessions</h2>
+        <div class="big">${fmt(stats.sessions)}</div>
+        <div class="sub">${fmt(v.total)} primary records</div>
       </div>`;
-  }
 
-  // status stack bar for surfaces
-  const totalSurf = stats.surfaces.length || 1;
-  const barSegs = ["ingested","partial","ignored","out_of_scope"].map(st => {
-    const n = stats.byStatus[st] || 0;
-    const w = (100 * n / totalSurf).toFixed(2);
-    return n ? `<i class="${st}" style="width:${w}%"></i>` : "";
-  }).join("");
+  // status stack bar for primary volume
+  const barSegs = v.total ? ["ingested","partial","ignored","unknown"].map(st => {
+    const n = v[st] || 0;
+    const w = (100 * n / v.total).toFixed(2);
+    return n ? `<i class="${st === "unknown" ? "unknown" : st}" style="width:${w}%"></i>` : "";
+  }).join("") : "";
 
+  // Record-type / message-type breakdown table (shared)
   let recordTable = "";
-  if (rs) {
-    const maxC = rs.rows[0]?.count || 1;
+  if (v.rows && v.rows.length) {
+    const maxC = v.rows[0]?.count || 1;
+    const title = gt?.buckets?.["rollout.record_type"]
+      ? "Primary stream record types (ground truth × claim)"
+      : "Session message types (ground truth × claim)";
     recordTable = `
-      <h3 class="section-title">Rollout record types (ground truth × claim)</h3>
+      <h3 class="section-title">${title}</h3>
       <div class="toolbar">
         <input type="search" data-filter="records" placeholder="Filter types…" />
         <select data-filter-status="records">
@@ -423,11 +455,11 @@ function renderAgent(agent) {
       <div class="table-wrap">
         <table data-table="records">
           <thead><tr>
-            <th>Record type</th><th>Count</th><th>Share</th><th>Claim status</th>
+            <th>Type</th><th>Count</th><th>Share</th><th>Claim status</th>
           </tr></thead>
           <tbody>
-            ${rs.rows.map(r => {
-              const pct = 100 * r.count / (rs.total || 1);
+            ${v.rows.map(r => {
+              const pct = 100 * r.count / (v.total || 1);
               const w = 100 * r.count / maxC;
               return `<tr data-status="${esc(r.status)}" data-text="${esc(r.type)}">
                 <td class="id">${esc(r.type)}</td>
@@ -441,32 +473,9 @@ function renderAgent(agent) {
       </div>`;
   }
 
-  // message type histogram for Claude
+  // Keep Claude secondary message histogram only if rows already cover message types
+  // (volume.rows is message types for Claude — no separate table needed)
   let msgTypesTable = "";
-  const msgTypes = gt?.buckets?.["session.message_type"];
-  if (msgTypes && typeof msgTypes === "object") {
-    const rows = Object.entries(msgTypes).map(([k,v]) => ({k, v: Number(v)||0})).sort((a,b)=>b.v-a.v);
-    const maxC = rows[0]?.v || 1;
-    const total = rows.reduce((s,r)=>s+r.v,0) || 1;
-    msgTypesTable = `
-      <h3 class="section-title">Session message <code>type</code> histogram</h3>
-      <div class="table-wrap" style="max-height:360px">
-        <table>
-          <thead><tr><th>type</th><th>Count</th><th>Share</th></tr></thead>
-          <tbody>
-            ${rows.map(r => {
-              const pct = 100*r.v/total;
-              const w = 100*r.v/maxC;
-              return `<tr>
-                <td class="id">${esc(r.k)}</td>
-                <td class="count">${fmt(r.v)}</td>
-                <td class="count muted"><span class="bar-mini"><i style="width:${w}%"></i></span>${pct.toFixed(1)}%</td>
-              </tr>`;
-            }).join("")}
-          </tbody>
-        </table>
-      </div>`;
-  }
 
   // secondary buckets Claude
   let secondaryHtml = "";
@@ -526,27 +535,28 @@ function renderAgent(agent) {
       </table>
     </div>`;
 
-  const stackBar = rs ? `
+  const stackBar = v.hasData && v.total ? `
     <div class="card">
-      <h2>Volume by claim status (record counts)</h2>
-      <div class="bar">
-        ${rs.total ? `
-          <i class="ingested" style="width:${(100*rs.ingested/rs.total).toFixed(2)}%"></i>
-          <i class="partial" style="width:${(100*rs.partial/rs.total).toFixed(2)}%"></i>
-          <i class="ignored" style="width:${(100*rs.ignored/rs.total).toFixed(2)}%"></i>
-          <i class="unknown" style="width:${(100*rs.unknown/rs.total).toFixed(2)}%"></i>
-        ` : ""}
-      </div>
+      <h2>Primary stream by claim status (${esc(v.unitLabel)})</h2>
+      <div class="bar">${barSegs}</div>
       <div class="legend">
-        <span class="ingested">ingested ${fmt(rs.ingested)}</span>
-        <span class="partial">partial ${fmt(rs.partial)}</span>
-        <span class="ignored">ignored ${fmt(rs.ignored)}</span>
-        <span class="unknown">unknown ${fmt(rs.unknown)}</span>
+        <span class="ingested">ingested ${fmt(v.ingested)}</span>
+        <span class="partial">partial ${fmt(v.partial)}</span>
+        <span class="ignored">ignored ${fmt(v.ignored)}</span>
+        <span class="unknown">unknown ${fmt(v.unknown)}</span>
+      </div>
+      <div class="sub" style="margin-top:8px">
+        Ingested % compares how much of the <em>transcript stream</em> Spaghetti stores as product rows —
+        Claude: session JSONL lines · Codex: all rollout JSONL lines.
       </div>
     </div>` : `
     <div class="card">
       <h2>Claim surfaces by status</h2>
-      <div class="bar">${barSegs}</div>
+      <div class="bar">${["ingested","partial","ignored","out_of_scope"].map(st => {
+        const n = stats.byStatus[st] || 0;
+        const w = (100 * n / (stats.surfaces.length || 1)).toFixed(2);
+        return n ? `<i class="${st === "out_of_scope" ? "oos" : st}" style="width:${w}%"></i>` : "";
+      }).join("")}</div>
       <div class="legend">
         <span class="ingested">ingested ${stats.byStatus.ingested||0}</span>
         <span class="partial">partial ${stats.byStatus.partial||0}</span>

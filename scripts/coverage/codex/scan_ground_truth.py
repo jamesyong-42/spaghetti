@@ -48,6 +48,8 @@ def scan_rollout_file(path: Path, counter: Counter) -> dict:
         "valid_json": 0,
         "empty": 0,
         "parse_errors": 0,
+        "project_cwd": None,  # from first session_meta payload.cwd
+        "session_id": None,
     }
     try:
         stats["bytes"] = path.stat().st_size
@@ -66,6 +68,12 @@ def scan_rollout_file(path: Path, counter: Counter) -> dict:
                     stats["valid_json"] += 1
                     if isinstance(obj, dict):
                         counter[rollout_record_key(obj)] += 1
+                        if obj.get("type") == "session_meta" and not stats["project_cwd"]:
+                            p = obj.get("payload") if isinstance(obj.get("payload"), dict) else {}
+                            if isinstance(p.get("cwd"), str) and p["cwd"]:
+                                stats["project_cwd"] = p["cwd"]
+                            if isinstance(p.get("id"), str) and p["id"]:
+                                stats["session_id"] = p["id"]
                     else:
                         counter["non_object"] += 1
                 except json.JSONDecodeError:
@@ -114,6 +122,7 @@ def scan(root: Path, *, max_rollouts: int | None = None) -> dict:
     total_bytes = 0
     total_lines = 0
     total_valid = 0
+    project_cwds: set[str] = set()
     for rf in rollout_files:
         st = scan_rollout_file(rf, record_types)
         per_file.append(
@@ -123,11 +132,14 @@ def scan(root: Path, *, max_rollouts: int | None = None) -> dict:
                 "lines": st["lines"],
                 "valid_json": st["valid_json"],
                 "parse_errors": st["parse_errors"],
+                "project_cwd": st.get("project_cwd"),
             }
         )
         total_bytes += st["bytes"]
         total_lines += st["lines"]
         total_valid += st["valid_json"]
+        if st.get("project_cwd"):
+            project_cwds.add(st["project_cwd"])
 
     # Spaghetti-relevant vs raw: chat messages are only response_item/message
     chat = record_types.get("response_item/message", 0)
@@ -135,12 +147,18 @@ def scan(root: Path, *, max_rollouts: int | None = None) -> dict:
     reasoning = sum(v for k, v in record_types.items() if "reasoning" in k)
     token_events = record_types.get("event_msg/token_count", 0)
 
+    # Unified inventory fields (same keys as Claude scan) for the HTML hero.
+    session_count = len(rollout_files)  # one rollout file = one session
+    project_count = len(project_cwds)
+
     return {
         "schemaVersion": 1,
         "agentId": AGENT_ID,
         "scannedAt": utc_now_iso(),
         "root": str(root),
         "rootExists": root.is_dir(),
+        "projectCount": project_count,
+        "sessionCount": session_count,
         "toplevel": inventory_toplevel(root),
         "buckets": {
             "rollout.file": {
@@ -154,13 +172,19 @@ def scan(root: Path, *, max_rollouts: int | None = None) -> dict:
             "rollout.tool_ish": {"count": tools},
             "rollout.reasoning": {"count": reasoning},
             "rollout.token_count_events": {"count": token_events},
+            # Alias for unified primary-volume reporting (valid JSONL lines)
+            "primary.records": {
+                "count": total_valid,
+                "unit": "rollout_jsonl_line",
+            },
         },
         "rolloutsSample": per_file[:30],
         "notes": (
             "rollout.record_type keys: response_item/<payload.type>, "
             "event_msg/<payload.type>, or top-level type. "
             "Spaghetti Codex v1 stores only response_item/message as messages; "
-            "token_count is used for attribution without storing the event row."
+            "token_count is used for attribution without storing the event row. "
+            "projectCount = unique session_meta.cwd values; sessionCount = rollout files."
         ),
     }
 
@@ -182,6 +206,8 @@ def main() -> int:
     write_json(out, data)
 
     b = data["buckets"]
+    print(f"  projects:        {data.get('projectCount', 0)}")
+    print(f"  sessions:        {data.get('sessionCount', 0)}")
     print(f"  rollout files:   {b['rollout.file']['count']}")
     print(f"  valid jsonl:     {b['rollout.file']['valid_json']}")
     print(f"  record kinds:    {len(b['rollout.record_type'])}")

@@ -197,6 +197,11 @@ def scan(root: Path, *, sample_sessions: int | None = None) -> dict:
         "tool_result.file": {"count": tool_result_files},
         "workflow.file": {"count": workflow_files},
         "secondary": secondary,
+        # Alias for unified primary-volume reporting (valid session JSONL lines)
+        "primary.records": {
+            "count": session_valid,
+            "unit": "session_jsonl_line",
+        },
     }
 
     return {
@@ -205,13 +210,16 @@ def scan(root: Path, *, sample_sessions: int | None = None) -> dict:
         "scannedAt": utc_now_iso(),
         "root": str(root),
         "rootExists": root.is_dir(),
+        "projectCount": len(project_summaries),
+        "sessionCount": session_file_count,
         "toplevel": inventory_toplevel(root),
         "buckets": buckets,
-        "projectCount": len(project_summaries),
         "projectsSample": project_summaries[:50],  # cap blob size
         "notes": (
             "session.message_type keys are Claude JSONL `type` discriminators. "
-            "session.jsonl.line.count is valid JSON lines (not only user/assistant)."
+            "session.jsonl.line.count / primary.records = valid JSON lines "
+            "(not only user/assistant). sessionCount = UUID session files; "
+            "projectCount = project directories under projects/."
         ),
     }
 
@@ -249,7 +257,7 @@ def main() -> int:
 
     b = data["buckets"]
     print(f"  projects:        {data['projectCount']}")
-    print(f"  session files:   {b['session.jsonl.line']['files']}")
+    print(f"  sessions:        {data['sessionCount']}")
     print(f"  valid jsonl:     {b['session.jsonl.line']['count']}")
     print(f"  message types:   {len(b['session.message_type'])}")
     print(f"  subagent files:  {b['subagent.jsonl']['count']}")
