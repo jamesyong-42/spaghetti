@@ -56,6 +56,49 @@ export interface MessageExtractor {
   extract(raw: unknown): ExtractedMessage | null;
 }
 
+/** Four-column token bag written to `messages.*_tokens`. */
+export interface MessageTokenBag {
+  inputTokens: number;
+  outputTokens: number;
+  cacheCreationTokens: number;
+  cacheReadTokens: number;
+}
+
+/** Thin row for session-complete token estimation (e.g. Codex tiktoken). */
+export interface SessionMessageTextRow {
+  msgIndex: number;
+  msgType: string;
+  text: string | null;
+}
+
+/**
+ * Write API the ingest writer exposes to {@link IngestHooks} so product
+ * code can stamp tokens without owning SQL.
+ */
+export interface SessionTokenApi {
+  updateMessageTokens(sessionId: string, msgIndex: number, tokens: MessageTokenBag): void;
+  setSessionTokensEstimated(sessionId: string, estimated: boolean): void;
+  listSessionMessageTexts(sessionId: string): SessionMessageTextRow[];
+}
+
+/**
+ * Optional per-source ingest hooks (Phase D). Lets a product attribute
+ * tokens or react to skipped records without baking product branches into
+ * {@link IngestService}. Default is no-op (Claude Code, Grok).
+ */
+export interface IngestHooks {
+  onSessionStart?(sessionId: string): void;
+  /**
+   * `extract()` returned null — non-message source record (e.g. Codex
+   * `token_count` event). May use `api` to update prior message tokens.
+   */
+  onSkippedRecord?(raw: unknown, ctx: { slug: string; sessionId: string }, api: SessionTokenApi): void;
+  /** After a message row was written. */
+  onMessageWritten?(extracted: ExtractedMessage, ctx: { slug: string; sessionId: string; msgIndex: number }): void;
+  /** End of session stream — session totals / estimates. */
+  onSessionComplete?(sessionId: string, api: SessionTokenApi): void;
+}
+
 /**
  * Paths derived from the source roots. Callers should prefer these
  * over assembling `path.join(homedir(), …)` ad hoc.

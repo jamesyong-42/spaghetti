@@ -2,7 +2,17 @@
  * Agent sources — adapters for local agent products.
  */
 
-export type { AgentSource, AgentSourceId, AgentSourcePaths, ExtractedMessage, MessageExtractor } from './types.js';
+export type {
+  AgentSource,
+  AgentSourceId,
+  AgentSourcePaths,
+  ExtractedMessage,
+  MessageExtractor,
+  IngestHooks,
+  SessionTokenApi,
+  MessageTokenBag,
+  SessionMessageTextRow,
+} from './types.js';
 export {
   createClaudeCodeSource,
   defaultClaudeDir,
@@ -22,6 +32,7 @@ export {
   codexMessageExtractor,
   CodexReader,
   CodexLifecycleOwner,
+  createCodexIngestHooks,
   classifyCodexPath,
   defaultCodexDir,
   buildCodexPaths,

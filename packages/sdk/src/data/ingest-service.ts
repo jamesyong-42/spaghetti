@@ -23,10 +23,8 @@ import type { Change } from '../live/change-events.js';
 import type { ParsedRow, ParsedRowCategory } from '../live/incremental-parser.js';
 import type { NativeAddon } from '../native.js';
 import type { IngestEngine } from '../settings.js';
-import type { MessageExtractor } from '../sources/types.js';
+import type { IngestHooks, MessageExtractor, SessionTokenApi } from '../sources/types.js';
 import { claudeCodeMessageExtractor } from '../sources/claude-code/message-extractor.js';
-import { parseCodexTokenCount, type CodexTokenUsage } from '../sources/codex/token-usage.js';
-import { estimateTokensFromMessageRows } from '../sources/codex/estimate-tokens.js';
 import type { SourceFingerprint } from './segment-types.js';
 import { initializeSchema } from './schema.js';
 
@@ -156,16 +154,6 @@ class IngestServiceImpl implements IngestService {
 
   private inTransaction = false;
 
-  /**
-   * Codex: last assistant message written per session, so a following
-   * `token_count` can attribute `last_token_usage` to that turn (ccusage style).
-   */
-  private lastAssistantBySession = new Map<string, { slug: string; msgIndex: number }>();
-  /** Codex: latest cumulative `total_token_usage` seen for a session. */
-  private lastTotalBySession = new Map<string, CodexTokenUsage>();
-  /** Codex: whether any per-turn attribution was applied for a session. */
-  private attributedTurnBySession = new Set<string>();
-
   // RFC 005 C4.3: engine pin + native addon handle for the live-ingest
   // native route. When `engine === 'rs'` and `native` is loaded,
   // `writeBatch` dispatches through `native.liveIngestBatch(dbPath,
@@ -176,6 +164,8 @@ class IngestServiceImpl implements IngestService {
   private readonly native: NativeAddon | null;
   private readonly messageExtractor: MessageExtractor;
   private readonly sourceId: string;
+  /** Optional product hooks (e.g. Codex token attribution). Default no-op. */
+  private readonly hooks: IngestHooks;
   private dbPath: string | null = null;
 
   /**
@@ -198,6 +188,37 @@ class IngestServiceImpl implements IngestService {
     this.native = options?.native ?? null;
     this.messageExtractor = options?.messages ?? claudeCodeMessageExtractor;
     this.sourceId = options?.sourceId ?? 'claude-code';
+    this.hooks = options?.hooks ?? {};
+  }
+
+  /** Token write API passed into {@link IngestHooks} callbacks. */
+  private tokenApi(): SessionTokenApi {
+    return {
+      updateMessageTokens: (sessionId, msgIndex, tokens) => {
+        this.stmtUpdateMessageTokens.run(
+          tokens.inputTokens,
+          tokens.outputTokens,
+          tokens.cacheCreationTokens,
+          tokens.cacheReadTokens,
+          sessionId,
+          msgIndex,
+        );
+      },
+      setSessionTokensEstimated: (sessionId, estimated) => {
+        this.db.run('UPDATE sessions SET tokens_estimated = ? WHERE id = ?', estimated ? 1 : 0, sessionId);
+      },
+      listSessionMessageTexts: (sessionId) => {
+        const rows = this.db.all<{ msg_index: number; msg_type: string; text_content: string | null }>(
+          'SELECT msg_index, msg_type, text_content FROM messages WHERE session_id = ? ORDER BY msg_index',
+          sessionId,
+        );
+        return rows.map((r) => ({
+          msgIndex: r.msg_index,
+          msgType: r.msg_type,
+          text: r.text_content,
+        }));
+      },
+    };
   }
 
   open(dbPath: string): void {
@@ -390,10 +411,7 @@ class IngestServiceImpl implements IngestService {
 
   onSession(slug: string, entry: SessionIndexEntry): void {
     const now = Date.now();
-    // Reset Codex attribution state for this session (re-ingest / new session).
-    this.lastAssistantBySession.delete(entry.sessionId);
-    this.lastTotalBySession.delete(entry.sessionId);
-    this.attributedTurnBySession.delete(entry.sessionId);
+    this.hooks.onSessionStart?.(entry.sessionId);
     this.stmtInsertSession.run(
       entry.sessionId,
       slug,
@@ -417,12 +435,9 @@ class IngestServiceImpl implements IngestService {
   onMessage(slug: string, sessionId: string, message: SessionMessage, index: number, byteOffset: number): void {
     const extracted = this.messageExtractor.extract(message);
     // null = the source's extractor declared this record a non-message row.
-    // Claude Code stores a row per line, so this never fires for claude-code.
-    // Codex: non-message lines include token_count events — handle those.
+    // Product hooks (e.g. Codex token_count) handle skipped records.
     if (!extracted) {
-      if (this.sourceId === 'codex') {
-        this.applyCodexTokenCount(slug, sessionId, message);
-      }
+      this.hooks.onSkippedRecord?.(message, { slug, sessionId }, this.tokenApi());
       return;
     }
     const data = JSON.stringify(message);
@@ -444,108 +459,7 @@ class IngestServiceImpl implements IngestService {
       this.sourceId,
     );
 
-    // Codex attributes the next token_count's last_token_usage to this turn.
-    if (this.sourceId === 'codex' && extracted.msgType === 'assistant') {
-      this.lastAssistantBySession.set(sessionId, { slug, msgIndex: index });
-    }
-  }
-
-  /**
-   * Codex: stamp turn tokens onto the most recent assistant message.
-   * Prefer `last_token_usage` (per-turn); keep cumulative total for
-   * session-complete fallback when no turn was attributed.
-   */
-  private applyCodexTokenCount(slug: string, sessionId: string, raw: unknown): void {
-    const parsed = parseCodexTokenCount(raw);
-    if (!parsed) return;
-
-    if (parsed.total) {
-      this.lastTotalBySession.set(sessionId, parsed.total);
-    }
-
-    const usage = parsed.last ?? parsed.total;
-    if (!usage) return;
-
-    const target = this.lastAssistantBySession.get(sessionId);
-    if (!target) {
-      // token_count before any assistant turn (or only rate-limits earlier).
-      // Remember total for onSessionComplete fallback.
-      return;
-    }
-
-    this.stmtUpdateMessageTokens.run(
-      usage.inputTokens,
-      usage.outputTokens,
-      usage.cacheCreationTokens,
-      usage.cacheReadTokens,
-      sessionId,
-      target.msgIndex,
-    );
-    this.attributedTurnBySession.add(sessionId);
-    // Avoid double-applying the same cumulative total if another token_count
-    // arrives before the next assistant message (duplicate snapshots).
-    // last_token_usage on a duplicate with unchanged totals is still fine to
-    // re-apply (same values); we clear the pointer only when we used total as
-    // a fallback without last.
-    if (!parsed.last && parsed.total) {
-      this.lastAssistantBySession.delete(sessionId);
-    }
-  }
-
-  private applyCodexSessionTotalFallback(sessionId: string): void {
-    if (this.attributedTurnBySession.has(sessionId)) return;
-    const total = this.lastTotalBySession.get(sessionId);
-    if (!total) return;
-    const target = this.lastAssistantBySession.get(sessionId);
-    if (!target) return;
-    this.stmtUpdateMessageTokens.run(
-      total.inputTokens,
-      total.outputTokens,
-      total.cacheCreationTokens,
-      total.cacheReadTokens,
-      sessionId,
-      target.msgIndex,
-    );
-    this.attributedTurnBySession.add(sessionId);
-    this.db.run('UPDATE sessions SET tokens_estimated = 0 WHERE id = ?', sessionId);
-  }
-
-  /**
-   * P2: when no official token_count was seen, estimate from stored text via
-   * tiktoken and mark the session `tokens_estimated = 1`.
-   */
-  private applyCodexTokenEstimate(sessionId: string): void {
-    if (this.attributedTurnBySession.has(sessionId)) {
-      this.db.run('UPDATE sessions SET tokens_estimated = 0 WHERE id = ?', sessionId);
-      return;
-    }
-
-    const rows = this.db.all<{ msg_index: number; msg_type: string; text_content: string | null }>(
-      'SELECT msg_index, msg_type, text_content FROM messages WHERE session_id = ? ORDER BY msg_index',
-      sessionId,
-    );
-    if (rows.length === 0) {
-      this.db.run('UPDATE sessions SET tokens_estimated = 0 WHERE id = ?', sessionId);
-      return;
-    }
-
-    const estimates = estimateTokensFromMessageRows(rows);
-    if (estimates.length === 0) {
-      this.db.run('UPDATE sessions SET tokens_estimated = 0 WHERE id = ?', sessionId);
-      return;
-    }
-
-    for (const e of estimates) {
-      this.stmtUpdateMessageTokens.run(
-        e.inputTokens,
-        e.outputTokens,
-        e.cacheCreationTokens,
-        e.cacheReadTokens,
-        sessionId,
-        e.msgIndex,
-      );
-    }
-    this.db.run('UPDATE sessions SET tokens_estimated = 1 WHERE id = ?', sessionId);
+    this.hooks.onMessageWritten?.(extracted, { slug, sessionId, msgIndex: index });
   }
 
   onSubagent(slug: string, sessionId: string, transcript: SubagentTranscript): void {
@@ -614,19 +528,7 @@ class IngestServiceImpl implements IngestService {
   }
 
   onSessionComplete(_slug: string, sessionId: string, _messageCount: number, _lastBytePosition: number): void {
-    // Codex: prefer official token_count (per-turn or cumulative fallback);
-    // otherwise tiktoken-estimate visible text and mark tokens_estimated.
-    if (this.sourceId === 'codex') {
-      this.applyCodexSessionTotalFallback(sessionId);
-      if (!this.attributedTurnBySession.has(sessionId)) {
-        this.applyCodexTokenEstimate(sessionId);
-      } else {
-        this.db.run('UPDATE sessions SET tokens_estimated = 0 WHERE id = ?', sessionId);
-      }
-      this.lastAssistantBySession.delete(sessionId);
-      this.lastTotalBySession.delete(sessionId);
-      this.attributedTurnBySession.delete(sessionId);
-    }
+    this.hooks.onSessionComplete?.(sessionId, this.tokenApi());
   }
 
   onProjectComplete(_slug: string): void {
@@ -978,6 +880,11 @@ export interface CreateIngestServiceOptions {
    * the Rust writer (which still relies on the DEFAULT) stay byte-identical.
    */
   sourceId?: string;
+  /**
+   * Optional product hooks (token attribution, etc.). Defaults to no-op.
+   * Codex passes {@link createCodexIngestHooks}.
+   */
+  hooks?: IngestHooks;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

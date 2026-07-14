@@ -13,7 +13,7 @@ import { createFileService } from '../../io/file-service.js';
 import { createIngestService } from '../../data/ingest-service.js';
 import { createQueryService } from '../../data/query-service.js';
 import { initializeSchema } from '../../data/schema.js';
-import { createCodexSource, createCodexReader, codexMessageExtractor } from '../codex/index.js';
+import { createCodexSource, createCodexReader, codexMessageExtractor, createCodexIngestHooks } from '../codex/index.js';
 import { countTextTokens, estimateTokensFromMessageRows } from '../codex/estimate-tokens.js';
 import type { SqliteService } from '../../io/index.js';
 
@@ -128,6 +128,7 @@ describe('Codex tiktoken fallback when token_count is missing', () => {
     const ingest = createIngestService(() => sqlite, {
       sourceId: 'codex',
       messages: codexMessageExtractor,
+      hooks: createCodexIngestHooks(),
     });
     ingest.open(dbPath);
     const reader = createCodexReader(createCodexSource({ rootDir: codexRoot }), createFileService());

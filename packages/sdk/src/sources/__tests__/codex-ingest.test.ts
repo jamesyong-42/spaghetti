@@ -25,7 +25,7 @@ import { createSqliteService } from '../../io/sqlite-service.js';
 import { createFileService } from '../../io/file-service.js';
 import { createIngestService } from '../../data/ingest-service.js';
 import { initializeSchema } from '../../data/schema.js';
-import { createCodexSource, createCodexReader, codexMessageExtractor } from '../codex/index.js';
+import { createCodexSource, createCodexReader, codexMessageExtractor, createCodexIngestHooks } from '../codex/index.js';
 import type { SqliteService } from '../../io/index.js';
 
 const SESSION_A = '019cf46d-0924-7523-b3f5-f6f5cc0fcd16';
@@ -144,7 +144,11 @@ describe('Codex source — end-to-end ingest', () => {
     sqlite.open({ path: dbPath });
     initializeSchema(sqlite);
 
-    const ingest = createIngestService(() => sqlite, { sourceId: 'codex', messages: codexMessageExtractor });
+    const ingest = createIngestService(() => sqlite, {
+      sourceId: 'codex',
+      messages: codexMessageExtractor,
+      hooks: createCodexIngestHooks(),
+    });
     ingest.open(dbPath);
 
     const fileService = createFileService();

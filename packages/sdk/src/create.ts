@@ -21,6 +21,7 @@ import {
   ClaudeCodeLifecycleOwner,
   CodexLifecycleOwner,
   GrokLifecycleOwner,
+  createCodexIngestHooks,
   type AgentSource,
 } from './sources/index.js';
 import { createDurableStore } from './store/durable-store.js';
@@ -162,6 +163,7 @@ export function createSpaghettiService(options?: SpaghettiServiceOptions): Spagh
       const codexIngest = createIngestService(() => sharedSqlite, {
         sourceId: extra.id,
         messages: extra.messages,
+        hooks: createCodexIngestHooks(),
         engine: 'ts',
       });
       owners.push(

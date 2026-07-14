@@ -19,6 +19,7 @@ import { buildCodexPaths, defaultCodexDir, defaultSpaghettiStateDir } from './pa
 export { codexMessageExtractor } from './message-extractor.js';
 export { CodexReader } from './reader.js';
 export { CodexLifecycleOwner } from './lifecycle-owner.js';
+export { createCodexIngestHooks } from './ingest-hooks.js';
 export { buildCodexPaths, defaultCodexDir } from './paths.js';
 export { parseCodexTokenCount, type CodexTokenUsage, type ParsedCodexTokenCount } from './token-usage.js';
 export { countTextTokens, estimateTokensFromMessageRows, type EstimatedMessageTokens } from './estimate-tokens.js';
