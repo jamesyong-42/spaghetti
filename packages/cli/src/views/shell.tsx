@@ -122,16 +122,34 @@ export function Shell({ api }: ShellProps): React.ReactElement {
 
     // Delay init start so Ink can paint the initial boot screen frame
     const initTimer = setTimeout(() => {
-      api
-        .initialize()
-        .then(() => {
+      void (async () => {
+        try {
+          await api.initialize();
+          // Probe a cheap read: a corrupt cache can survive initialize() and
+          // only fail when the menu queries (SQLITE_CORRUPT). Auto-rebuild once.
+          try {
+            api.getProjectList();
+          } catch (probeErr) {
+            const msg = probeErr instanceof Error ? probeErr.message : String(probeErr);
+            if (/malformed|SQLITE_CORRUPT|corrupt/i.test(msg)) {
+              setProgress({ message: 'Index corrupt — rebuilding…', current: 0, total: 0 });
+              await api.rebuildIndex();
+              api.getProjectList();
+            } else {
+              throw probeErr;
+            }
+          }
           unsub();
           setReady(true);
-        })
-        .catch((err) => {
+        } catch (err) {
           unsub();
-          setError(err instanceof Error ? err.message : String(err));
-        });
+          const message = err instanceof Error ? err.message : String(err);
+          const hint = /malformed|SQLITE_CORRUPT|corrupt/i.test(message)
+            ? `${message} — delete ~/.spaghetti/cache/spaghetti-rs.db and retry`
+            : message;
+          setError(hint);
+        }
+      })();
     }, 100);
 
     return () => {

@@ -70,9 +70,19 @@ export function MenuView(): React.ReactElement {
   const { cols } = useTerminalSize();
 
   // Load aggregate data for stats display
-  const { panelStats, dataSize, queryMs, projectCount, tokenStr, pluginStatStr, sourceIds } = useMemo(() => {
+  const { panelStats, dataSize, queryMs, projectCount, tokenStr, pluginStatStr, sourceIds, loadError } = useMemo(() => {
     const t0 = performance.now();
-    const projects = api.getProjectList();
+    let projects: ReturnType<typeof api.getProjectList> = [];
+    let loadError: string | null = null;
+    try {
+      projects = api.getProjectList();
+    } catch (err) {
+      // Never throw out of useMemo — uncaught SQLITE_CORRUPT kills the TUI process.
+      const msg = err instanceof Error ? err.message : String(err);
+      loadError = /malformed|SQLITE_CORRUPT|corrupt/i.test(msg)
+        ? 'Index cache is corrupt. Run `spag rebuild` or delete ~/.spaghetti/cache/spaghetti-rs.db'
+        : msg;
+    }
     const elapsed = Math.round(performance.now() - t0);
 
     let sessions = 0;
@@ -95,7 +105,15 @@ export function MenuView(): React.ReactElement {
       tokens: anyTokenSource || projects.length === 0 ? formatTokens(tokens) : '—',
     };
 
-    const s = api.getStats();
+    let dataSize = '—';
+    let sourceIds: string[] = [];
+    try {
+      const s = api.getStats();
+      dataSize = formatBytes(s.dbSizeBytes);
+      sourceIds = api.getSourceIds();
+    } catch {
+      /* already captured loadError above, or secondary failure */
+    }
 
     // Lightweight plugin snapshot for the menu's right-stat — just reads
     // two JSON files; safe to do on mount.
@@ -108,12 +126,13 @@ export function MenuView(): React.ReactElement {
 
     return {
       panelStats: stats,
-      dataSize: formatBytes(s.dbSizeBytes),
+      dataSize,
       queryMs: elapsed,
       projectCount: projects.length,
       tokenStr: anyTokenSource || projects.length === 0 ? formatTokens(tokens) : '—',
       pluginStatStr: pluginStat,
-      sourceIds: api.getSourceIds(),
+      sourceIds,
+      loadError,
     };
   }, [api]);
 
@@ -215,6 +234,12 @@ export function MenuView(): React.ReactElement {
   return (
     <Box flexDirection="column">
       <WelcomePanel stats={panelStats} dataPath={dataPath} dataSize={dataSize} initMs={queryMs} />
+      {loadError ? (
+        <Box flexDirection="column" marginBottom={1}>
+          <Text color="red"> ✗ {loadError}</Text>
+          <Text dimColor> Delete ~/.spaghetti/cache/spaghetti-rs.db and re-run spag to rebuild.</Text>
+        </Box>
+      ) : null}
       {menuItems.map((item, i) => (
         <MenuItem
           key={item.name}

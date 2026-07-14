@@ -7,10 +7,14 @@
  * `sourceId: 'codex'`.
  *
  * Engine:
- * - **rs** (when native addon loads): `native.ingest({ sourceId: 'codex' })`
- * - **ts**: `CodexReader` + this owner's `IngestService`
+ * - **rs** (when native addon loads AND the shared SQLite handle is not yet
+ *   open): `native.ingest({ sourceId: 'codex' })` with exclusive access
+ * - **ts** otherwise — including when Claude (or another owner) already
+ *   opened better-sqlite3 on the same file. Native bulk uses
+ *   `journal_mode=MEMORY`, which races with a live better-sqlite3 connection
+ *   and can SQLITE_CORRUPT the cache.
  *
- * Live (Plane 2, opt-in) still uses the TS writer for Change events + token
+ * Live (Plane 2, opt-in) always uses the TS writer for Change events + token
  * attribution on incremental tails.
  *
  * Failures are non-fatal: a Codex ingest error emits `error` and leaves the rest
@@ -63,14 +67,26 @@ export class CodexLifecycleOwner extends EventEmitter implements LifecycleOwner 
     this.ready = false;
     const start = Date.now();
     try {
-      // Shared SQLite handle — open() is idempotent when already open.
-      this.ingestService.open(this.dbPath);
       this.emit('progress', { phase: 'parsing', message: 'Ingesting Codex sessions…' });
 
       const native = this.engine === 'rs' ? loadNativeAddon() : null;
-      if (native) {
+      // Exclusive native only when no peer already holds better-sqlite3.
+      // Shared multi-source: primary (Claude) opens first → we take the TS path.
+      const sharedAlreadyOpen = this.ingestService.isOpen();
+
+      if (native && !sharedAlreadyOpen) {
+        // Native first (exclusive), then open the shared handle for meta/live.
         await this.initializeWithNative(native);
+        this.ingestService.open(this.dbPath);
+        this.ingestService.setMeta(CODEX_EXTRACT_META_KEY, CODEX_EXTRACT_VERSION);
       } else {
+        this.ingestService.open(this.dbPath);
+        if (native && sharedAlreadyOpen) {
+          this.emit('progress', {
+            phase: 'parsing',
+            message: 'Codex: shared DB open — using TypeScript ingest (safe with multi-source)…',
+          });
+        }
         await this.initializeWithTypeScript();
       }
 
@@ -121,10 +137,9 @@ export class CodexLifecycleOwner extends EventEmitter implements LifecycleOwner 
         });
       },
     );
-    this.ingestService.setMeta(CODEX_EXTRACT_META_KEY, CODEX_EXTRACT_VERSION);
   }
 
-  /** TypeScript CodexReader path (fallback when native is unavailable). */
+  /** TypeScript CodexReader path (fallback when native is unavailable or unsafe). */
   private async initializeWithTypeScript(): Promise<void> {
     const extractVer = this.ingestService.getMeta(CODEX_EXTRACT_META_KEY);
     const forceReread = extractVer !== CODEX_EXTRACT_VERSION;

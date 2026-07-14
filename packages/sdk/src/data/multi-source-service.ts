@@ -55,11 +55,43 @@ export class SpaghettiDataService extends EventEmitter implements ClaudeCodeAgen
     const start = Date.now();
     // Sequential: owners share one SQLite handle; the first opens/creates the
     // schema, the rest reuse it. Concurrency here would race the open.
+    //
+    // Pause any live pipelines between owners so a later owner’s cold/warm
+    // write (and any exclusive native access) is not racing a live tailer.
+    // Restart every live watch after all owners finish.
     for (const owner of this.owners) {
+      await this.pauseAllLive();
       await owner.initialize();
     }
+    await this.resumeAllLive();
     this.ready = true;
     this.emit('ready', { durationMs: Date.now() - start });
+  }
+
+  private async pauseAllLive(): Promise<void> {
+    for (const owner of this.owners) {
+      const live = owner.getLiveWatch();
+      if (live) {
+        try {
+          await live.stop();
+        } catch {
+          /* best-effort */
+        }
+      }
+    }
+  }
+
+  private async resumeAllLive(): Promise<void> {
+    for (const owner of this.owners) {
+      const live = owner.getLiveWatch();
+      if (live) {
+        try {
+          await live.start();
+        } catch {
+          /* best-effort — owner may not have created a watch */
+        }
+      }
+    }
   }
 
   shutdown(): void {

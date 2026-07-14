@@ -37,6 +37,8 @@ import { initializeSchema } from './schema.js';
 export interface IngestService extends ProjectParseSink {
   open(dbPath: string): void;
   close(): void;
+  /** True when the shared SQLite handle is open (another owner may already hold it). */
+  isOpen(): boolean;
 
   // Fingerprints
   getFingerprint(path: string): SourceFingerprint | null;
@@ -208,6 +210,10 @@ class IngestServiceImpl implements IngestService {
     this.prepareStatements();
     this.opened = true;
     this.dbPath = dbPath;
+  }
+
+  isOpen(): boolean {
+    return this.opened && this.db.isOpen();
   }
 
   close(): void {
