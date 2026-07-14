@@ -151,15 +151,25 @@ export function createSpaghettiService(options?: SpaghettiServiceOptions): Spagh
   const owners: LifecycleOwner[] = [claudeOwner];
   for (const extra of options?.additionalSources ?? []) {
     if (extra.id === 'codex') {
-      // Codex ingests on the TS path (no native reader); its own IngestService
-      // stamps source_id='codex' and uses the source's own extractor.
+      // Codex cold/warm: RS when engine is rs + native loads; TS otherwise.
+      // Live tails still use this TS IngestService for Change events.
       const codexIngest = createIngestService(() => sharedSqlite, {
         sourceId: extra.id,
         messages: extra.messages,
-        engine: 'ts',
+        engine: resolvedEngine === 'rs' ? 'rs' : 'ts',
+        native: nativeAddon,
       });
       owners.push(
-        new CodexLifecycleOwner(fileService, extra, store.data, codexIngest, dbPath, errorSink, options?.live ?? false),
+        new CodexLifecycleOwner(
+          fileService,
+          extra,
+          store.data,
+          codexIngest,
+          dbPath,
+          errorSink,
+          options?.live ?? false,
+          resolvedEngine,
+        ),
       );
     } else {
       errorSink.error(new Error(`No LifecycleOwner registered for source '${extra.id}' — skipping.`));

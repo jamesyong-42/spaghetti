@@ -56,7 +56,9 @@ This claim exists so we never confuse “we chose not to” with “Codex has no
 
 | | TS | RS |
 |---|---|---|
-| Codex | yes | **no** |
+| Codex cold/warm | yes (fallback) | **yes** (`native.ingest({ sourceId: 'codex' })`) |
+| Codex live disk | yes | not yet (TS live watch) |
+| Tiktoken estimate when no `token_count` | yes | not yet (official attribution only) |
 
 ## How to re-verify
 

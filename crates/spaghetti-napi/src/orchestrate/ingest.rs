@@ -296,6 +296,11 @@ pub(crate) fn run_ingest(
     let start = Instant::now();
     let resolved = ResolvedOptions::from(opts)?;
 
+    // Codex has its own reader (RFC 006) — branch before the Claude project walk.
+    if resolved.source_id == "codex" {
+        return run_codex_ingest(&resolved, on_progress, start);
+    }
+
     // Warm-start fast path: nothing changed since last ingest → return.
     if resolved.mode == Mode::Warm && warm_has_no_changes(&resolved)? {
         return Ok(IngestStats {
@@ -510,8 +515,105 @@ fn warm_has_no_changes(
         Err(_) => return Ok(false), // treat any read failure as "has changes"
     };
 
-    let diff = fingerprint::compute_diff(&resolved.root_dir, &stored)?;
+    // Multi-source: only consider fingerprints under this source's root so
+    // Codex paths don't force Claude into perpetual full re-ingest (and vice versa).
+    let root_s = resolved.root_dir.to_string_lossy();
+    let filtered: HashMap<String, fingerprint::SourceFingerprint> = stored
+        .into_iter()
+        .filter(|(p, _)| p.starts_with(root_s.as_ref()))
+        .collect();
+    if filtered.is_empty() {
+        return Ok(false);
+    }
+
+    let diff = fingerprint::compute_diff(&resolved.root_dir, &filtered)?;
     Ok(diff.added.is_empty() && diff.modified.is_empty() && diff.deleted.is_empty())
+}
+
+/// Codex cold/warm ingest — `source_id = "codex"`.
+fn run_codex_ingest(
+    resolved: &ResolvedOptions,
+    on_progress: Option<&(dyn Fn(IngestProgress) + Send + Sync)>,
+    start: Instant,
+) -> std::result::Result<IngestStats, IngestInternalError> {
+    use crate::codex::CodexReader;
+
+    let sessions_dir = resolved.root_dir.join("sessions");
+    if !sessions_dir.is_dir() {
+        // No Codex sessions — empty success (additive source).
+        return Ok(IngestStats {
+            duration_ms: u32::try_from(start.elapsed().as_millis()).unwrap_or(u32::MAX),
+            ..IngestStats::default()
+        });
+    }
+
+    // Warm fast-path: fingerprints under sessions/ unchanged.
+    if resolved.mode == Mode::Warm && resolved.db_path.exists() {
+        if let Ok(conn) = Connection::open_with_flags(
+            &resolved.db_path,
+            OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
+        ) {
+            let store = FingerprintStore::new(&conn);
+            if let Ok(stored) = store.load_all() {
+                if !stored.is_empty() && CodexReader::warm_unchanged(&sessions_dir, &stored) {
+                    return Ok(IngestStats {
+                        duration_ms: u32::try_from(start.elapsed().as_millis()).unwrap_or(u32::MAX),
+                        ..IngestStats::default()
+                    });
+                }
+            }
+        }
+    }
+
+    let emit = |phase: &str, done: u32, total: u32| {
+        if let Some(cb) = on_progress {
+            cb(IngestProgress {
+                phase: phase.to_string(),
+                projects_done: done,
+                projects_total: total,
+                elapsed_ms: u32::try_from(start.elapsed().as_millis()).unwrap_or(u32::MAX),
+            });
+        }
+    };
+    emit("scanning", 0, 0);
+
+    let (sender, receiver) = bounded::<IngestEvent>(CHANNEL_CAPACITY_PER_WORKER * 4);
+    let db_path = resolved.db_path.clone();
+    let source_id = resolved.source_id.clone();
+
+    let writer_handle = std::thread::Builder::new()
+        .name("spaghetti-writer-codex".into())
+        .spawn(
+            move || -> std::result::Result<WriterStats, crate::core::writer::WriterError> {
+                let mut writer = Writer::with_source_id(&db_path, source_id)?;
+                writer.open_for_bulk_ingest()?;
+                let stats = writer.run(receiver)?;
+                writer.finish()?;
+                Ok(stats)
+            },
+        )
+        .map_err(IngestInternalError::Io)?;
+
+    // Scoped fingerprint clear for codex only, then full read.
+    let _ = sender.send(IngestEvent::ClearSourceFiles);
+    let read_stats = CodexReader::read_all(&sessions_dir, &sender).map_err(|e| {
+        IngestInternalError::Io(std::io::Error::other(e.to_string()))
+    })?;
+    drop(sender);
+    emit("finalizing", read_stats.projects, read_stats.projects);
+
+    let writer_stats: WriterStats = writer_handle
+        .join()
+        .map_err(|_| IngestInternalError::WriterPanic)??;
+
+    Ok(IngestStats {
+        duration_ms: u32::try_from(start.elapsed().as_millis()).unwrap_or(u32::MAX),
+        projects_processed: writer_stats.projects_processed.max(read_stats.projects),
+        sessions_processed: writer_stats.sessions_processed.max(read_stats.sessions),
+        messages_written: writer_stats.messages_written,
+        subagents_written: 0,
+        errors: vec![],
+    })
 }
 
 /// List immediate subdirectories of `<claude_dir>/projects/`. Each dir
@@ -690,6 +792,57 @@ mod tests {
         assert_eq!(stats.sessions_processed, 0);
         assert_eq!(stats.messages_written, 0);
         assert!(stats.errors.is_empty());
+    }
+
+    #[test]
+    fn codex_ingest_writes_messages_with_source_id() {
+        let tmp = TempDir::new().unwrap();
+        let sessions = tmp.path().join("sessions/2026/01/01");
+        fs::create_dir_all(&sessions).unwrap();
+        let rollout = sessions.join("rollout-2026-01-01T00-00-00-019bbbbbbbbbbbbbbbbbbbbbbb.jsonl");
+        fs::write(
+            &rollout,
+            r#"{"timestamp":"2026-01-01T00:00:00.000Z","type":"session_meta","payload":{"id":"codex-sess-1","cwd":"/tmp/codex-demo"}}
+{"timestamp":"2026-01-01T00:00:01.000Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"hello codex"}]}}
+{"timestamp":"2026-01-01T00:00:02.000Z","type":"response_item","payload":{"type":"message","role":"assistant","id":"a1","content":[{"type":"output_text","text":"hi there"}]}}
+{"type":"event_msg","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":11,"output_tokens":4,"cached_input_tokens":1,"reasoning_output_tokens":0,"total_tokens":16}}}}
+{"type":"response_item","payload":{"type":"function_call","name":"shell"}}
+"#,
+        )
+        .unwrap();
+
+        let db = tmp.path().join("codex.db");
+        let opts = IngestOptions {
+            claude_dir: tmp.path().to_string_lossy().into(),
+            db_path: db.to_string_lossy().into(),
+            mode: "cold".into(),
+            progress_interval_ms: None,
+            parallelism: None,
+            source_id: Some("codex".into()),
+        };
+        let stats = run_ingest(&opts, None).expect("codex ingest");
+        // Writer may count ClearSourceFiles + ProjectComplete as project boundaries.
+        assert!(stats.projects_processed >= 1);
+        assert!(stats.sessions_processed >= 1);
+        assert!(stats.messages_written >= 2);
+
+        let conn = Connection::open(&db).unwrap();
+        let sid: String = conn
+            .query_row("SELECT source_id FROM projects LIMIT 1", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(sid, "codex");
+        let msg_count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM messages WHERE source_id = 'codex'", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(msg_count, 2, "function_call must not create a message row");
+        let tokens: (i64, i64, i64) = conn
+            .query_row(
+                "SELECT input_tokens, output_tokens, cache_read_tokens FROM messages WHERE msg_type = 'assistant'",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+            )
+            .unwrap();
+        assert_eq!(tokens, (11, 4, 1));
     }
 
     #[test]

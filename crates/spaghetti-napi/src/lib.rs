@@ -20,6 +20,7 @@
 use napi_derive::napi;
 
 pub mod claude;
+pub mod codex;
 pub mod core;
 pub mod orchestrate;
 

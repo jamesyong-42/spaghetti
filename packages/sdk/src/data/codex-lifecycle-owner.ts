@@ -3,20 +3,14 @@
  *
  * Implements the `LifecycleOwner` contract for the Codex source: it ingests
  * Codex rollout files (`sessions/YYYY/MM/DD/rollout-*.jsonl`) into the SHARED
- * store under `sourceId: 'codex'`, via its own `IngestService` (bound to that
- * sourceId + the source's `MessageExtractor`) and a `CodexReader`.
+ * store under `sourceId: 'codex'`.
  *
- * Engine: TS path only today. There is no native (Rust) Codex reader (RFC §6
- * option A), so a `rs`-pinned service still ingests Codex on the TS path — the
- * native addon only accelerates Claude's bulk path.
+ * Engine:
+ * - **rs** (when native addon loads): `native.ingest({ sourceId: 'codex' })`
+ * - **ts**: `CodexReader` + this owner's `IngestService`
  *
- * Cold vs warm: warm-start skips re-reading a rollout whose fingerprint
- * (path + mtime) is unchanged; new/changed files are re-read. Project/session
- * metadata is always refreshed (cheap upserts).
- *
- * Live (Plane 2, opt-in): when `live` is set, after the initial ingest a
- * {@link CodexLiveWatch} watches the rollout tree and streams appended turns
- * into the shared store, so `api.live` reflects Codex activity in real time.
+ * Live (Plane 2, opt-in) still uses the TS writer for Change events + token
+ * attribution on incremental tails.
  *
  * Failures are non-fatal: a Codex ingest error emits `error` and leaves the rest
  * of the app (Claude) working — Codex is an additive source, not a dependency.
@@ -33,6 +27,8 @@ import type { AgentDataStore } from './agent-data-store.js';
 import type { IngestService } from './ingest-service.js';
 import type { LifecycleOwner } from './lifecycle-owner.js';
 import type { LiveWatch } from '../live/live-watch.js';
+import { loadNativeAddon } from '../native.js';
+import { resolveEngine, type IngestEngine } from '../settings.js';
 
 /**
  * Bump when Codex message/token extraction changes in a way that requires
@@ -46,6 +42,7 @@ export class CodexLifecycleOwner extends EventEmitter implements LifecycleOwner 
   readonly sourceId = 'codex';
   private ready = false;
   private liveWatch: CodexLiveWatch | undefined;
+  private readonly engine: IngestEngine;
 
   constructor(
     private readonly fileService: FileService,
@@ -55,8 +52,10 @@ export class CodexLifecycleOwner extends EventEmitter implements LifecycleOwner 
     private readonly dbPath: string,
     private readonly errorSink: ErrorSink,
     private readonly live: boolean = false,
+    engine?: IngestEngine,
   ) {
     super();
+    this.engine = engine ?? resolveEngine();
   }
 
   async initialize(): Promise<void> {
@@ -67,35 +66,14 @@ export class CodexLifecycleOwner extends EventEmitter implements LifecycleOwner 
       this.ingestService.open(this.dbPath);
       this.emit('progress', { phase: 'parsing', message: 'Ingesting Codex sessions…' });
 
-      // One-shot re-read when token attribution (or future extract) bumps.
-      const extractVer = this.ingestService.getMeta(CODEX_EXTRACT_META_KEY);
-      const forceReread = extractVer !== CODEX_EXTRACT_VERSION;
-
-      const reader = new CodexReader(this.fileService, this.source.paths.sessionsDir);
-      this.ingestService.beginTransaction();
-      try {
-        reader.readAll(this.ingestService, {
-          // Warm-start: skip a rollout whose fingerprint is unchanged —
-          // unless extract version requires a full Codex pass.
-          shouldReadMessages: (file, mtimeMs) => {
-            if (forceReread) return true;
-            const fp = this.ingestService.getFingerprint(file);
-            return !fp || fp.mtimeMs !== mtimeMs;
-          },
-          onFileSeen: (file, mtimeMs, size, lastByte) => {
-            this.ingestService.upsertFingerprint({ path: file, mtimeMs, size, bytePosition: lastByte });
-          },
-        });
-        if (forceReread) {
-          this.ingestService.setMeta(CODEX_EXTRACT_META_KEY, CODEX_EXTRACT_VERSION);
-        }
-        this.ingestService.commitTransaction();
-      } catch (error) {
-        this.ingestService.rollbackTransaction();
-        throw error;
+      const native = this.engine === 'rs' ? loadNativeAddon() : null;
+      if (native) {
+        await this.initializeWithNative(native);
+      } else {
+        await this.initializeWithTypeScript();
       }
 
-      // Plane 2: start the live watcher once the baseline is caught up.
+      // Plane 2: live watcher after baseline (TS write path for Change events).
       if (this.live && !this.liveWatch) {
         this.liveWatch = createCodexLiveWatch({
           fileService: this.fileService,
@@ -115,13 +93,69 @@ export class CodexLifecycleOwner extends EventEmitter implements LifecycleOwner 
     }
   }
 
+  /** Native Codex cold/warm path (Rust CodexReader + Writer source_id=codex). */
+  private async initializeWithNative(native: NonNullable<ReturnType<typeof loadNativeAddon>>): Promise<void> {
+    this.emit('progress', {
+      phase: 'parsing',
+      message: `Running native Codex ingest (${native.nativeVersion()})…`,
+    });
+    await native.ingest(
+      {
+        // rootDir is ~/.codex; NAPI field is still named claudeDir for compat.
+        claudeDir: this.source.rootDir,
+        dbPath: this.dbPath,
+        mode: 'warm',
+        sourceId: 'codex',
+      },
+      (progress) => {
+        this.emit('progress', {
+          phase: progress.phase === 'finalizing' ? 'storing' : 'parsing',
+          message:
+            progress.phase === 'scanning'
+              ? 'Scanning Codex sessions…'
+              : progress.phase === 'finalizing'
+                ? 'Finalizing Codex index…'
+                : `Ingesting Codex… ${progress.projectsDone}/${progress.projectsTotal}`,
+          current: progress.projectsDone,
+          total: progress.projectsTotal,
+        });
+      },
+    );
+    this.ingestService.setMeta(CODEX_EXTRACT_META_KEY, CODEX_EXTRACT_VERSION);
+  }
+
+  /** TypeScript CodexReader path (fallback when native is unavailable). */
+  private async initializeWithTypeScript(): Promise<void> {
+    const extractVer = this.ingestService.getMeta(CODEX_EXTRACT_META_KEY);
+    const forceReread = extractVer !== CODEX_EXTRACT_VERSION;
+
+    const reader = new CodexReader(this.fileService, this.source.paths.sessionsDir);
+    this.ingestService.beginTransaction();
+    try {
+      reader.readAll(this.ingestService, {
+        shouldReadMessages: (file, mtimeMs) => {
+          if (forceReread) return true;
+          const fp = this.ingestService.getFingerprint(file);
+          return !fp || fp.mtimeMs !== mtimeMs;
+        },
+        onFileSeen: (file, mtimeMs, size, lastByte) => {
+          this.ingestService.upsertFingerprint({ path: file, mtimeMs, size, bytePosition: lastByte });
+        },
+      });
+      if (forceReread) {
+        this.ingestService.setMeta(CODEX_EXTRACT_META_KEY, CODEX_EXTRACT_VERSION);
+      }
+      this.ingestService.commitTransaction();
+    } catch (error) {
+      this.ingestService.rollbackTransaction();
+      throw error;
+    }
+  }
+
   shutdown(): void {
     this.ready = false;
-    // Best-effort stop; shutdownAsync awaits it properly.
     void this.liveWatch?.stop();
     this.liveWatch = undefined;
-    // The shared SQLite handle is closed by the primary (Claude) owner; this
-    // owner must not double-close it.
   }
 
   async shutdownAsync(): Promise<void> {
@@ -133,9 +167,6 @@ export class CodexLifecycleOwner extends EventEmitter implements LifecycleOwner 
   }
 
   async rebuild(): Promise<void> {
-    // No per-source wipe yet (deleteAllData would clear every source). The
-    // coordinator runs the primary owner's rebuild first, which wipes the DB
-    // (and Codex's fingerprints); re-initializing here then cold-reads Codex.
     await this.initialize();
   }
 
@@ -154,8 +185,6 @@ export class CodexLifecycleOwner extends EventEmitter implements LifecycleOwner 
   }
 
   getLiveWatch(): LiveWatch | undefined {
-    // Codex's LiveWatch (no `prewarm` scopes — it watches the whole rollout
-    // tree); emits into the shared store, which `api.live` observes.
     return this.liveWatch;
   }
 }
