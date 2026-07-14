@@ -8,6 +8,7 @@ export {
   defaultClaudeDir,
   defaultSpaghettiStateDir,
   buildClaudeCodePaths,
+  ClaudeCodeLifecycleOwner,
   type ClaudeCodeSourceOptions,
 } from './claude-code/index.js';
 export {
@@ -15,6 +16,7 @@ export {
   createCodexReader,
   codexMessageExtractor,
   CodexReader,
+  CodexLifecycleOwner,
   defaultCodexDir,
   buildCodexPaths,
   parseCodexTokenCount,

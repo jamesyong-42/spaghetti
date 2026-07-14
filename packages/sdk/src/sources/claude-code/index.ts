@@ -8,6 +8,7 @@ import { claudeCodeMessageExtractor } from './message-extractor.js';
 import { buildClaudeCodePaths, defaultClaudeDir, defaultSpaghettiStateDir } from './paths.js';
 
 export { buildClaudeCodePaths, defaultClaudeDir, defaultSpaghettiStateDir } from './paths.js';
+export { ClaudeCodeLifecycleOwner } from './lifecycle-owner.js';
 
 export interface ClaudeCodeSourceOptions {
   /** Override agent data root (default `~/.claude`). */

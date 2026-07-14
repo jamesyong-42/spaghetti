@@ -177,11 +177,12 @@ async function runTsIngest(): Promise<{ durationMs: number }> {
 
 interface NativeAddon {
   ingest(opts: {
-    claudeDir: string;
+    agentDir: string;
     dbPath: string;
     mode: 'cold' | 'warm';
     progressIntervalMs?: number;
     parallelism?: number;
+    sourceId?: string;
   }): Promise<{
     durationMs: number;
     projectsProcessed: number;
@@ -213,7 +214,7 @@ async function runRustIngest(): Promise<{ durationMs: number; stats: Awaited<Ret
   const native = require('@vibecook/spaghetti-sdk-native') as NativeAddon;
   const start = Date.now();
   const stats = await native.ingest({
-    claudeDir: fixtureClaudeDir,
+    agentDir: fixtureClaudeDir,
     dbPath: rustDbPath,
     mode: 'cold',
   });

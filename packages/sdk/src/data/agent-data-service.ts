@@ -1,20 +1,19 @@
 /**
  * agent-data-service.ts — Backward-compat re-export shim.
  *
- * The implementation class lives in `./lifecycle-owner.ts` under its
- * new name `LifecycleOwner` as of RFC 005 Phase 1 (commit C1.4). This
- * module exists so every consumer — `create.ts`, `index.ts`,
- * `app-service.ts`, and all downstream packages — can keep importing
- * `AgentDataServiceImpl` / `ClaudeCodeAgentDataService` /
+ * Claude Code lifecycle implementation lives in
+ * `sources/claude-code/lifecycle-owner.ts`. Shared contracts
+ * (`LifecycleOwner`, `ClaudeCodeAgentDataService`, options) live in
+ * `./lifecycle-owner.ts`. This module keeps every consumer —
+ * `create.ts`, `index.ts`, `app-service.ts`, and downstream packages —
+ * importing `AgentDataServiceImpl` / `ClaudeCodeAgentDataService` /
  * `AgentDataServiceOptions` from `./data/agent-data-service.js` without
- * any churn. When the rename is fully absorbed by the ecosystem, this
- * shim can be deleted and imports pointed directly at
- * `./lifecycle-owner.js`.
+ * churn.
  */
 
 export {
   // Impl: the class formerly known as `AgentDataServiceImpl`, now
-  // `ClaudeCodeLifecycleOwner` (RFC 006: one lifecycle owner per source).
+  // `ClaudeCodeLifecycleOwner` under sources/claude-code/.
   // Aliased back on the way out so existing `new AgentDataServiceImpl(...)`
   // call-sites keep compiling.
   ClaudeCodeLifecycleOwner as AgentDataServiceImpl,

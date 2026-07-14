@@ -145,10 +145,11 @@ function printSummary(s: Summary): void {
 
 interface NativeAddon {
   ingest(opts: {
-    claudeDir: string;
+    agentDir: string;
     dbPath: string;
     mode: 'cold' | 'warm';
     parallelism?: number;
+    sourceId?: string;
   }): Promise<{ durationMs: number }>;
   nativeVersion(): string;
 }
@@ -159,7 +160,7 @@ async function runRustOnce(dbPath: string): Promise<number> {
   const native = require('@vibecook/spaghetti-sdk-native') as NativeAddon;
   const t0 = performance.now();
   await native.ingest({
-    claudeDir: fixtureClaudeDir,
+    agentDir: fixtureClaudeDir,
     dbPath,
     mode,
     parallelism,
@@ -171,7 +172,7 @@ async function seedWarmDb(dbPath: string): Promise<void> {
   cleanDb(dbPath);
   const native = require('@vibecook/spaghetti-sdk-native') as NativeAddon;
   await native.ingest({
-    claudeDir: fixtureClaudeDir,
+    agentDir: fixtureClaudeDir,
     dbPath,
     mode: 'cold',
     parallelism,

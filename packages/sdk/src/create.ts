@@ -10,15 +10,18 @@ import { createSqliteService } from './io/sqlite-service.js';
 import { createConsoleErrorSink, type ErrorSink } from './io/error-sink.js';
 import { createSpaghettiAppService } from './app-service.js';
 import { createClaudeCodeParser } from './parser/claude-code-parser.js';
-import { AgentDataServiceImpl } from './data/agent-data-service.js';
 import type { ClaudeCodeAgentDataService, LifecycleOwner } from './data/agent-data-service.js';
 import { SpaghettiDataService } from './data/multi-source-service.js';
-import { CodexLifecycleOwner } from './data/codex-lifecycle-owner.js';
 import { createIngestService } from './data/ingest-service.js';
 import { loadNativeAddon } from './native.js';
 import { defaultDbPathForEngine, resolveEngine, type IngestEngine } from './settings.js';
 import type { SpaghettiAPI } from './api.js';
-import { createClaudeCodeSource, type AgentSource } from './sources/index.js';
+import {
+  createClaudeCodeSource,
+  ClaudeCodeLifecycleOwner,
+  CodexLifecycleOwner,
+  type AgentSource,
+} from './sources/index.js';
 import { createDurableStore } from './store/durable-store.js';
 import { toLifecycleOptions } from './planes/static-ingest.js';
 import { createLiveDiskIngest } from './planes/live-disk-ingest.js';
@@ -131,7 +134,7 @@ export function createSpaghettiService(options?: SpaghettiServiceOptions): Spagh
 
   // ── Plane 1: StaticIngest — one LifecycleOwner per source ──────────────
   const parser = createClaudeCodeParser(fileService);
-  const claudeOwner = new AgentDataServiceImpl(
+  const claudeOwner = new ClaudeCodeLifecycleOwner(
     fileService,
     parser,
     store.query,
@@ -151,13 +154,14 @@ export function createSpaghettiService(options?: SpaghettiServiceOptions): Spagh
   const owners: LifecycleOwner[] = [claudeOwner];
   for (const extra of options?.additionalSources ?? []) {
     if (extra.id === 'codex') {
-      // Codex cold/warm: RS when engine is rs + native loads; TS otherwise.
-      // Live tails still use this TS IngestService for Change events.
+      // Cold/warm RS path is owned by CodexLifecycleOwner via loadNativeAddon —
+      // not this IngestService. Keep engine 'ts' so Plane 2 writeBatch (and the
+      // TS cold fallback) stay on the TypeScript writer: native liveIngestBatch
+      // is Claude-shaped and would drop Codex rollout rows / token attribution.
       const codexIngest = createIngestService(() => sharedSqlite, {
         sourceId: extra.id,
         messages: extra.messages,
-        engine: resolvedEngine === 'rs' ? 'rs' : 'ts',
-        native: nativeAddon,
+        engine: 'ts',
       });
       owners.push(
         new CodexLifecycleOwner(
