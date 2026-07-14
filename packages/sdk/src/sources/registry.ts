@@ -1,0 +1,123 @@
+/**
+ * Lifecycle owner registry — maps AgentSourceId → owner construction.
+ *
+ * Phase E: `createSpaghettiService` builds owners only through this table.
+ * A new agent is a `sources/<id>/` package + one entry here (no create.ts
+ * product branches).
+ */
+
+import type { FileService } from '../io/file-service.js';
+import type { ErrorSink } from '../io/error-sink.js';
+import type { LifecycleOwner } from '../data/lifecycle-owner.js';
+import { createIngestService } from '../data/ingest-service.js';
+import type { DurableStore } from '../store/durable-store.js';
+import type { NativeAddon } from '../native.js';
+import type { IngestEngine } from '../settings.js';
+import type { LiveDiskIngest } from '../planes/live-disk-ingest.js';
+import { toLifecycleOptions } from '../planes/static-ingest.js';
+import { createClaudeCodeParser } from './claude-code/parser/index.js';
+import { ClaudeCodeLifecycleOwner } from './claude-code/lifecycle-owner.js';
+import { CodexLifecycleOwner } from './codex/lifecycle-owner.js';
+import { createCodexIngestHooks } from './codex/ingest-hooks.js';
+import { GrokLifecycleOwner } from './grok/lifecycle-owner.js';
+import type { AgentSource, AgentSourceId } from './types.js';
+
+/** Shared deps every factory needs to build a LifecycleOwner. */
+export interface LifecycleOwnerFactoryDeps {
+  source: AgentSource;
+  fileService: FileService;
+  store: DurableStore;
+  dbPath: string;
+  errorSink: ErrorSink;
+  /** Plane 2 requested for this service (owners decide how to watch). */
+  live: boolean;
+  engine: IngestEngine;
+  native: NativeAddon | null;
+  /**
+   * Prebuilt Claude LiveDiskIngest for the primary source only.
+   * Undefined for secondary sources and non-Claude primaries (they use
+   * their own live watches inside the owner).
+   */
+  primaryLive?: LiveDiskIngest;
+}
+
+export type LifecycleOwnerFactory = (deps: LifecycleOwnerFactoryDeps) => LifecycleOwner;
+
+const REGISTRY: Record<AgentSourceId, LifecycleOwnerFactory> = {
+  'claude-code': (deps) => {
+    const parser = createClaudeCodeParser(deps.fileService);
+    return new ClaudeCodeLifecycleOwner(
+      deps.fileService,
+      parser,
+      deps.store.query,
+      // Shared primary ingest (default claude extractor / no token hooks).
+      deps.store.ingest,
+      deps.store.data,
+      toLifecycleOptions({
+        source: deps.source,
+        engine: deps.engine,
+        dbPath: deps.dbPath,
+      }),
+      deps.primaryLive,
+    );
+  },
+
+  codex: (deps) => {
+    // Live writeBatch stays on TS (native liveIngestBatch is Claude-shaped).
+    // Cold/warm still uses rs via exclusiveIngest when engine is rs.
+    const ingest = createIngestService(() => deps.store.sqlite, {
+      sourceId: 'codex',
+      messages: deps.source.messages,
+      hooks: createCodexIngestHooks(),
+      engine: 'ts',
+    });
+    return new CodexLifecycleOwner(
+      deps.fileService,
+      deps.source,
+      deps.store.data,
+      ingest,
+      deps.dbPath,
+      deps.errorSink,
+      deps.live,
+      deps.engine,
+    );
+  },
+
+  grok: (deps) => {
+    // Pure-TS reader path; no native Grok ingest.
+    const ingest = createIngestService(() => deps.store.sqlite, {
+      sourceId: 'grok',
+      messages: deps.source.messages,
+      engine: 'ts',
+    });
+    return new GrokLifecycleOwner(
+      deps.fileService,
+      deps.source,
+      deps.store.data,
+      ingest,
+      deps.dbPath,
+      deps.errorSink,
+      deps.live,
+    );
+  },
+};
+
+/** True if a LifecycleOwner factory is registered for this source id. */
+export function isLifecycleOwnerRegistered(id: string): id is AgentSourceId {
+  return Object.prototype.hasOwnProperty.call(REGISTRY, id);
+}
+
+/**
+ * Build a LifecycleOwner for `deps.source`, or `null` if the id is unknown.
+ * Callers should log/skip unknowns rather than throw (additive sources).
+ */
+export function createLifecycleOwnerForSource(deps: LifecycleOwnerFactoryDeps): LifecycleOwner | null {
+  const factory = REGISTRY[deps.source.id as AgentSourceId];
+  if (!factory) return null;
+  return factory(deps);
+}
+
+/** Registered source ids (for tests / diagnostics). */
+export function registeredLifecycleOwnerIds(): AgentSourceId[] {
+  return Object.keys(REGISTRY) as AgentSourceId[];
+}

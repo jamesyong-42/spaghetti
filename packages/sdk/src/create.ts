@@ -2,6 +2,9 @@
  * Factory — createSpaghettiService()
  *
  * Wires AgentSource → DurableStore → StaticIngest / LiveDiskIngest → SpaghettiAPI.
+ * Lifecycle owners are built via {@link createLifecycleOwnerForSource} (Phase E)
+ * so product branches do not live here.
+ *
  * See `docs/THREE-PLANE-INGEST-ARCHITECTURE.md` and `docs/PR-PLAN-THREE-PLANE-SHAPE.md`.
  */
 
@@ -9,23 +12,14 @@ import { createFileService } from './io/file-service.js';
 import { createSqliteService } from './io/sqlite-service.js';
 import { createConsoleErrorSink, type ErrorSink } from './io/error-sink.js';
 import { createSpaghettiAppService } from './app-service.js';
-import { createClaudeCodeParser } from './sources/claude-code/parser/index.js';
 import type { ClaudeCodeAgentDataService, LifecycleOwner } from './data/agent-data-service.js';
 import { SpaghettiDataService } from './data/multi-source-service.js';
-import { createIngestService } from './data/ingest-service.js';
 import { loadNativeAddon } from './native.js';
 import { defaultDbPathForEngine, resolveEngine, type IngestEngine } from './settings.js';
 import type { SpaghettiAPI } from './api.js';
-import {
-  createClaudeCodeSource,
-  ClaudeCodeLifecycleOwner,
-  CodexLifecycleOwner,
-  GrokLifecycleOwner,
-  createCodexIngestHooks,
-  type AgentSource,
-} from './sources/index.js';
+import { createClaudeCodeSource, type AgentSource } from './sources/index.js';
+import { createLifecycleOwnerForSource } from './sources/registry.js';
 import { createDurableStore } from './store/durable-store.js';
-import { toLifecycleOptions } from './planes/static-ingest.js';
 import { createLiveDiskIngest } from './planes/live-disk-ingest.js';
 import { createRuntimeBridge } from './planes/runtime-bridge.js';
 
@@ -93,12 +87,13 @@ export function createSpaghettiService(options?: SpaghettiServiceOptions): Spagh
     return createSpaghettiAppService(options.dataService, errorSink);
   }
 
-  // ── AgentSource (claude-code today) ────────────────────────────────────
-  const source =
+  // ── Agent sources (primary + optional additional) ──────────────────────
+  const primary =
     options?.source ??
     createClaudeCodeSource({
       rootDir: options?.claudeDir,
     });
+  const allSources: AgentSource[] = [primary, ...(options?.additionalSources ?? [])];
 
   // ── Shared I/O ─────────────────────────────────────────────────────────
   const fileService = createFileService();
@@ -123,82 +118,51 @@ export function createSpaghettiService(options?: SpaghettiServiceOptions): Spagh
   // spaghetti-{rs,ts}.db).
   const dbPath = options?.dbPath ?? defaultDbPathForEngine(resolvedEngine);
 
-  // ── Plane 2: LiveDiskIngest (opt-in) ───────────────────────────────────
-  const liveDisk = options?.live
-    ? createLiveDiskIngest({
-        source,
-        store,
-        fileService,
-        dbPath,
-        errorSink,
-      })
-    : undefined;
-
-  // ── Plane 1: StaticIngest — one LifecycleOwner per source ──────────────
-  const parser = createClaudeCodeParser(fileService);
-  const claudeOwner = new ClaudeCodeLifecycleOwner(
-    fileService,
-    parser,
-    store.query,
-    store.ingest,
-    store.data,
-    toLifecycleOptions({
-      source,
-      engine: options?.engine,
-      dbPath,
-    }),
-    liveDisk,
-  );
-
-  // The app's data service: reads from the shared store, lifecycle fanned
-  // across owners. Additional sources (opt-in) each get their own owner writing
-  // into the SAME store under their own source id.
-  const owners: LifecycleOwner[] = [claudeOwner];
-  for (const extra of options?.additionalSources ?? []) {
-    if (extra.id === 'codex') {
-      // Cold/warm RS path is owned by CodexLifecycleOwner via loadNativeAddon —
-      // not this IngestService. Keep engine 'ts' so Plane 2 writeBatch (and the
-      // TS cold fallback) stay on the TypeScript writer: native liveIngestBatch
-      // is Claude-shaped and would drop Codex rollout rows / token attribution.
-      const codexIngest = createIngestService(() => sharedSqlite, {
-        sourceId: extra.id,
-        messages: extra.messages,
-        hooks: createCodexIngestHooks(),
-        engine: 'ts',
-      });
-      owners.push(
-        new CodexLifecycleOwner(
+  // Claude LiveDiskIngest only when primary is Claude Code and live is on.
+  // Codex/Grok own their live watches inside their LifecycleOwners.
+  const live = options?.live ?? false;
+  const primaryLive =
+    live && primary.id === 'claude-code'
+      ? createLiveDiskIngest({
+          source: primary,
+          store,
           fileService,
-          extra,
-          store.data,
-          codexIngest,
           dbPath,
           errorSink,
-          options?.live ?? false,
-          resolvedEngine,
-        ),
-      );
-    } else if (extra.id === 'grok') {
-      // Grok has no native (Rust) ingest — always the pure-TS GrokReader path.
-      // Keep engine 'ts' on its IngestService like Codex; GrokLifecycleOwner
-      // never touches the native addon.
-      const grokIngest = createIngestService(() => sharedSqlite, {
-        sourceId: extra.id,
-        messages: extra.messages,
-        engine: 'ts',
-      });
-      owners.push(
-        new GrokLifecycleOwner(fileService, extra, store.data, grokIngest, dbPath, errorSink, options?.live ?? false),
-      );
-    } else {
-      errorSink.error(new Error(`No LifecycleOwner registered for source '${extra.id}' — skipping.`));
+        })
+      : undefined;
+
+  // ── Plane 1: one LifecycleOwner per source (registry) ──────────────────
+  const owners: LifecycleOwner[] = [];
+  for (const [i, source] of allSources.entries()) {
+    const owner = createLifecycleOwnerForSource({
+      source,
+      fileService,
+      store,
+      dbPath,
+      errorSink,
+      live,
+      engine: resolvedEngine,
+      native: nativeAddon,
+      primaryLive: i === 0 ? primaryLive : undefined,
+    });
+    if (!owner) {
+      errorSink.error(new Error(`No LifecycleOwner registered for source '${source.id}' — skipping.`));
+      continue;
     }
+    owners.push(owner);
   }
+
+  if (owners.length === 0) {
+    throw new Error('createSpaghettiService: no LifecycleOwners could be constructed for the given sources');
+  }
+
   const dataService = new SpaghettiDataService(store.data, owners);
 
   // Plane 3: RuntimeBridge — always attached on the default factory path.
-  // Watchers start lazily on first api.runtime subscribe.
-  const runtimeBridge = createRuntimeBridge(source, { errorSink });
+  // Watchers start lazily on first api.runtime subscribe. Bound to primary
+  // source roots (hooks/channel paths).
+  const runtimeBridge = createRuntimeBridge(primary, { errorSink });
 
   return createSpaghettiAppService(dataService, errorSink, runtimeBridge);
 }

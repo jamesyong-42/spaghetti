@@ -59,3 +59,10 @@ export {
   type GrokLiveWatch,
 } from './grok/index.js';
 export { sourceReportsPerMessageTokens, sourceDisplayName, sourceDisplayRoot } from './capabilities.js';
+export {
+  createLifecycleOwnerForSource,
+  isLifecycleOwnerRegistered,
+  registeredLifecycleOwnerIds,
+  type LifecycleOwnerFactoryDeps,
+  type LifecycleOwnerFactory,
+} from './registry.js';
