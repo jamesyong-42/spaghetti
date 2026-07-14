@@ -14,9 +14,8 @@
  *   1. `exclusiveIngest` — open → GrokReader.readAll → close (shared handle must
  *      not stay open while a peer wants exclusive native access).
  *   2. `attachShared`    — reopen the shared handle + stamp extract meta.
- *   3. `startLivePipeline`— DEFERRED: Grok live tailing is a follow-up (A6). Cold
- *      + warm ingest already surface every session; new turns appear on the next
- *      rebuild/restart until the live watch lands.
+ *   3. `startLivePipeline`— tail `chat_history.jsonl` via {@link GrokLiveWatch}
+ *      (TS writer) for Change events, when `live` was requested.
  *
  * Failures are non-fatal (emit `error`, leave the primary source up).
  */
@@ -31,6 +30,7 @@ import type { IngestService } from '../../data/ingest-service.js';
 import type { LifecycleOwner } from '../../data/lifecycle-owner.js';
 import type { LiveWatch } from '../../live/live-watch.js';
 import { GrokReader } from './reader.js';
+import { createGrokLiveWatch, type GrokLiveWatch } from './live-watch.js';
 
 /**
  * Bump when Grok message extraction changes in a way that requires re-reading
@@ -43,6 +43,7 @@ const GROK_EXTRACT_META_KEY = 'grok_extract_version';
 export class GrokLifecycleOwner extends EventEmitter implements LifecycleOwner {
   readonly sourceId = 'grok';
   private ready = false;
+  private liveWatch: GrokLiveWatch | undefined;
 
   constructor(
     private readonly fileService: FileService,
@@ -90,10 +91,19 @@ export class GrokLifecycleOwner extends EventEmitter implements LifecycleOwner {
     this.ingestService.setMeta(GROK_EXTRACT_META_KEY, GROK_EXTRACT_VERSION);
   }
 
-  /** Phase 3 — DEFERRED (A6). Live tailing of chat_history.jsonl is a follow-up. */
+  /** Phase 3 — live tail of chat_history.jsonl (TS writer for Change events). */
   async startLivePipeline(): Promise<void> {
     if (this.live) {
-      this.emit('progress', { phase: 'parsing', message: 'Grok live tail not yet implemented — cold index only.' });
+      if (!this.liveWatch) {
+        this.liveWatch = createGrokLiveWatch({
+          fileService: this.fileService,
+          sessionsDir: this.source.paths.sessionsDir,
+          ingestService: this.ingestService,
+          store: this.store,
+          errorSink: this.errorSink,
+        });
+      }
+      await this.liveWatch.start();
     }
     this.ready = true;
   }
@@ -136,10 +146,16 @@ export class GrokLifecycleOwner extends EventEmitter implements LifecycleOwner {
 
   shutdown(): void {
     this.ready = false;
+    void this.liveWatch?.stop();
+    this.liveWatch = undefined;
   }
 
   async shutdownAsync(): Promise<void> {
     this.ready = false;
+    if (this.liveWatch) {
+      await this.liveWatch.stop();
+      this.liveWatch = undefined;
+    }
   }
 
   async rebuild(): Promise<void> {
@@ -161,6 +177,6 @@ export class GrokLifecycleOwner extends EventEmitter implements LifecycleOwner {
   }
 
   getLiveWatch(): LiveWatch | undefined {
-    return undefined;
+    return this.liveWatch;
   }
 }

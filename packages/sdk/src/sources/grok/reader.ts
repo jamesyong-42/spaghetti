@@ -43,7 +43,7 @@ const SUMMARY_FILE = 'summary.json';
 const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
 const FIRST_PROMPT_MAX = 200;
 
-interface GrokSessionMeta {
+export interface GrokSessionMeta {
   cwd: string;
   sessionId: string;
   created: string | null;
@@ -54,8 +54,80 @@ interface GrokSessionMeta {
 }
 
 /** Encode a project cwd into an opaque slug (mirrors Claude/Codex `/`→`-`). */
-function encodeSlug(cwd: string): string {
+export function encodeGrokSlug(cwd: string): string {
   return cwd.replace(/\//g, '-');
+}
+
+/**
+ * Read a Grok session's metadata from the sibling `summary.json`. Falls back to
+ * the URL-encoded parent-of-parent directory name (the cwd) and the session-uuid
+ * directory name when `summary.json` is missing or unreadable. Shared by the
+ * cold reader and the live watcher. Returns null when no cwd can be determined.
+ */
+export function readGrokSessionMeta(fileService: FileService, chatHistoryFile: string): GrokSessionMeta | null {
+  const sessionDir = path.dirname(chatHistoryFile);
+  const uuidDir = path.basename(sessionDir);
+  const encodedCwdDir = path.basename(path.dirname(sessionDir));
+
+  let cwd: string | null = null;
+  let sessionId: string | null = null;
+  let created: string | null = null;
+  let updated: string | null = null;
+  let title = '';
+  let summary = '';
+  let gitBranch = '';
+
+  try {
+    const parsed = JSON.parse(fileService.readFileSync(path.join(sessionDir, SUMMARY_FILE))) as {
+      info?: { id?: unknown; cwd?: unknown };
+      git_root_dir?: unknown;
+      created_at?: unknown;
+      updated_at?: unknown;
+      last_active_at?: unknown;
+      generated_title?: unknown;
+      session_summary?: unknown;
+      head_branch?: unknown;
+    };
+    if (typeof parsed.info?.cwd === 'string') cwd = parsed.info.cwd;
+    else if (typeof parsed.git_root_dir === 'string') cwd = parsed.git_root_dir.replace(/\/$/, '');
+    if (typeof parsed.info?.id === 'string') sessionId = parsed.info.id;
+    if (typeof parsed.created_at === 'string') created = parsed.created_at;
+    if (typeof parsed.updated_at === 'string') updated = parsed.updated_at;
+    else if (typeof parsed.last_active_at === 'string') updated = parsed.last_active_at;
+    if (typeof parsed.generated_title === 'string') title = parsed.generated_title;
+    if (typeof parsed.session_summary === 'string') {
+      summary = parsed.session_summary;
+      if (!title) title = parsed.session_summary;
+    }
+    if (typeof parsed.head_branch === 'string') gitBranch = parsed.head_branch;
+  } catch {
+    // no/invalid summary.json — fall back to the directory names below.
+  }
+
+  // Fallbacks: the encoded cwd dir name decodes straight to the abs cwd.
+  if (!cwd) {
+    try {
+      cwd = decodeURIComponent(encodedCwdDir);
+    } catch {
+      cwd = null;
+    }
+  }
+  if (!cwd) return null;
+
+  if (!sessionId) {
+    const m = uuidDir.match(UUID);
+    sessionId = m ? m[0] : uuidDir;
+  }
+
+  return {
+    cwd,
+    sessionId,
+    created,
+    updated,
+    title: title.slice(0, FIRST_PROMPT_MAX),
+    summary,
+    gitBranch,
+  };
 }
 
 /** Warm-start hooks (RFC 006). Let a caller skip unchanged files + track them. */
@@ -87,9 +159,9 @@ export class GrokReader {
     >();
 
     for (const file of files) {
-      const meta = this.readMeta(file);
+      const meta = readGrokSessionMeta(this.fileService, file);
       if (!meta) continue;
-      const slug = encodeSlug(meta.cwd);
+      const slug = encodeGrokSlug(meta.cwd);
       const stats = this.fileService.getStats(file);
       const mtimeMs = stats?.mtimeMs ?? 0;
       const modifiedIso = meta.updated ?? (stats ? new Date(mtimeMs).toISOString() : '');
@@ -157,76 +229,5 @@ export class GrokReader {
     } catch {
       return [];
     }
-  }
-
-  /**
-   * Read a session's metadata from the sibling `summary.json`. Falls back to the
-   * URL-encoded parent-of-parent directory name (the cwd) and the session-uuid
-   * directory name when `summary.json` is missing or unreadable.
-   */
-  private readMeta(chatHistoryFile: string): GrokSessionMeta | null {
-    const sessionDir = path.dirname(chatHistoryFile);
-    const uuidDir = path.basename(sessionDir);
-    const encodedCwdDir = path.basename(path.dirname(sessionDir));
-
-    let cwd: string | null = null;
-    let sessionId: string | null = null;
-    let created: string | null = null;
-    let updated: string | null = null;
-    let title = '';
-    let summary = '';
-    let gitBranch = '';
-
-    try {
-      const parsed = JSON.parse(this.fileService.readFileSync(path.join(sessionDir, SUMMARY_FILE))) as {
-        info?: { id?: unknown; cwd?: unknown };
-        git_root_dir?: unknown;
-        created_at?: unknown;
-        updated_at?: unknown;
-        last_active_at?: unknown;
-        generated_title?: unknown;
-        session_summary?: unknown;
-        head_branch?: unknown;
-      };
-      if (typeof parsed.info?.cwd === 'string') cwd = parsed.info.cwd;
-      else if (typeof parsed.git_root_dir === 'string') cwd = parsed.git_root_dir.replace(/\/$/, '');
-      if (typeof parsed.info?.id === 'string') sessionId = parsed.info.id;
-      if (typeof parsed.created_at === 'string') created = parsed.created_at;
-      if (typeof parsed.updated_at === 'string') updated = parsed.updated_at;
-      else if (typeof parsed.last_active_at === 'string') updated = parsed.last_active_at;
-      if (typeof parsed.generated_title === 'string') title = parsed.generated_title;
-      if (typeof parsed.session_summary === 'string') {
-        summary = parsed.session_summary;
-        if (!title) title = parsed.session_summary;
-      }
-      if (typeof parsed.head_branch === 'string') gitBranch = parsed.head_branch;
-    } catch {
-      // no/invalid summary.json — fall back to the directory names below.
-    }
-
-    // Fallbacks: the encoded cwd dir name decodes straight to the abs cwd.
-    if (!cwd) {
-      try {
-        cwd = decodeURIComponent(encodedCwdDir);
-      } catch {
-        cwd = null;
-      }
-    }
-    if (!cwd) return null;
-
-    if (!sessionId) {
-      const m = uuidDir.match(UUID);
-      sessionId = m ? m[0] : uuidDir;
-    }
-
-    return {
-      cwd,
-      sessionId,
-      created,
-      updated,
-      title: title.slice(0, FIRST_PROMPT_MAX),
-      summary,
-      gitBranch,
-    };
   }
 }

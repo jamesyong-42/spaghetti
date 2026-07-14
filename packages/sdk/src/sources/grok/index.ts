@@ -17,8 +17,15 @@ import { GrokReader } from './reader.js';
 import { buildGrokPaths, defaultGrokDir, defaultSpaghettiStateDir } from './paths.js';
 
 export { grokMessageExtractor } from './message-extractor.js';
-export { GrokReader, type GrokReadOptions } from './reader.js';
+export {
+  GrokReader,
+  readGrokSessionMeta,
+  encodeGrokSlug,
+  type GrokReadOptions,
+  type GrokSessionMeta,
+} from './reader.js';
 export { GrokLifecycleOwner } from './lifecycle-owner.js';
+export { createGrokLiveWatch, type GrokLiveWatch, type GrokLiveWatchDeps } from './live-watch.js';
 export { buildGrokPaths, defaultGrokDir } from './paths.js';
 
 const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;

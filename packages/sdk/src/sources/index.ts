@@ -39,10 +39,12 @@ export {
   grokMessageExtractor,
   GrokReader,
   GrokLifecycleOwner,
+  createGrokLiveWatch,
   classifyGrokPath,
   defaultGrokDir,
   buildGrokPaths,
   type GrokSourceOptions,
   type GrokReadOptions,
+  type GrokLiveWatch,
 } from './grok/index.js';
 export { sourceReportsPerMessageTokens, sourceDisplayName, sourceDisplayRoot } from './capabilities.js';
