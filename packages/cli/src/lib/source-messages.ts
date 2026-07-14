@@ -1,19 +1,25 @@
 /**
  * Adapt raw stored message records into a Claude-shaped SessionMessage for
- * terminal rendering. Codex stores RolloutLine JSON in `messages.data`; the
- * TUI/CLI renderers expect Anthropic-style `{ type, message: { content } }`.
+ * terminal rendering. Codex stores RolloutLine JSON and Grok stores its own
+ * chat_history record in `messages.data`; the TUI/CLI renderers expect
+ * Anthropic-style `{ type, message: { content } }`, so each non-Claude source
+ * gets a small adapter here.
  */
 
 import type { SessionMessage } from '@vibecook/spaghetti-sdk';
 
-function codexContentText(content: unknown): string {
+/** Collect readable text from a string, or a `[{ type, text }]` block array. */
+function collectContentText(content: unknown): string {
   if (typeof content === 'string') return content;
   if (!Array.isArray(content)) return '';
   const parts: string[] = [];
   for (const block of content) {
     if (!block || typeof block !== 'object') continue;
     const b = block as Record<string, unknown>;
-    if ((b.type === 'input_text' || b.type === 'output_text' || b.type === 'text') && typeof b.text === 'string') {
+    if (
+      (b.type === 'input_text' || b.type === 'output_text' || b.type === 'text' || b.type === 'summary_text') &&
+      typeof b.text === 'string'
+    ) {
       parts.push(b.text);
     }
   }
@@ -21,11 +27,58 @@ function codexContentText(content: unknown): string {
 }
 
 /**
+ * Adapt one raw Grok chat_history record (system/user/assistant/reasoning; tool
+ * I/O was already skipped at ingest so it never reaches here) into a Claude-shaped
+ * SessionMessage.
+ */
+function adaptGrokMessage(line: Record<string, unknown>): SessionMessage | null {
+  const type = typeof line.type === 'string' ? line.type : '';
+  const uuid = typeof line.id === 'string' ? line.id : '';
+  const base = {
+    uuid,
+    parentUuid: null,
+    timestamp: '',
+    sessionId: '',
+    cwd: '',
+    version: '',
+    gitBranch: '',
+    isSidechain: false,
+    userType: 'external' as const,
+  };
+  if (type === 'user') {
+    return {
+      ...base,
+      type: 'user',
+      message: { role: 'user', content: collectContentText(line.content) },
+    } as SessionMessage;
+  }
+  if (type === 'assistant') {
+    return {
+      ...base,
+      type: 'assistant',
+      message: { role: 'assistant', content: [{ type: 'text', text: collectContentText(line.content) }] },
+    } as SessionMessage;
+  }
+  if (type === 'reasoning') {
+    // Grok's plaintext reasoning summary → a thin system line (dim thinking).
+    return { ...base, type: 'system', content: collectContentText(line.summary), level: 'info' } as SessionMessage;
+  }
+  if (type === 'system') {
+    return { ...base, type: 'system', content: collectContentText(line.content), level: 'info' } as SessionMessage;
+  }
+  return null;
+}
+
+/**
  * Map one raw DB message into a shape the existing Claude message renderer
- * understands. Unknown / non-chat Codex lines become null (skip).
+ * understands. Unknown / non-chat source lines become null (skip).
  */
 export function adaptMessageForDisplay(raw: unknown, sourceId: string): SessionMessage | null {
   if (!raw || typeof raw !== 'object') return null;
+
+  if (sourceId === 'grok') {
+    return adaptGrokMessage(raw as Record<string, unknown>);
+  }
 
   if (sourceId !== 'codex') {
     return raw as SessionMessage;
@@ -39,7 +92,7 @@ export function adaptMessageForDisplay(raw: unknown, sourceId: string): SessionM
   const payload = line.payload as Record<string, unknown> | undefined;
   if (!payload || payload.type !== 'message') return null;
   const role = typeof payload.role === 'string' ? payload.role : 'unknown';
-  const text = codexContentText(payload.content);
+  const text = collectContentText(payload.content);
   if (role === 'user' || role === 'developer') {
     return {
       type: 'user',

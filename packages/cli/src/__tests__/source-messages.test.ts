@@ -53,6 +53,36 @@ describe('adaptMessageForDisplay', () => {
     assert.equal(adaptMessageForDisplay(raw, 'codex'), null);
   });
 
+  test('maps Grok user record (content block array) to type user', () => {
+    const out = adaptMessageForDisplay({ type: 'user', content: [{ type: 'text', text: 'grok hi' }] }, 'grok');
+    assert.ok(out);
+    assert.equal(out!.type, 'user');
+    assert.equal((out as any).message.content, 'grok hi');
+  });
+
+  test('maps Grok assistant record (string content) to assistant text blocks', () => {
+    const out = adaptMessageForDisplay({ type: 'assistant', content: 'grok reply' }, 'grok');
+    assert.ok(out);
+    assert.equal(out!.type, 'assistant');
+    assert.equal((out as any).message.content[0].text, 'grok reply');
+  });
+
+  test('maps Grok reasoning summary to a thin system line', () => {
+    const out = adaptMessageForDisplay(
+      { type: 'reasoning', id: 'rs_1', summary: [{ type: 'summary_text', text: 'thinking' }] },
+      'grok',
+    );
+    assert.ok(out);
+    assert.equal(out!.type, 'system');
+    assert.equal((out as any).content, 'thinking');
+    assert.equal(out!.uuid, 'rs_1');
+  });
+
+  test('skips Grok tool I/O records (no displayable row)', () => {
+    assert.equal(adaptMessageForDisplay({ type: 'tool_result', tool_call_id: 'c', content: 'x' }, 'grok'), null);
+    assert.equal(adaptMessageForDisplay({ type: 'backend_tool_call', kind: {} }, 'grok'), null);
+  });
+
   test('adaptMessagesForDisplay filters nulls', () => {
     const msgs = adaptMessagesForDisplay(
       [

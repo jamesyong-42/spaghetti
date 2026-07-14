@@ -28,6 +28,8 @@ export const theme = {
         return pc.cyan('claude');
       case 'codex':
         return pc.magenta('codex');
+      case 'grok':
+        return pc.yellow('grok');
       default:
         return pc.dim(sourceId);
     }
@@ -45,6 +47,8 @@ export const theme = {
         return 'CLAUDE';
       case 'codex':
         return 'CODEX';
+      case 'grok':
+        return 'GROK';
       default:
         return sourceId.replace(/-/g, ' ').toUpperCase().slice(0, 12) || 'ASSISTANT';
     }
