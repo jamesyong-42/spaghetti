@@ -15,15 +15,18 @@ import { createRequire } from 'node:module';
 import { resolveEngine, type IngestEngine } from './settings.js';
 
 export interface NativeIngestOptions {
-  /** Agent data root (historically Claude's `~/.claude`). */
-  claudeDir: string;
+  /**
+   * Agent data root on disk (e.g. `~/.claude` for Claude Code, `~/.codex` for Codex).
+   * Paired with {@link sourceId} to select the native reader.
+   */
+  agentDir: string;
   dbPath: string;
   mode: 'cold' | 'warm';
   parallelism?: number;
   progressIntervalMs?: number;
   /**
    * Agent product id stamped on core rows (default `claude-code`).
-   * Pass explicitly for multi-source native ingest.
+   * Pass explicitly for multi-source native ingest (e.g. `codex`).
    */
   sourceId?: string;
 }

@@ -101,8 +101,7 @@ export class CodexLifecycleOwner extends EventEmitter implements LifecycleOwner 
     });
     await native.ingest(
       {
-        // rootDir is ~/.codex; NAPI field is still named claudeDir for compat.
-        claudeDir: this.source.rootDir,
+        agentDir: this.source.rootDir,
         dbPath: this.dbPath,
         mode: 'warm',
         sourceId: 'codex',

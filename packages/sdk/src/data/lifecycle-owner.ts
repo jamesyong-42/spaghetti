@@ -357,7 +357,7 @@ export class ClaudeCodeLifecycleOwner extends EventEmitter implements ClaudeCode
 
     await native.ingest(
       {
-        claudeDir: this.claudeDir,
+        agentDir: this.claudeDir,
         dbPath: this.dbPath,
         mode: 'warm',
         sourceId: 'claude-code',

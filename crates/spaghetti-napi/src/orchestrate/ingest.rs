@@ -9,7 +9,7 @@
 //! # Pipeline
 //!
 //! ```text
-//!   scan <claude_dir>/projects/*   (main thread)
+//!   scan <agent_dir>/projects/*   (main thread)
 //!             │
 //!             ▼
 //!   for each slug: ProjectParser::parse_project(…, &sender)
@@ -64,10 +64,9 @@ use crate::core::writer::{Writer, WriterStats};
 #[napi(object)]
 #[derive(Debug, Clone)]
 pub struct IngestOptions {
-    /// Agent data root on disk. Named `claude_dir` for NAPI/TS compat
-    /// (Claude Code was the original source); Phase B treats it as a
-    /// generic root path for the configured [`source_id`].
-    pub claude_dir: String,
+    /// Agent data root on disk (e.g. `~/.claude` or `~/.codex`).
+    /// Paired with [`source_id`] to select the reader and stamp rows.
+    pub agent_dir: String,
     pub db_path: String,
     /// `"cold"` | `"warm"`. Warm no-ops when fingerprints are unchanged.
     pub mode: String,
@@ -121,7 +120,7 @@ pub struct IngestProgress {
 // NAPI entry point
 // ═══════════════════════════════════════════════════════════════════════════
 
-/// Run a full ingest of `claude_dir`, writing into the SQLite file at
+/// Run a full ingest of `agent_dir`, writing into the SQLite file at
 /// `db_path`. Returns a Promise that resolves to [`IngestStats`] or
 /// rejects with a fatal error.
 ///
@@ -243,7 +242,7 @@ enum Mode {
 
 /// Resolve the owned / defaulted version of `IngestOptions` for internal use.
 struct ResolvedOptions {
-    /// Agent data root (`claude_dir` NAPI field).
+    /// Agent data root (`agent_dir` NAPI field).
     root_dir: PathBuf,
     db_path: PathBuf,
     mode: Mode,
@@ -258,7 +257,7 @@ impl ResolvedOptions {
             "warm" => Mode::Warm,
             other => return Err(IngestInternalError::UnsupportedMode(other.to_string())),
         };
-        let root_dir = PathBuf::from(&opts.claude_dir);
+        let root_dir = PathBuf::from(&opts.agent_dir);
         if !root_dir.is_dir() {
             return Err(IngestInternalError::RootDirMissing(root_dir));
         }
@@ -616,11 +615,11 @@ fn run_codex_ingest(
     })
 }
 
-/// List immediate subdirectories of `<claude_dir>/projects/`. Each dir
+/// List immediate subdirectories of `<agent_dir>/projects/`. Each dir
 /// name is a project slug. Non-directory entries (e.g. `.DS_Store`) are
 /// skipped silently.
-fn scan_project_slugs(claude_dir: &Path) -> std::result::Result<Vec<String>, std::io::Error> {
-    let projects_dir = claude_dir.join("projects");
+fn scan_project_slugs(agent_dir: &Path) -> std::result::Result<Vec<String>, std::io::Error> {
+    let projects_dir = agent_dir.join("projects");
     if !projects_dir.is_dir() {
         return Ok(Vec::new());
     }
@@ -652,7 +651,7 @@ mod tests {
 
     /// Build a minimal fake `~/.claude` with one project, one session, and
     /// two messages. Returns the root tempdir (keep alive for the test).
-    fn fake_claude_dir() -> TempDir {
+    fn fake_claude_fixture() -> TempDir {
         let dir = TempDir::new().unwrap();
         let slug = "-Users-me-proj";
         let project_dir = dir.path().join("projects").join(slug);
@@ -693,7 +692,7 @@ mod tests {
     #[test]
     fn rejects_unsupported_mode() {
         let opts = IngestOptions {
-            claude_dir: "/tmp".into(),
+            agent_dir: "/tmp".into(),
             db_path: "/tmp/out.db".into(),
             mode: "incremental".into(),
             progress_interval_ms: None,
@@ -706,12 +705,12 @@ mod tests {
 
     #[test]
     fn warm_mode_with_no_existing_db_falls_through_to_full_ingest() {
-        let claude = fake_claude_dir();
+        let claude = fake_claude_fixture();
         let db_dir = TempDir::new().unwrap();
         let db = db_dir.path().join("spaghetti.db");
 
         let opts = IngestOptions {
-            claude_dir: claude.path().to_string_lossy().into(),
+            agent_dir: claude.path().to_string_lossy().into(),
             db_path: db.to_string_lossy().into(),
             mode: "warm".into(),
             progress_interval_ms: None,
@@ -728,13 +727,13 @@ mod tests {
 
     #[test]
     fn warm_mode_repeat_with_no_changes_is_a_noop() {
-        let claude = fake_claude_dir();
+        let claude = fake_claude_fixture();
         let db_dir = TempDir::new().unwrap();
         let db = db_dir.path().join("spaghetti.db");
 
         // First pass — populate the DB and source_files fingerprints.
         let first_opts = IngestOptions {
-            claude_dir: claude.path().to_string_lossy().into(),
+            agent_dir: claude.path().to_string_lossy().into(),
             db_path: db.to_string_lossy().into(),
             mode: "cold".into(),
             progress_interval_ms: None,
@@ -747,7 +746,7 @@ mod tests {
         // Second pass — warm, fixture unchanged. Fast path should fire:
         // zero work reported in stats.
         let warm_opts = IngestOptions {
-            claude_dir: claude.path().to_string_lossy().into(),
+            agent_dir: claude.path().to_string_lossy().into(),
             db_path: db.to_string_lossy().into(),
             mode: "warm".into(),
             progress_interval_ms: None,
@@ -762,9 +761,9 @@ mod tests {
     }
 
     #[test]
-    fn rejects_missing_claude_dir() {
+    fn rejects_missing_agent_dir() {
         let opts = IngestOptions {
-            claude_dir: "/definitely/not/here".into(),
+            agent_dir: "/definitely/not/here".into(),
             db_path: "/tmp/out.db".into(),
             mode: "cold".into(),
             progress_interval_ms: None,
@@ -776,11 +775,11 @@ mod tests {
     }
 
     #[test]
-    fn empty_claude_dir_produces_empty_stats() {
+    fn empty_agent_dir_produces_empty_stats() {
         let tmp = TempDir::new().unwrap();
         let db = tmp.path().join("spaghetti.db");
         let opts = IngestOptions {
-            claude_dir: tmp.path().to_string_lossy().into(),
+            agent_dir: tmp.path().to_string_lossy().into(),
             db_path: db.to_string_lossy().into(),
             mode: "cold".into(),
             progress_interval_ms: None,
@@ -813,7 +812,7 @@ mod tests {
 
         let db = tmp.path().join("codex.db");
         let opts = IngestOptions {
-            claude_dir: tmp.path().to_string_lossy().into(),
+            agent_dir: tmp.path().to_string_lossy().into(),
             db_path: db.to_string_lossy().into(),
             mode: "cold".into(),
             progress_interval_ms: None,
@@ -847,12 +846,12 @@ mod tests {
 
     #[test]
     fn end_to_end_ingest_writes_rows_and_fts() {
-        let claude = fake_claude_dir();
+        let claude = fake_claude_fixture();
         let db_dir = TempDir::new().unwrap();
         let db = db_dir.path().join("spaghetti.db");
 
         let opts = IngestOptions {
-            claude_dir: claude.path().to_string_lossy().into(),
+            agent_dir: claude.path().to_string_lossy().into(),
             db_path: db.to_string_lossy().into(),
             mode: "cold".into(),
             progress_interval_ms: None,
