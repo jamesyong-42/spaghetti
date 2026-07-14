@@ -826,6 +826,7 @@ class IngestServiceImpl implements IngestService {
         this.native.liveIngestBatch(
           this.dbPath,
           rows.map((r) => parsedRowToNativeLiveRow(r, this.messageExtractor)),
+          this.sourceId,
         );
         return { changes: buildChangesFromRows(rows), durationMs: Date.now() - startedAt };
       } catch (err) {

@@ -64,13 +64,18 @@ use crate::core::writer::{Writer, WriterStats};
 #[napi(object)]
 #[derive(Debug, Clone)]
 pub struct IngestOptions {
+    /// Agent data root on disk. Named `claude_dir` for NAPI/TS compat
+    /// (Claude Code was the original source); Phase B treats it as a
+    /// generic root path for the configured [`source_id`].
     pub claude_dir: String,
     pub db_path: String,
-    /// `"cold"` is the only value supported in Phase 1. `"warm"` lands in
-    /// Phase 3 and currently errors.
+    /// `"cold"` | `"warm"`. Warm no-ops when fingerprints are unchanged.
     pub mode: String,
     pub progress_interval_ms: Option<u32>,
     pub parallelism: Option<u32>,
+    /// Agent product id stamped on every core row (default `claude-code`).
+    /// Optional so existing TS callers that omit it keep working.
+    pub source_id: Option<String>,
 }
 
 /// Stats returned on successful ingest.
@@ -211,8 +216,8 @@ pub enum IngestInternalError {
     #[error("unsupported ingest mode: {0}; expected 'cold' or 'warm'")]
     UnsupportedMode(String),
 
-    #[error("claude_dir not found or not a directory: {0}")]
-    ClaudeDirMissing(PathBuf),
+    #[error("agent root dir not found or not a directory: {0}")]
+    RootDirMissing(PathBuf),
 
     #[error("io error: {0}")]
     Io(#[from] std::io::Error),
@@ -238,9 +243,12 @@ enum Mode {
 
 /// Resolve the owned / defaulted version of `IngestOptions` for internal use.
 struct ResolvedOptions {
-    claude_dir: PathBuf,
+    /// Agent data root (`claude_dir` NAPI field).
+    root_dir: PathBuf,
     db_path: PathBuf,
     mode: Mode,
+    /// Bound into every core row via the writer.
+    source_id: String,
 }
 
 impl ResolvedOptions {
@@ -250,14 +258,21 @@ impl ResolvedOptions {
             "warm" => Mode::Warm,
             other => return Err(IngestInternalError::UnsupportedMode(other.to_string())),
         };
-        let claude_dir = PathBuf::from(&opts.claude_dir);
-        if !claude_dir.is_dir() {
-            return Err(IngestInternalError::ClaudeDirMissing(claude_dir));
+        let root_dir = PathBuf::from(&opts.claude_dir);
+        if !root_dir.is_dir() {
+            return Err(IngestInternalError::RootDirMissing(root_dir));
         }
+        let source_id = opts
+            .source_id
+            .as_deref()
+            .filter(|s| !s.is_empty())
+            .unwrap_or(crate::core::DEFAULT_SOURCE_ID)
+            .to_owned();
         Ok(Self {
-            claude_dir,
+            root_dir,
             db_path: PathBuf::from(&opts.db_path),
             mode,
+            source_id,
         })
     }
 }
@@ -289,7 +304,7 @@ pub(crate) fn run_ingest(
         });
     }
 
-    let slugs = scan_project_slugs(&resolved.claude_dir)?;
+    let slugs = scan_project_slugs(&resolved.root_dir)?;
     let parallelism = resolve_parallelism(opts.parallelism);
 
     let elapsed_ms = || u32::try_from(start.elapsed().as_millis()).unwrap_or(u32::MAX);
@@ -314,12 +329,13 @@ pub(crate) fn run_ingest(
     let capacity = CHANNEL_CAPACITY_PER_WORKER.saturating_mul(parallelism);
     let (sender, receiver) = bounded::<IngestEvent>(capacity);
     let db_path = resolved.db_path.clone();
+    let source_id = resolved.source_id.clone();
 
     let writer_handle = std::thread::Builder::new()
         .name("spaghetti-writer".into())
         .spawn(
             move || -> std::result::Result<WriterStats, crate::core::writer::WriterError> {
-                let mut writer = Writer::new(&db_path)?;
+                let mut writer = Writer::with_source_id(&db_path, source_id)?;
                 writer.open_for_bulk_ingest()?;
                 let stats = writer.run(receiver)?;
                 writer.finish()?;
@@ -335,7 +351,7 @@ pub(crate) fn run_ingest(
     // the writer commits on `ProjectComplete` and rolls back any
     // transaction still open at channel close, so without the marker a
     // plans-only ingest (zero projects) would lose every plan.
-    let plans = crate::claude::project_parser::parse_plans(&resolved.claude_dir);
+    let plans = crate::claude::project_parser::parse_plans(&resolved.root_dir);
     if !plans.is_empty() {
         const PLANS_TX_SLUG: &str = "<plans>";
         for plan in plans {
@@ -395,7 +411,7 @@ pub(crate) fn run_ingest(
             .filter_map(|slug| {
                 let parser = ProjectParser::new();
                 let (local_tx, local_rx) = unbounded::<IngestEvent>();
-                let parse_result = parser.parse_project(&resolved.claude_dir, slug, &local_tx);
+                let parse_result = parser.parse_project(&resolved.root_dir, slug, &local_tx);
                 drop(local_tx);
 
                 // Drain local → shared. Holding the drain_lock keeps this
@@ -431,7 +447,7 @@ pub(crate) fn run_ingest(
     // store returns every discovered file in `added`, which is exactly
     // the set we need to fingerprint.
     let empty_store: HashMap<String, SourceFingerprint> = HashMap::new();
-    let diff = fingerprint::compute_diff(&resolved.claude_dir, &empty_store)?;
+    let diff = fingerprint::compute_diff(&resolved.root_dir, &empty_store)?;
     let _ = sender.send(IngestEvent::ClearSourceFiles);
     for discovered in diff.added {
         let ev = IngestEvent::Fingerprint {
@@ -494,7 +510,7 @@ fn warm_has_no_changes(
         Err(_) => return Ok(false), // treat any read failure as "has changes"
     };
 
-    let diff = fingerprint::compute_diff(&resolved.claude_dir, &stored)?;
+    let diff = fingerprint::compute_diff(&resolved.root_dir, &stored)?;
     Ok(diff.added.is_empty() && diff.modified.is_empty() && diff.deleted.is_empty())
 }
 
@@ -580,6 +596,7 @@ mod tests {
             mode: "incremental".into(),
             progress_interval_ms: None,
             parallelism: None,
+            source_id: None,
         };
         let err = run_ingest(&opts, None).expect_err("unknown mode must be rejected");
         assert!(matches!(err, IngestInternalError::UnsupportedMode(_)));
@@ -597,6 +614,7 @@ mod tests {
             mode: "warm".into(),
             progress_interval_ms: None,
             parallelism: None,
+            source_id: None,
         };
 
         // DB doesn't exist yet — warm mode should fall through to a cold
@@ -619,6 +637,7 @@ mod tests {
             mode: "cold".into(),
             progress_interval_ms: None,
             parallelism: None,
+            source_id: None,
         };
         let first = run_ingest(&first_opts, None).expect("cold ingest should succeed");
         assert_eq!(first.messages_written, 2);
@@ -631,6 +650,7 @@ mod tests {
             mode: "warm".into(),
             progress_interval_ms: None,
             parallelism: None,
+            source_id: None,
         };
         let second = run_ingest(&warm_opts, None).expect("warm ingest should succeed");
         assert_eq!(second.projects_processed, 0);
@@ -647,9 +667,10 @@ mod tests {
             mode: "cold".into(),
             progress_interval_ms: None,
             parallelism: None,
+            source_id: None,
         };
         let err = run_ingest(&opts, None).expect_err("missing dir must error");
-        assert!(matches!(err, IngestInternalError::ClaudeDirMissing(_)));
+        assert!(matches!(err, IngestInternalError::RootDirMissing(_)));
     }
 
     #[test]
@@ -662,6 +683,7 @@ mod tests {
             mode: "cold".into(),
             progress_interval_ms: None,
             parallelism: None,
+            source_id: None,
         };
         let stats = run_ingest(&opts, None).unwrap();
         assert_eq!(stats.projects_processed, 0);
@@ -682,6 +704,7 @@ mod tests {
             mode: "cold".into(),
             progress_interval_ms: None,
             parallelism: None,
+            source_id: None,
         };
 
         let stats = run_ingest(&opts, None).expect("ingest should succeed");
@@ -708,5 +731,19 @@ mod tests {
         assert_eq!(session_count, 1);
         assert_eq!(message_count, 2);
         assert_eq!(fts_count, 2, "FTS triggers should have synced the messages");
+
+        // Phase B: core rows must be stamped with source_id (default claude-code).
+        let sid: String = conn
+            .query_row("SELECT source_id FROM projects LIMIT 1", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(sid, crate::core::DEFAULT_SOURCE_ID);
+        let msg_sid: String = conn
+            .query_row("SELECT source_id FROM messages LIMIT 1", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(msg_sid, crate::core::DEFAULT_SOURCE_ID);
+        let fp_sid: String = conn
+            .query_row("SELECT source_id FROM source_files LIMIT 1", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(fp_sid, crate::core::DEFAULT_SOURCE_ID);
     }
 }

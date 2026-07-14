@@ -149,8 +149,8 @@ pub struct WriteBatchStats {
 // module-level `const`s so they're easy to diff against the TS source.
 
 const SQL_INSERT_PROJECT: &str = r#"
-INSERT INTO projects (slug, original_path, sessions_index, updated_at)
-VALUES (?, ?, ?, ?)
+INSERT INTO projects (slug, original_path, sessions_index, updated_at, source_id)
+VALUES (?, ?, ?, ?, ?)
 ON CONFLICT(source_id, slug) DO UPDATE SET
   original_path = excluded.original_path,
   sessions_index = excluded.sessions_index,
@@ -169,9 +169,9 @@ const SQL_INSERT_SESSION: &str = r#"
 INSERT INTO sessions (
   id, project_slug, full_path, first_prompt, summary, git_branch,
   project_path, is_sidechain, created_at, modified_at, file_mtime,
-  plan_slug, has_task, updated_at
+  plan_slug, has_task, updated_at, source_id
 )
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(id) DO UPDATE SET
   project_slug = excluded.project_slug,
   full_path = excluded.full_path,
@@ -192,9 +192,9 @@ const SQL_INSERT_MESSAGE: &str = r#"
 INSERT INTO messages (
   project_slug, session_id, msg_index, msg_type, uuid, timestamp, data,
   input_tokens, output_tokens, cache_creation_tokens, cache_read_tokens,
-  text_content, byte_offset
+  text_content, byte_offset, source_id
 )
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(session_id, msg_index) DO UPDATE SET
   project_slug = excluded.project_slug,
   msg_type = excluded.msg_type,
@@ -290,8 +290,8 @@ ON CONFLICT(slug) DO UPDATE SET
 const SQL_UPDATE_SESSION_HAS_TASK: &str = "UPDATE sessions SET has_task = 1 WHERE id = ?";
 
 const SQL_INSERT_SOURCE_FILE: &str = r#"
-INSERT INTO source_files (path, mtime_ms, size, byte_position, category, project_slug, session_id)
-VALUES (?, ?, ?, ?, ?, ?, ?)
+INSERT INTO source_files (path, mtime_ms, size, byte_position, category, project_slug, session_id, source_id)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(path) DO UPDATE SET
   mtime_ms = excluded.mtime_ms,
   size = excluded.size,
@@ -301,7 +301,9 @@ ON CONFLICT(path) DO UPDATE SET
   session_id = excluded.session_id
 "#;
 
-const SQL_CLEAR_SOURCE_FILES: &str = "DELETE FROM source_files";
+/// Scoped clear — multi-source indexes must not wipe another agent's
+/// fingerprints when one source re-ingests (Phase B).
+const SQL_CLEAR_SOURCE_FILES: &str = "DELETE FROM source_files WHERE source_id = ?";
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Writer
@@ -320,6 +322,9 @@ pub struct Writer {
     /// DB path — only used for diagnostic output.
     #[allow(dead_code)]
     db_path: PathBuf,
+    /// Agent product id stamped on every core row (projects / sessions /
+    /// messages / source_files). Defaults to [`super::DEFAULT_SOURCE_ID`].
+    source_id: String,
     /// Whether [`open_for_bulk_ingest`] has been called. Used by
     /// [`finish`] to know whether to restore PRAGMAs.
     bulk_mode: bool,
@@ -334,13 +339,22 @@ pub struct Writer {
 impl Writer {
     /// Open (or create) the SQLite database at `db_path`, apply the
     /// connection-level PRAGMAs, and run migrations.
+    ///
+    /// Rows are stamped with [`super::DEFAULT_SOURCE_ID`] (`claude-code`).
+    /// Prefer [`with_source_id`] when the producer is not Claude Code.
     pub fn new(db_path: &Path) -> Result<Self, WriterError> {
+        Self::with_source_id(db_path, super::DEFAULT_SOURCE_ID)
+    }
+
+    /// Like [`new`], but bind every core row to `source_id`.
+    pub fn with_source_id(db_path: &Path, source_id: impl Into<String>) -> Result<Self, WriterError> {
         let conn = Connection::open(db_path)?;
         schema::set_pragmas(&conn)?;
         schema::initialize_schema(&conn)?;
         Ok(Self {
             conn,
             db_path: db_path.to_path_buf(),
+            source_id: source_id.into(),
             bulk_mode: false,
             in_transaction: false,
             current_slug: None,
@@ -353,16 +367,30 @@ impl Writer {
     /// use writer against an in-memory DB.
     #[cfg(test)]
     pub(crate) fn from_connection(conn: Connection) -> Result<Self, WriterError> {
+        Self::from_connection_with_source(conn, super::DEFAULT_SOURCE_ID)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn from_connection_with_source(
+        conn: Connection,
+        source_id: impl Into<String>,
+    ) -> Result<Self, WriterError> {
         schema::set_pragmas(&conn)?;
         schema::initialize_schema(&conn)?;
         Ok(Self {
             conn,
             db_path: PathBuf::from(":memory:"),
+            source_id: source_id.into(),
             bulk_mode: false,
             in_transaction: false,
             current_slug: None,
             stats: WriterStats::default(),
         })
+    }
+
+    /// The `source_id` this writer stamps on core rows.
+    pub fn source_id(&self) -> &str {
+        &self.source_id
     }
 
     /// Enter bulk-ingest mode.
@@ -475,7 +503,7 @@ impl Writer {
             | IngestEvent::Plan { ref slug, .. } => {
                 let slug = slug.clone();
                 self.ensure_transaction(&slug)?;
-                let counts = dispatch_event(&self.conn, &ev)?;
+                let counts = dispatch_event(&self.conn, &ev, &self.source_id)?;
                 self.stats.sessions_processed = self
                     .stats
                     .sessions_processed
@@ -502,7 +530,7 @@ impl Writer {
                 if !self.in_transaction {
                     self.begin_transaction("<orphan>")?;
                 }
-                let _counts = dispatch_event(&self.conn, &ev)?;
+                let _counts = dispatch_event(&self.conn, &ev, &self.source_id)?;
                 // file_history / todo / task don't contribute to
                 // `WriterStats`; their counts only surface via
                 // `WriteBatchStats` on the live path.
@@ -553,7 +581,10 @@ impl Writer {
                 // committed any open project tx above, and the upcoming
                 // fingerprint stream opens its own implicit tx via the
                 // `<orphan>` slug on the first Fingerprint event.
-                self.conn.execute(SQL_CLEAR_SOURCE_FILES, [])?;
+                // Scoped to this writer's source so multi-source indexes
+                // keep other agents' fingerprints (Phase B).
+                self.conn
+                    .execute(SQL_CLEAR_SOURCE_FILES, params![self.source_id])?;
             }
 
             IngestEvent::Fingerprint { .. } => {
@@ -566,7 +597,7 @@ impl Writer {
                     self.stats.projects_processed = self.stats.projects_processed.saturating_add(1);
                     self.current_slug = None;
                 }
-                let _counts = dispatch_event(&self.conn, &ev)?;
+                let _counts = dispatch_event(&self.conn, &ev, &self.source_id)?;
             }
         }
 
@@ -649,7 +680,11 @@ impl Writer {
 /// `WorkerError`, `ClearSourceFiles`) are rejected here — they're
 /// control-flow events, not row writes, and belong in the caller's
 /// state machine.
-pub fn dispatch_event(conn: &Connection, ev: &IngestEvent) -> Result<DispatchCounts, WriterError> {
+pub fn dispatch_event(
+    conn: &Connection,
+    ev: &IngestEvent,
+    source_id: &str,
+) -> Result<DispatchCounts, WriterError> {
     let mut counts = DispatchCounts::default();
 
     match ev {
@@ -661,7 +696,7 @@ pub fn dispatch_event(conn: &Connection, ev: &IngestEvent) -> Result<DispatchCou
             let now = now_ms();
             conn.execute(
                 SQL_INSERT_PROJECT,
-                params![slug, original_path, sessions_index_json, now],
+                params![slug, original_path, sessions_index_json, now, source_id],
             )?;
         }
 
@@ -689,6 +724,7 @@ pub fn dispatch_event(conn: &Connection, ev: &IngestEvent) -> Result<DispatchCou
                     Option::<String>::None, // plan_slug set later if found
                     0_i64,                  // has_task set later if found
                     now,
+                    source_id,
                 ],
             )?;
             counts.sessions_processed = 1;
@@ -726,6 +762,7 @@ pub fn dispatch_event(conn: &Connection, ev: &IngestEvent) -> Result<DispatchCou
                     *cache_read_tokens as i64,
                     text,
                     *byte_offset as i64,
+                    source_id,
                 ],
             )?;
             counts.messages_written = 1;
@@ -879,6 +916,7 @@ pub fn dispatch_event(conn: &Connection, ev: &IngestEvent) -> Result<DispatchCou
                     category,
                     project_slug,
                     session_id,
+                    source_id,
                 ],
             )?;
         }
@@ -923,6 +961,7 @@ pub fn dispatch_event(conn: &Connection, ev: &IngestEvent) -> Result<DispatchCou
 pub fn write_batch_with_tx(
     conn: &Connection,
     events: &[IngestEvent],
+    source_id: &str,
 ) -> Result<WriteBatchStats, WriterError> {
     let started = Instant::now();
 
@@ -931,7 +970,7 @@ pub fn write_batch_with_tx(
     let mut totals = DispatchCounts::default();
     let dispatch_result: Result<(), WriterError> = (|| {
         for ev in events {
-            let c = dispatch_event(conn, ev)?;
+            let c = dispatch_event(conn, ev, source_id)?;
             totals.add(c);
         }
         Ok(())
@@ -991,6 +1030,39 @@ mod tests {
     fn fresh_writer() -> Writer {
         let conn = Connection::open_in_memory().expect("open in-memory db");
         Writer::from_connection(conn).expect("new writer")
+    }
+
+    /// Phase B: custom source_id is bound on projects/sessions/messages.
+    #[test]
+    fn write_batch_stamps_source_id_column() {
+        let conn = Connection::open_in_memory().unwrap();
+        schema::set_pragmas(&conn).unwrap();
+        schema::initialize_schema(&conn).unwrap();
+        let events = vec![
+            IngestEvent::Project {
+                slug: "p".into(),
+                original_path: "/x".into(),
+                sessions_index_json: "{}".into(),
+            },
+            IngestEvent::Session {
+                slug: "p".into(),
+                entry: sample_session("s1"),
+            },
+            message_event("p", "s1", 0),
+        ];
+        write_batch_with_tx(&conn, &events, "codex").expect("batch");
+        let sid: String = conn
+            .query_row("SELECT source_id FROM projects WHERE slug = 'p'", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(sid, "codex");
+        let mid: String = conn
+            .query_row("SELECT source_id FROM messages LIMIT 1", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(mid, "codex");
+        let sess: String = conn
+            .query_row("SELECT source_id FROM sessions WHERE id = 's1'", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(sess, "codex");
     }
 
     fn sample_session(id: &str) -> SessionIndexEntry {
@@ -1539,7 +1611,7 @@ mod tests {
             },
         ];
 
-        let stats = write_batch_with_tx(&conn, &events).expect("batch");
+        let stats = write_batch_with_tx(&conn, &events, crate::core::DEFAULT_SOURCE_ID).expect("batch");
 
         assert_eq!(stats.messages_written, 2);
         assert_eq!(stats.subagents_written, 1);
@@ -1571,7 +1643,7 @@ mod tests {
     #[test]
     fn write_batch_with_tx_empty_input_is_ok() {
         let conn = fresh_conn();
-        let stats = write_batch_with_tx(&conn, &[]).expect("empty batch");
+        let stats = write_batch_with_tx(&conn, &[], crate::core::DEFAULT_SOURCE_ID).expect("empty batch");
         assert_eq!(stats.messages_written, 0);
         assert_eq!(stats.subagents_written, 0);
         assert_eq!(stats.tool_results_written, 0);
@@ -1603,7 +1675,7 @@ mod tests {
             message_event("p1", "s1", 0),
         ];
 
-        let err = write_batch_with_tx(&conn, &events).expect_err("batch must fail");
+        let err = write_batch_with_tx(&conn, &events, crate::core::DEFAULT_SOURCE_ID).expect_err("batch must fail");
         matches!(err, WriterError::Sqlite(_));
 
         // The Project row must NOT persist — the whole batch rolled back.
@@ -1633,7 +1705,7 @@ mod tests {
             },
             IngestEvent::ClearSourceFiles,
         ];
-        let stats = write_batch_with_tx(&conn, &events).expect("orchestration-only batch");
+        let stats = write_batch_with_tx(&conn, &events, crate::core::DEFAULT_SOURCE_ID).expect("orchestration-only batch");
         assert_eq!(stats.messages_written, 0);
         assert_eq!(stats.subagents_written, 0);
         assert_eq!(stats.tool_results_written, 0);
@@ -1693,7 +1765,7 @@ mod tests {
 
         // Live path
         let live_conn = fresh_conn();
-        write_batch_with_tx(&live_conn, &events_for_live).expect("live batch");
+        write_batch_with_tx(&live_conn, &events_for_live, crate::core::DEFAULT_SOURCE_ID).expect("live batch");
 
         // Both DBs should have the same row counts in the core tables.
         for table in &["projects", "sessions", "messages"] {

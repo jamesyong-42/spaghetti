@@ -360,6 +360,7 @@ export class ClaudeCodeLifecycleOwner extends EventEmitter implements ClaudeCode
         claudeDir: this.claudeDir,
         dbPath: this.dbPath,
         mode: 'warm',
+        sourceId: 'claude-code',
       },
       (progress) => {
         // Map native phases to the SDK's user-facing progress events.

@@ -207,9 +207,20 @@ struct LiveSessionIndexPayload {
 /// marshals the error back across the boundary. Keeping the logic in
 /// an internal function means `cargo test` can exercise it without
 /// linking against Node runtime symbols (`napi_delete_reference` et al.).
+///
+/// `source_id` defaults to `claude-code` when omitted so existing TS
+/// callers keep working. Multi-source live writers should pass the
+/// agent id explicitly (Phase B).
 #[napi]
-pub fn live_ingest_batch(db_path: String, rows: Vec<LiveRow>) -> Result<LiveBatchResult> {
-    live_ingest_batch_inner(&db_path, rows).map_err(to_napi_err)
+pub fn live_ingest_batch(
+    db_path: String,
+    rows: Vec<LiveRow>,
+    source_id: Option<String>,
+) -> Result<LiveBatchResult> {
+    let sid = source_id
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| crate::core::DEFAULT_SOURCE_ID.to_owned());
+    live_ingest_batch_inner(&db_path, rows, &sid).map_err(to_napi_err)
 }
 
 /// Cheap "has cold-start already run?" probe. A single
@@ -231,6 +242,7 @@ fn has_core_schema(conn: &Connection) -> bool {
 pub fn live_ingest_batch_inner(
     db_path: &str,
     rows: Vec<LiveRow>,
+    source_id: &str,
 ) -> std::result::Result<LiveBatchResult, LiveIngestError> {
     // Short-circuit on empty input — don't open the DB for nothing.
     if rows.is_empty() {
@@ -276,7 +288,7 @@ pub fn live_ingest_batch_inner(
     }
 
     // Actual write — shared with cold-start ingest via the C4.1 helper.
-    let _stats: WriteBatchStats = write_batch_with_tx(&conn, &events)?;
+    let _stats: WriteBatchStats = write_batch_with_tx(&conn, &events, source_id)?;
 
     let duration_ms = u32::try_from(started.elapsed().as_millis()).unwrap_or(u32::MAX);
 
@@ -501,7 +513,7 @@ mod tests {
     fn empty_batch_short_circuits() {
         let tmp = TempDir::new().unwrap();
         let path = db_path(&tmp);
-        let res = live_ingest_batch_inner(&path, vec![]).unwrap();
+        let res = live_ingest_batch_inner(&path, vec![], crate::core::DEFAULT_SOURCE_ID).unwrap();
         assert_eq!(res.written_rows.len(), 0);
         assert_eq!(res.duration_ms, 0);
         // No DB file created — we never opened a connection.
@@ -534,7 +546,7 @@ mod tests {
             payload_json: payload.to_string(),
         }];
 
-        let res = live_ingest_batch_inner(&path, rows).unwrap();
+        let res = live_ingest_batch_inner(&path, rows, crate::core::DEFAULT_SOURCE_ID).unwrap();
         assert_eq!(res.written_rows.len(), 1);
         assert_eq!(res.written_rows[0].category, "message");
         assert_eq!(res.written_rows[0].row_key, "u-1");
@@ -588,7 +600,7 @@ mod tests {
             },
         ];
 
-        let res = live_ingest_batch_inner(&path, rows).unwrap();
+        let res = live_ingest_batch_inner(&path, rows, crate::core::DEFAULT_SOURCE_ID).unwrap();
         assert_eq!(res.written_rows.len(), 3);
         assert_eq!(res.written_rows[0].row_key, "a-1");
         assert_eq!(res.written_rows[1].row_key, "t-1");
@@ -641,7 +653,7 @@ mod tests {
             },
         ];
 
-        let res = live_ingest_batch_inner(&path, rows).unwrap();
+        let res = live_ingest_batch_inner(&path, rows, crate::core::DEFAULT_SOURCE_ID).unwrap();
         assert_eq!(res.written_rows.len(), 3);
         assert_eq!(res.written_rows[0].row_key, "s1");
         assert_eq!(res.written_rows[1].row_key, "a-todo");
@@ -682,7 +694,7 @@ mod tests {
             },
         ];
 
-        let res = live_ingest_batch_inner(&path, rows).unwrap();
+        let res = live_ingest_batch_inner(&path, rows, crate::core::DEFAULT_SOURCE_ID).unwrap();
         assert_eq!(res.written_rows.len(), 2);
         assert_eq!(res.written_rows[0].row_key, "p1");
         assert_eq!(res.written_rows[1].row_key, "p1");
@@ -719,7 +731,7 @@ mod tests {
             },
         ];
 
-        let err = live_ingest_batch_inner(&path, rows).unwrap_err();
+        let err = live_ingest_batch_inner(&path, rows, crate::core::DEFAULT_SOURCE_ID).unwrap_err();
         let msg = format!("{err}");
         assert!(msg.contains("unknown LiveRow category"), "got: {msg}");
 
@@ -741,7 +753,7 @@ mod tests {
             payload_json: "{}".into(),
         }];
 
-        let err = live_ingest_batch_inner(&path, rows).unwrap_err();
+        let err = live_ingest_batch_inner(&path, rows, crate::core::DEFAULT_SOURCE_ID).unwrap_err();
         let msg = format!("{err}");
         assert!(msg.contains("failed to deserialize"), "got: {msg}");
     }

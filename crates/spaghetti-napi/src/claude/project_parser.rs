@@ -23,9 +23,9 @@ use once_cell::sync::Lazy;
 use regex::Regex;
 use serde_json::Value;
 
-use crate::claude::fts_text;
-use crate::core::jsonl::read_jsonl_streaming;
+use crate::claude::message_extractor;
 use crate::core::event::IngestEvent;
+use crate::core::jsonl::read_jsonl_streaming;
 use crate::claude::types::{
     FileHistorySession, FileHistorySnapshotFile, PersistedToolResult, PlanFile, SessionIndexEntry,
     SessionMessage, SessionsIndex, SubagentMeta, SubagentTranscript, SubagentType, TaskEntry,
@@ -292,10 +292,8 @@ fn parse_one_session(
     Ok(())
 }
 
-/// Parse one JSONL line into an `IngestEvent::Message`, pre-extracting the
-/// columns the writer needs. Matches the TS `extractMsgType`,
-/// `extractUuid`, `extractTimestamp`, `extractTokens`, and the
-/// `extractTextContent` call from `ingest-service.ts`.
+/// Parse one JSONL line into an `IngestEvent::Message` via the Claude
+/// [`message_extractor`] (RFC 006 / Phase B seam).
 fn build_message_event(
     slug: &str,
     session_id: &str,
@@ -303,77 +301,22 @@ fn build_message_event(
     index: u32,
     byte_offset: u64,
 ) -> Result<IngestEvent, serde_json::Error> {
-    // Two parses: first a loose Value for top-level field extraction
-    // (matches the TS `msg as Record<string, unknown>` cast), then a
-    // typed SessionMessage for fts_text. The loose parse is the canonical
-    // source of truth for msg_type so we don't have to reverse-engineer
-    // the serde tag-rename mapping (kebab-case + explicit renames).
-    let value: Value = serde_json::from_str(line)?;
-
-    let msg_type = value
-        .get("type")
-        .and_then(Value::as_str)
-        .unwrap_or("unknown")
-        .to_owned();
-    let uuid = value.get("uuid").and_then(Value::as_str).map(str::to_owned);
-    let timestamp = value
-        .get("timestamp")
-        .and_then(Value::as_str)
-        .map(str::to_owned);
-
-    // Tokens: only present on assistant messages with a `message.usage` block.
-    // Matches TS `extractTokens` exactly.
-    let (input_tokens, output_tokens, cache_creation_tokens, cache_read_tokens) =
-        if msg_type == "assistant" {
-            extract_tokens(&value)
-        } else {
-            (0, 0, 0, 0)
-        };
-
-    // fts_text — only user / assistant / summary contribute. We do a
-    // typed parse here; if it fails we still emit the Message with
-    // fts_text=None rather than dropping the row. The writer tolerates
-    // a missing fts blob.
-    let fts_text = match serde_json::from_str::<SessionMessage>(line) {
-        Ok(msg) => {
-            let s = fts_text::extract_message_text(&msg);
-            if s.is_empty() {
-                None
-            } else {
-                Some(s)
-            }
-        }
-        Err(_) => None,
-    };
-
+    let p = message_extractor::project_jsonl_line(line)?;
     Ok(IngestEvent::Message {
         slug: slug.to_owned(),
         session_id: session_id.to_owned(),
         index,
         byte_offset,
         raw_json: line.to_owned(),
-        msg_type,
-        uuid,
-        timestamp,
-        input_tokens,
-        output_tokens,
-        cache_creation_tokens,
-        cache_read_tokens,
-        fts_text,
+        msg_type: p.msg_type,
+        uuid: p.uuid,
+        timestamp: p.timestamp,
+        input_tokens: p.input_tokens,
+        output_tokens: p.output_tokens,
+        cache_creation_tokens: p.cache_creation_tokens,
+        cache_read_tokens: p.cache_read_tokens,
+        fts_text: p.fts_text,
     })
-}
-
-fn extract_tokens(value: &Value) -> (u64, u64, u64, u64) {
-    let Some(usage) = value.get("message").and_then(|m| m.get("usage")) else {
-        return (0, 0, 0, 0);
-    };
-    let pick = |k: &str| usage.get(k).and_then(Value::as_u64).unwrap_or(0);
-    (
-        pick("input_tokens"),
-        pick("output_tokens"),
-        pick("cache_creation_input_tokens"),
-        pick("cache_read_input_tokens"),
-    )
 }
 
 // ─── sessions-index.json ────────────────────────────────────────────────────

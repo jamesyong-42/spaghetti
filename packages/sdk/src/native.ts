@@ -15,11 +15,17 @@ import { createRequire } from 'node:module';
 import { resolveEngine, type IngestEngine } from './settings.js';
 
 export interface NativeIngestOptions {
+  /** Agent data root (historically Claude's `~/.claude`). */
   claudeDir: string;
   dbPath: string;
   mode: 'cold' | 'warm';
   parallelism?: number;
   progressIntervalMs?: number;
+  /**
+   * Agent product id stamped on core rows (default `claude-code`).
+   * Pass explicitly for multi-source native ingest.
+   */
+  sourceId?: string;
 }
 
 export interface NativeIngestStats {
@@ -96,7 +102,11 @@ export interface NativeAddon {
    * SQLite error); the whole batch is rolled back and the TS side
    * falls back to its own writer.
    */
-  liveIngestBatch(dbPath: string, rows: NativeLiveRow[]): NativeLiveBatchResult;
+  /**
+   * Write a live batch. Optional `sourceId` defaults to `claude-code` on
+   * the Rust side when omitted.
+   */
+  liveIngestBatch(dbPath: string, rows: NativeLiveRow[], sourceId?: string): NativeLiveBatchResult;
 }
 
 let cached: NativeAddon | null | undefined;

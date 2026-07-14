@@ -12,7 +12,10 @@
 /// later phase if a second source needs the same table API.
 pub mod fingerprint;
 pub mod fts_text;
+/// Anthropic JSONL → thin message projection (RFC 006 seam).
+pub mod message_extractor;
 pub mod project_parser;
 pub mod types;
 
+pub use message_extractor::{project_jsonl_line, MessageProjection};
 pub use project_parser::ProjectParser;
