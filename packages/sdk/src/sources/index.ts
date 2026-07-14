@@ -33,4 +33,16 @@ export {
   type ParsedCodexTokenCount,
   type EstimatedMessageTokens,
 } from './codex/index.js';
+export {
+  createGrokSource,
+  createGrokReader,
+  grokMessageExtractor,
+  GrokReader,
+  GrokLifecycleOwner,
+  classifyGrokPath,
+  defaultGrokDir,
+  buildGrokPaths,
+  type GrokSourceOptions,
+  type GrokReadOptions,
+} from './grok/index.js';
 export { sourceReportsPerMessageTokens, sourceDisplayName, sourceDisplayRoot } from './capabilities.js';

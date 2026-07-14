@@ -20,6 +20,7 @@ import {
   createClaudeCodeSource,
   ClaudeCodeLifecycleOwner,
   CodexLifecycleOwner,
+  GrokLifecycleOwner,
   type AgentSource,
 } from './sources/index.js';
 import { createDurableStore } from './store/durable-store.js';
@@ -174,6 +175,18 @@ export function createSpaghettiService(options?: SpaghettiServiceOptions): Spagh
           options?.live ?? false,
           resolvedEngine,
         ),
+      );
+    } else if (extra.id === 'grok') {
+      // Grok has no native (Rust) ingest — always the pure-TS GrokReader path.
+      // Keep engine 'ts' on its IngestService like Codex; GrokLifecycleOwner
+      // never touches the native addon.
+      const grokIngest = createIngestService(() => sharedSqlite, {
+        sourceId: extra.id,
+        messages: extra.messages,
+        engine: 'ts',
+      });
+      owners.push(
+        new GrokLifecycleOwner(fileService, extra, store.data, grokIngest, dbPath, errorSink, options?.live ?? false),
       );
     } else {
       errorSink.error(new Error(`No LifecycleOwner registered for source '${extra.id}' — skipping.`));

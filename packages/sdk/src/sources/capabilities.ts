@@ -16,6 +16,10 @@
  */
 export function sourceReportsPerMessageTokens(sourceId: string): boolean {
   switch (sourceId) {
+    case 'grok':
+      // Grok's chat_history.jsonl carries no per-message tokens; only
+      // session-level aggregates exist (signals.json), not yet ingested.
+      return false;
     case 'codex':
     case 'claude-code':
     default:
@@ -30,6 +34,8 @@ export function sourceDisplayName(sourceId: string): string {
       return 'Claude Code';
     case 'codex':
       return 'Codex';
+    case 'grok':
+      return 'Grok';
     default:
       return sourceId;
   }
@@ -42,6 +48,8 @@ export function sourceDisplayRoot(sourceId: string): string {
       return '~/.claude';
     case 'codex':
       return '~/.codex';
+    case 'grok':
+      return '~/.grok';
     default:
       return `~/.${sourceId}`;
   }

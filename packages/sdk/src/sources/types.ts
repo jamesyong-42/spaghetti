@@ -12,7 +12,7 @@
 import type { RouteResult } from '../live/router.js';
 
 /** Stable id for a supported agent product. Extend as sources land. */
-export type AgentSourceId = 'claude-code' | 'codex';
+export type AgentSourceId = 'claude-code' | 'codex' | 'grok';
 
 /**
  * The normalized projection an ingest writer stores for one message, produced

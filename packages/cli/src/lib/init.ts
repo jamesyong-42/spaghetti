@@ -6,7 +6,13 @@
  * synchronous parsing. A spinner relying on setInterval would freeze.
  */
 
-import { createSpaghettiService, createCodexSource, defaultCodexDir } from '@vibecook/spaghetti-sdk';
+import {
+  createSpaghettiService,
+  createCodexSource,
+  defaultCodexDir,
+  createGrokSource,
+  defaultGrokDir,
+} from '@vibecook/spaghetti-sdk';
 import type { SpaghettiAPI, AgentSource } from '@vibecook/spaghetti-sdk';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
@@ -24,6 +30,10 @@ export function detectAdditionalSources(): AgentSource[] {
   // Codex CLI: ~/.codex/sessions
   if (existsSync(join(defaultCodexDir(), 'sessions'))) {
     sources.push(createCodexSource());
+  }
+  // Grok CLI (xAI): ~/.grok/sessions
+  if (existsSync(join(defaultGrokDir(), 'sessions'))) {
+    sources.push(createGrokSource());
   }
   return sources;
 }
