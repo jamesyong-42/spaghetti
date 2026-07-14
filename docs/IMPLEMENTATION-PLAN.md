@@ -283,7 +283,7 @@ import type { AppService } from './app-service';
 
 export interface SpaghettiServiceOptions {
   /** Override ~/.claude directory path */
-  claudeDir?: string;
+  rootDir?: string; // (claudeDir deprecated alias)
   /** Override database storage path */
   dbPath?: string;
 }

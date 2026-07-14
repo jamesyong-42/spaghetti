@@ -494,9 +494,9 @@ describe('IncrementalParser (C2.4)', () => {
   // ─────────────────────────────────────────────────────────────────────────
 
   test('task: re-reads tasks/<sid>/.lock + .highwatermark on any event', async () => {
-    const claudeDir = path.join(tempDir, 'claude-task');
+    const rootDir = path.join(tempDir, 'claude-task');
     const sessionId = 'task-session-1';
-    const taskDir = path.join(claudeDir, 'tasks', sessionId);
+    const taskDir = path.join(rootDir, 'tasks', sessionId);
     mkdirSync(taskDir, { recursive: true });
     writeFileSync(path.join(taskDir, '.lock'), '');
     writeFileSync(path.join(taskDir, '.highwatermark'), '42');
@@ -510,7 +510,7 @@ describe('IncrementalParser (C2.4)', () => {
       path: eventPath,
       category: 'task',
       sessionId,
-      rootDir: claudeDir,
+      rootDir: rootDir,
       checkpoint: undefined,
     });
 
@@ -522,7 +522,7 @@ describe('IncrementalParser (C2.4)', () => {
     assert.equal(row.task.hasHighwatermark, true);
     assert.equal(row.task.highwatermark, 42);
 
-    rmSync(claudeDir, { recursive: true, force: true });
+    rmSync(rootDir, { recursive: true, force: true });
   });
 
   // ─────────────────────────────────────────────────────────────────────────

@@ -96,7 +96,7 @@ if (mode !== 'cold' && mode !== 'live-batch') {
 
 const repoRoot = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..');
 const defaultFixture = path.join(repoRoot, 'crates/spaghetti-napi/fixtures/small/.claude');
-const fixtureClaudeDir = path.resolve(values.fixture ?? defaultFixture);
+const fixtureRootDir = path.resolve(values.fixture ?? defaultFixture);
 const tsDbPath = path.resolve(values['ts-db'] ?? '/tmp/ingest-diff-ts.db');
 const rustDbPath = path.resolve(values['rust-db'] ?? '/tmp/ingest-diff-rust.db');
 
@@ -111,8 +111,8 @@ if (!Number.isFinite(liveBatchChunk) || liveBatchChunk <= 0) {
   process.exit(2);
 }
 
-if (mode === 'cold' && !existsSync(fixtureClaudeDir)) {
-  console.error(`fixture not found: ${fixtureClaudeDir}`);
+if (mode === 'cold' && !existsSync(fixtureRootDir)) {
+  console.error(`fixture not found: ${fixtureRootDir}`);
   console.error('regenerate with: node scripts/generate-ingest-fixture.mjs --out crates/spaghetti-napi/fixtures/small');
   process.exit(2);
 }
@@ -151,7 +151,7 @@ async function runTsIngest(): Promise<{ durationMs: number }> {
   const verbose = process.env.VERBOSE === '1';
 
   const svc = createSpaghettiService({
-    claudeDir: fixtureClaudeDir,
+    rootDir: fixtureRootDir,
     dbPath: tsDbPath,
   });
 
@@ -214,7 +214,7 @@ async function runRustIngest(): Promise<{ durationMs: number; stats: Awaited<Ret
   const native = require('@vibecook/spaghetti-sdk-native') as NativeAddon;
   const start = Date.now();
   const stats = await native.ingest({
-    agentDir: fixtureClaudeDir,
+    agentDir: fixtureRootDir,
     dbPath: rustDbPath,
     mode: 'cold',
   });
@@ -601,7 +601,7 @@ function diffTable(tsRows: Row[], rustRows: Row[], spec: TableSpec): Diff[] {
 async function main(): Promise<void> {
   console.log(`mode:    ${mode}`);
   if (mode === 'cold') {
-    console.log(`fixture: ${fixtureClaudeDir}`);
+    console.log(`fixture: ${fixtureRootDir}`);
   } else {
     console.log(`live-batch: ${liveBatchLines} lines, ${liveBatchChunk}-row chunks`);
   }

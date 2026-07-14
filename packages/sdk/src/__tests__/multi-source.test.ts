@@ -25,7 +25,7 @@ import { createCodexSource } from '../sources/index.js';
 import type { SpaghettiAPI } from '../index.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const FIXTURE_CLAUDE_DIR = path.resolve(here, '../../../../crates/spaghetti-napi/fixtures/small/.claude');
+const FIXTURE_ROOT_DIR = path.resolve(here, '../../../../crates/spaghetti-napi/fixtures/small/.claude');
 const CODEX_SESSION = '019cf46d-0924-7523-b3f5-f6f5cc0fcd16';
 const CODEX_CWD = '/tmp/codex-proj';
 const CODEX_SLUG = '-tmp-codex-proj';
@@ -69,7 +69,7 @@ describe('multi-source ingest (claude + codex)', () => {
     writeCodexFixture(codexRoot);
 
     spaghetti = createSpaghettiService({
-      claudeDir: FIXTURE_CLAUDE_DIR,
+      rootDir: FIXTURE_ROOT_DIR,
       additionalSources: [createCodexSource({ rootDir: codexRoot })],
       dbPath,
     });
@@ -150,7 +150,7 @@ describe('multi-source ingest (claude + codex)', () => {
 
   test('warm re-init on the same DB does not duplicate', async () => {
     const again = createSpaghettiService({
-      claudeDir: FIXTURE_CLAUDE_DIR,
+      rootDir: FIXTURE_ROOT_DIR,
       additionalSources: [createCodexSource({ rootDir: codexRoot })],
       dbPath,
     });

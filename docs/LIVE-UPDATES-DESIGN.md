@@ -65,7 +65,7 @@ Nothing under `packages/cli/`, `packages/ui/`, `apps/`, or the plugins requires 
 // data/lifecycle-owner.ts
 export interface LifecycleOwnerOptions {
   dbPath?: string;
-  claudeDir?: string;
+  rootDir?: string;
   engine?: 'ts' | 'rust';
   live?: boolean;              // NEW: opt-in to live updates
 }
@@ -150,7 +150,7 @@ The subscriber registry is split into two internal data structures:
 ```ts
 // live/live-updates.ts
 export interface LiveUpdatesOptions {
-  claudeDir: string;
+  rootDir: string;
   batchWindowMs?: number;     // default 75
   maxBatchRows?: number;      // default 200
   debounceMs?: number;        // default 30, hard-flush at 200
@@ -314,7 +314,7 @@ export interface ParseFileDeltaParams {
   sessionId?: string;
   checkpoint: Checkpoint | undefined;
   startMsgIndex?: number;   // message category only — continues msg_index across tail calls
-  claudeDir?: string;       // task category only — so we can read .lock / .highwatermark
+  rootDir?: string;       // task category only — so we can read .lock / .highwatermark
 }
 
 export interface IncrementalParser {

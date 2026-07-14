@@ -20,7 +20,7 @@ import { createSpaghettiService } from '../index.js';
 import type { SpaghettiAPI } from '../index.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const FIXTURE_CLAUDE_DIR = path.resolve(here, '../../../../crates/spaghetti-napi/fixtures/small/.claude');
+const FIXTURE_ROOT_DIR = path.resolve(here, '../../../../crates/spaghetti-napi/fixtures/small/.claude');
 
 describe('source dimension (schema v5)', () => {
   let spaghetti: SpaghettiAPI;
@@ -29,7 +29,7 @@ describe('source dimension (schema v5)', () => {
   before(async () => {
     tempDir = mkdtempSync(path.join(os.tmpdir(), 'spaghetti-source-dim-'));
     spaghetti = createSpaghettiService({
-      claudeDir: FIXTURE_CLAUDE_DIR,
+      rootDir: FIXTURE_ROOT_DIR,
       dbPath: path.join(tempDir, 'spaghetti.db'),
     });
     await spaghetti.initialize();

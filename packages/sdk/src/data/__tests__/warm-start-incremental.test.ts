@@ -7,7 +7,7 @@
  * `(session_id, msg_index)` — so the warm-start grown-file path used to
  * write appended messages over the HEAD of the session (index 0..N),
  * silently destroying history in the DB. These tests run the real
- * service (TS engine) against a temp claudeDir and assert appends
+ * service (TS engine) against a temp rootDir and assert appends
  * extend the tail, stray files aren't projects, and the one-shot
  * msg_index heal repairs previously clobbered rows.
  *
@@ -50,16 +50,16 @@ function messageLine(i: number): string {
 
 describe('TS warm start — incremental correctness', () => {
   let tempDir: string;
-  let claudeDir: string;
+  let rootDir: string;
   let dbPath: string;
   let sessionFile: string;
 
   beforeEach((t) => {
     const safe = t.name.replace(/[^a-zA-Z0-9]/g, '_');
     tempDir = mkdtempSync(path.join(os.tmpdir(), `spaghetti-warm-${safe}-`));
-    claudeDir = path.join(tempDir, '.claude');
+    rootDir = path.join(tempDir, '.claude');
     dbPath = path.join(tempDir, 'test.db');
-    const projectDir = path.join(claudeDir, 'projects', SLUG);
+    const projectDir = path.join(rootDir, 'projects', SLUG);
     mkdirSync(projectDir, { recursive: true });
     sessionFile = path.join(projectDir, `${SESSION_ID}.jsonl`);
     writeFileSync(sessionFile, [0, 1, 2].map(messageLine).join(''));
@@ -71,7 +71,7 @@ describe('TS warm start — incremental correctness', () => {
   });
 
   async function boot(): Promise<SpaghettiAPI> {
-    const svc = createSpaghettiService({ engine: 'ts', claudeDir, dbPath });
+    const svc = createSpaghettiService({ engine: 'ts', rootDir, dbPath });
     await svc.initialize();
     return svc;
   }
@@ -97,7 +97,7 @@ describe('TS warm start — incremental correctness', () => {
   });
 
   test('stray files under projects/ are not ingested as projects', async () => {
-    writeFileSync(path.join(claudeDir, 'projects', '.DS_Store'), 'junk');
+    writeFileSync(path.join(rootDir, 'projects', '.DS_Store'), 'junk');
 
     const svc = await boot();
     assert.deepEqual(

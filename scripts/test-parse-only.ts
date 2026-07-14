@@ -11,7 +11,7 @@ import { createClaudeCodeParser } from '../packages/core/src/parser/claude-code-
 import { createQueryService } from '../packages/core/src/data/query-service.js';
 import { createIngestService } from '../packages/core/src/data/ingest-service.js';
 
-const claudeDir = path.join(os.homedir(), '.claude');
+const rootDir = path.join(os.homedir(), '.claude');
 const dbPath = path.join(os.homedir(), '.spaghetti', 'cache', 'spaghetti.db');
 
 console.log('Creating services directly from source...');
@@ -31,7 +31,7 @@ ingestService.open(dbPath);
 console.log('Parsing all projects...');
 ingestService.beginTransaction();
 try {
-  parser.parseStreaming(ingestService, { claudeDir });
+  parser.parseStreaming(ingestService, { rootDir });
   ingestService.commitTransaction();
 } catch (error) {
   ingestService.rollbackTransaction();
@@ -52,7 +52,7 @@ for (const s of summaries) {
 }
 console.log(`Projects with sessions but 0 messages: ${zeroMsgCount}`);
 
-const target = summaries.find(s => s.slug === '-Users-jamesyong');
+const target = summaries.find((s) => s.slug === '-Users-jamesyong');
 if (target) {
   console.log(`\n-Users-jamesyong: sessions=${target.sessionCount}, messages=${target.messageCount}`);
 }

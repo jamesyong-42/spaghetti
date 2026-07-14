@@ -2,7 +2,7 @@
  * LiveUpdates — integration tests (RFC 005 C2.7 + C3.2).
  *
  * Proves the end-to-end pipeline works: a filesystem change under
- * `<claudeDir>/projects/` or `<claudeDir>/todos/` reaches SQLite via
+ * `<rootDir>/projects/` or `<rootDir>/todos/` reaches SQLite via
  * watcher → queue → parser → writeBatch. Since C3.2, watchers are
  * attached lazily — every test that expects ingest must `prewarm()`
  * the relevant topic (or the end-to-end `api.live.onChange` path from
@@ -94,14 +94,14 @@ function makeUserMessage(uuid: string, text: string, sessionId: string = SESSION
 interface FixtureSeedRow {
   /**
    * Project slug to seed. The fixture creates the project row + the
-   * `<claudeDir>/projects/<slug>/` directory so live writes have a
+   * `<rootDir>/projects/<slug>/` directory so live writes have a
    * plausible parent. Parent rows aren't required for the schema (no
    * FKs) but make the assertions easier to reason about.
    */
   slug: string;
   /**
    * Optional sessionId(s) to seed. Each lands as a sessions row + the
-   * `<claudeDir>/projects/<slug>/<sessionId>.jsonl` file is NOT
+   * `<rootDir>/projects/<slug>/<sessionId>.jsonl` file is NOT
    * created — tests that need it write the file themselves so the
    * pipeline sees a `create` event.
    */
@@ -110,7 +110,7 @@ interface FixtureSeedRow {
 
 interface FixtureOptions {
   /**
-   * Subdirectories to pre-create under `claudeDir`. The watcher's
+   * Subdirectories to pre-create under `rootDir`. The watcher's
    * scope-attach surfaces an error if the watched directory doesn't
    * exist, so each test names the dirs it needs (e.g. `['projects',
    * 'todos']` for the end-to-end suite, `['tasks']` for the tasks
@@ -120,7 +120,7 @@ interface FixtureOptions {
   /** Project + session rows to seed before constructing services. */
   seed?: readonly FixtureSeedRow[];
   /** Forwarded to `createLiveUpdates(_, options)`. */
-  liveOptions?: Partial<Omit<LiveUpdatesOptions, 'claudeDir'>>;
+  liveOptions?: Partial<Omit<LiveUpdatesOptions, 'rootDir'>>;
   /**
    * Capture each `onError` call into this array for later assertions.
    * Mutually exclusive with `liveOptions.onError` — pass one or the
@@ -131,7 +131,7 @@ interface FixtureOptions {
 
 interface Fixture {
   tempRoot: string;
-  claudeDir: string;
+  rootDir: string;
   dbPath: string;
   sqlite: SqliteService;
   queryService: QueryService;
@@ -162,15 +162,15 @@ async function createFixture(opts: FixtureOptions = {}): Promise<Fixture> {
   // compares against the root we pass in, so use the realpath form
   // everywhere to keep the two sides in sync.
   const tempRoot = realpathSync(mkdtempSync(path.join(os.tmpdir(), 'spaghetti-live-updates-test-')));
-  const claudeDir = path.join(tempRoot, '.claude');
+  const rootDir = path.join(tempRoot, '.claude');
 
   const ensure = opts.ensureDirs ?? ['projects', 'todos'];
   for (const dir of ensure) {
-    mkdirSync(path.join(claudeDir, dir), { recursive: true });
+    mkdirSync(path.join(rootDir, dir), { recursive: true });
   }
-  // claudeDir itself must exist for the settings watcher (which
+  // rootDir itself must exist for the settings watcher (which
   // watches it non-recursively).
-  mkdirSync(claudeDir, { recursive: true });
+  mkdirSync(rootDir, { recursive: true });
 
   const dbPath = path.join(tempRoot, 'live.db');
   const sqlite = createSqliteService();
@@ -187,10 +187,10 @@ async function createFixture(opts: FixtureOptions = {}): Promise<Fixture> {
       JSON.stringify({ sessions: [] }),
       Date.now(),
     );
-    // Project dir under claudeDir/projects/<slug>/ so a future
+    // Project dir under rootDir/projects/<slug>/ so a future
     // session.jsonl write fires a `create` event (rather than landing
     // inside a non-existent parent the watcher hasn't seen).
-    mkdirSync(path.join(claudeDir, 'projects', row.slug), { recursive: true });
+    mkdirSync(path.join(rootDir, 'projects', row.slug), { recursive: true });
 
     for (const sid of row.sessionIds ?? []) {
       sqlite.run(
@@ -198,7 +198,7 @@ async function createFixture(opts: FixtureOptions = {}): Promise<Fixture> {
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         sid,
         row.slug,
-        path.join(claudeDir, 'projects', row.slug, `${sid}.jsonl`),
+        path.join(rootDir, 'projects', row.slug, `${sid}.jsonl`),
         'fixture',
         'fixture session',
         'main',
@@ -222,7 +222,7 @@ async function createFixture(opts: FixtureOptions = {}): Promise<Fixture> {
   const store = createAgentDataStore(queryService);
 
   const liveOptions: LiveUpdatesOptions = {
-    claudeDir,
+    rootDir,
     ...opts.liveOptions,
   };
   if (opts.capturedErrors) {
@@ -259,11 +259,11 @@ async function createFixture(opts: FixtureOptions = {}): Promise<Fixture> {
     }
   };
 
-  return { tempRoot, claudeDir, dbPath, sqlite, queryService, ingest, store, live, cleanup };
+  return { tempRoot, rootDir, dbPath, sqlite, queryService, ingest, store, live, cleanup };
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// SUITE: end-to-end with a populated claudeDir
+// SUITE: end-to-end with a populated rootDir
 // ═══════════════════════════════════════════════════════════════════════════
 
 describe('LiveUpdates end-to-end (RFC 005 C2.7)', () => {
@@ -278,7 +278,7 @@ describe('LiveUpdates end-to-end (RFC 005 C2.7)', () => {
       // Give parcel a tick to bind.
       await new Promise((r) => setTimeout(r, 150));
 
-      const sessionPath = path.join(fx.claudeDir, 'projects', SLUG, `${SESSION_ID}.jsonl`);
+      const sessionPath = path.join(fx.rootDir, 'projects', SLUG, `${SESSION_ID}.jsonl`);
       writeFileSync(sessionPath, makeUserMessage('uuid-1', 'first live message'));
 
       const row = await pollUntil(() => {
@@ -301,7 +301,7 @@ describe('LiveUpdates end-to-end (RFC 005 C2.7)', () => {
       fx.live.prewarm({ kind: 'session', slug: SLUG, sessionId: SESSION_ID });
       await new Promise((r) => setTimeout(r, 150));
 
-      const sessionPath = path.join(fx.claudeDir, 'projects', SLUG, `${SESSION_ID}.jsonl`);
+      const sessionPath = path.join(fx.rootDir, 'projects', SLUG, `${SESSION_ID}.jsonl`);
       writeFileSync(sessionPath, makeUserMessage('uuid-1', 'first live message'));
       await pollUntil(() => {
         const r = fx.sqlite.get<{ n: number }>(`SELECT COUNT(*) AS n FROM messages WHERE session_id = ?`, SESSION_ID);
@@ -329,7 +329,7 @@ describe('LiveUpdates end-to-end (RFC 005 C2.7)', () => {
       fx.live.prewarm({ kind: 'session', slug: SLUG, sessionId: SESSION_ID });
       await new Promise((r) => setTimeout(r, 150));
 
-      const sessionPath = path.join(fx.claudeDir, 'projects', SLUG, `${SESSION_ID}.jsonl`);
+      const sessionPath = path.join(fx.rootDir, 'projects', SLUG, `${SESSION_ID}.jsonl`);
       // Two initial lines — gives the rewrite below a comfortable
       // size margin to shrink (the parser's rewrite detection fires
       // on `size < checkpoint.lastOffset`, so the second write must
@@ -376,7 +376,7 @@ describe('LiveUpdates end-to-end (RFC 005 C2.7)', () => {
       // projects/<slug>/<sid>/subagents/workflows/<wf>/agent-*.jsonl —
       // the router extracts wf_live_1 and the transcript must land
       // grouped under it (not the flat ungrouped '' bucket).
-      const wfDir = path.join(fx.claudeDir, 'projects', SLUG, SESSION_ID, 'subagents', 'workflows', 'wf_live_1');
+      const wfDir = path.join(fx.rootDir, 'projects', SLUG, SESSION_ID, 'subagents', 'workflows', 'wf_live_1');
       mkdirSync(wfDir, { recursive: true });
       writeFileSync(path.join(wfDir, 'agent-alive01.jsonl'), makeUserMessage('sub-uuid-1', 'nested subagent line'));
 
@@ -404,7 +404,7 @@ describe('LiveUpdates end-to-end (RFC 005 C2.7)', () => {
       fx.live.prewarm({ kind: 'todo', sessionId: SESSION_ID });
       await new Promise((r) => setTimeout(r, 150));
 
-      const todoPath = path.join(fx.claudeDir, 'todos', `${SESSION_ID}-agent-a0.json`);
+      const todoPath = path.join(fx.rootDir, 'todos', `${SESSION_ID}-agent-a0.json`);
       writeFileSync(todoPath, JSON.stringify([{ content: 'test todo', status: 'pending' }]));
 
       const row = await pollUntil(() => {
@@ -434,7 +434,7 @@ describe('LiveUpdates end-to-end (RFC 005 C2.7)', () => {
       fx.live.prewarm({ kind: 'session', slug: SLUG, sessionId: SESSION_ID });
       await new Promise((r) => setTimeout(r, 150));
 
-      const sessionPath = path.join(fx.claudeDir, 'projects', SLUG, `${SESSION_ID}.jsonl`);
+      const sessionPath = path.join(fx.rootDir, 'projects', SLUG, `${SESSION_ID}.jsonl`);
       writeFileSync(sessionPath, makeUserMessage('uuid-1', 'pre-stop'));
       await pollUntil(() => {
         const r = fx.sqlite.get<{ n: number }>(`SELECT COUNT(*) AS n FROM messages WHERE session_id = ?`, SESSION_ID);
@@ -520,7 +520,7 @@ describe('LiveUpdates lazy ref-counting (RFC 005 C3.2)', () => {
     try {
       await fx.live.start();
       // No prewarm has been issued — the projects/ watcher is detached.
-      const sessionPath = path.join(fx.claudeDir, 'projects', SLUG, `${SESSION_ID}.jsonl`);
+      const sessionPath = path.join(fx.rootDir, 'projects', SLUG, `${SESSION_ID}.jsonl`);
       writeFileSync(sessionPath, makeUserMessage('uuid-no-prewarm', 'should not ingest'));
 
       // Wait generously; if the watcher were attached we'd see a row.
@@ -544,7 +544,7 @@ describe('LiveUpdates lazy ref-counting (RFC 005 C3.2)', () => {
       // parcel attach is async — give it a tick.
       await new Promise((r) => setTimeout(r, 150));
 
-      const sessionPath = path.join(fx.claudeDir, 'projects', SLUG, `${SESSION_ID}.jsonl`);
+      const sessionPath = path.join(fx.rootDir, 'projects', SLUG, `${SESSION_ID}.jsonl`);
       writeFileSync(sessionPath, makeUserMessage('uuid-prewarmed', 'with prewarm'));
 
       const row = await pollUntil(() => {
@@ -573,7 +573,7 @@ describe('LiveUpdates lazy ref-counting (RFC 005 C3.2)', () => {
       const dispose2 = fx.live.prewarm({ kind: 'session', slug: SLUG });
       await new Promise((r) => setTimeout(r, 150));
 
-      const sessionPath = path.join(fx.claudeDir, 'projects', SLUG, `${SESSION_ID}.jsonl`);
+      const sessionPath = path.join(fx.rootDir, 'projects', SLUG, `${SESSION_ID}.jsonl`);
       writeFileSync(sessionPath, makeUserMessage('uuid-1', 'baseline'));
       await pollUntil(() => {
         const r = fx.sqlite.get<{ n: number }>(`SELECT COUNT(*) AS n FROM messages WHERE session_id = ?`, SESSION_ID);
@@ -618,7 +618,7 @@ describe('LiveUpdates tasks/ scope (RFC 005 C5.2)', () => {
       const dispose = fx.live.prewarm({ kind: 'task', sessionId: 's1' });
       await new Promise((r) => setTimeout(r, 150));
 
-      const taskDir = path.join(fx.claudeDir, 'tasks', 's1');
+      const taskDir = path.join(fx.rootDir, 'tasks', 's1');
       mkdirSync(taskDir, { recursive: true });
       writeFileSync(path.join(taskDir, '.lock'), '');
 
@@ -661,7 +661,7 @@ describe('LiveUpdates tasks/ scope (RFC 005 C5.2)', () => {
         const dispose = fx.live.prewarm({ kind: 'task', sessionId: 's2' });
         await new Promise((r) => setTimeout(r, 150));
 
-        const taskDir = path.join(fx.claudeDir, 'tasks', 's2');
+        const taskDir = path.join(fx.rootDir, 'tasks', 's2');
         mkdirSync(taskDir, { recursive: true });
         // Two events within the 75 ms batch window + path-dedup —
         // ideally collapse to a single enqueue → single writeBatch →
@@ -714,7 +714,7 @@ describe('LiveUpdates file-history/ scope (RFC 005 C5.3)', () => {
       const dispose = fx.live.prewarm({ kind: 'file-history', sessionId: 's1' });
       await new Promise((r) => setTimeout(r, 150));
 
-      const historyDir = path.join(fx.claudeDir, 'file-history', 's1');
+      const historyDir = path.join(fx.rootDir, 'file-history', 's1');
       mkdirSync(historyDir, { recursive: true });
       writeFileSync(path.join(historyDir, 'abc@v1'), 'hello');
 
@@ -753,7 +753,7 @@ describe('LiveUpdates plans/ scope (RFC 005 C5.4)', () => {
       const dispose = fx.live.prewarm({ kind: 'plan' });
       await new Promise((r) => setTimeout(r, 150));
 
-      writeFileSync(path.join(fx.claudeDir, 'plans', 'abc.md'), '# Example Plan\n\nbody');
+      writeFileSync(path.join(fx.rootDir, 'plans', 'abc.md'), '# Example Plan\n\nbody');
 
       const event = await pollUntil(() => {
         const hit = captured.find((c) => c.type === 'plan.upserted');
@@ -793,7 +793,7 @@ describe('LiveUpdates settings/ scope (RFC 005 C5.5)', () => {
       const dispose = fx.live.prewarm({ kind: 'settings' });
       await new Promise((r) => setTimeout(r, 150));
 
-      const settingsPath = path.join(fx.claudeDir, 'settings.json');
+      const settingsPath = path.join(fx.rootDir, 'settings.json');
       writeFileSync(settingsPath, JSON.stringify({ cleanupPeriodDays: 30, effortLevel: 'high' }));
 
       const event = await pollUntil(() => {
@@ -837,7 +837,7 @@ describe('LiveUpdates settings/ scope (RFC 005 C5.5)', () => {
         const dispose = fx.live.prewarm({ kind: 'settings' });
         await new Promise((r) => setTimeout(r, 150));
 
-        const settingsPath = path.join(fx.claudeDir, 'settings.json');
+        const settingsPath = path.join(fx.rootDir, 'settings.json');
         const tmpPath = `${settingsPath}.atomic`;
         writeFileSync(tmpPath, JSON.stringify({ effortLevel: 'medium' }));
         const startCount = captured.length;
@@ -877,7 +877,7 @@ describe('LiveUpdates settings/ scope (RFC 005 C5.5)', () => {
       const dispose = fx.live.prewarm({ kind: 'settings' });
       await new Promise((r) => setTimeout(r, 150));
 
-      writeFileSync(path.join(fx.claudeDir, 'settings.local.json'), JSON.stringify({ permissions: { allow: ['*'] } }));
+      writeFileSync(path.join(fx.rootDir, 'settings.local.json'), JSON.stringify({ permissions: { allow: ['*'] } }));
 
       const event = await pollUntil(() => {
         const hit = captured.find((c) => c.type === 'settings.changed' && c.file === 'settings.local');
@@ -904,7 +904,7 @@ describe('LiveUpdates settings/ scope (RFC 005 C5.5)', () => {
       const dispose = fx.live.prewarm({ kind: 'settings' });
       await new Promise((r) => setTimeout(r, 150));
 
-      const settingsPath = path.join(fx.claudeDir, 'settings.json');
+      const settingsPath = path.join(fx.rootDir, 'settings.json');
       const startCount = captured.length;
       writeFileSync(settingsPath, 'not json');
 

@@ -44,7 +44,7 @@
 
 - [ ] `createSpaghettiService` composes: `source` → three planes → store → API  
 - [ ] New code can import `AgentSource`, `StaticIngest`, `LiveDiskIngest`, `RuntimeBridge`, `DurableStore` by name  
-- [ ] `claudeDir` / default `~/.claude` / `~/.spaghetti` defaults resolve through the source adapter  
+- [ ] `rootDir` / default `~/.claude` / `~/.spaghetti` defaults resolve through the source adapter  
 - [ ] No intentional public API break; CLI and playground need zero call-site changes (or only optional new options)  
 - [ ] `pnpm --filter @vibecook/spaghetti-sdk test` + `pnpm test:ingest-diff` green  
 
@@ -83,7 +83,7 @@ packages/sdk/src/
 
 | Diagram | Today | After (this stack) |
 |---|---|---|
-| AgentSource | Implicit `claudeDir` + hardcoded paths | `sources/claude-code` + `AgentSource` |
+| AgentSource | Implicit `rootDir` + hardcoded paths | `sources/claude-code` + `AgentSource` |
 | StaticIngest | `LifecycleOwner` cold/warm/native | `planes/static-ingest.ts` wraps lifecycle |
 | LiveDiskIngest | `live/live-updates.ts` | `planes/live-disk-ingest.ts` wraps it |
 | RuntimeBridge | `io/hook-event-watcher`, `io/channel-*`, CLI plugins | `planes/runtime-bridge.ts` aggregates |
@@ -99,15 +99,15 @@ packages/sdk/src/
 ### Must not break
 
 - `createSpaghettiService(options?)`  
-- `SpaghettiServiceOptions`: `claudeDir`, `dbPath`, `engine`, `live`, `dataService`, `errorSink`  
+- `SpaghettiServiceOptions`: `rootDir` (alias `claudeDir`), `dbPath`, `engine`, `live`, `dataService`, `errorSink`  
 - All `SpaghettiAPI` methods currently documented  
 
 ### May add (optional, backward compatible)
 
 ```ts
 // SpaghettiServiceOptions (additive)
-source?: AgentSource;           // default: createClaudeCodeSource({ rootDir: claudeDir })
-// claudeDir remains; if both set, source wins or claudeDir seeds source — pick one rule and document it
+source?: AgentSource;           // default: createClaudeCodeSource({ rootDir })
+// rootDir preferred; claudeDir remains as deprecated alias
 
 // SpaghettiAPI (additive, later PR — not required in PR1–4)
 // readonly runtime?: SpaghettiRuntime;  // defer until RuntimeBridge is real
@@ -117,7 +117,7 @@ source?: AgentSource;           // default: createClaudeCodeSource({ rootDir: cl
 
 ```text
 options.source
-  ?? createClaudeCodeSource({ rootDir: options.claudeDir ?? defaultClaudeDir() })
+  ?? createClaudeCodeSource({ rootDir: options.rootDir ?? options.claudeDir ?? defaultClaudeDir() })
 ```
 
 `dbPath` stays independent (index location ≠ agent source root).
@@ -195,7 +195,7 @@ export function createClaudeCodeSource(options?: {
 
 **Change lightly**
 
-- `create.ts`: resolve `source` once; pass `source.rootDir` where `resolvedClaudeDir` is used today  
+- `create.ts`: resolve `source` once; pass `source.rootDir` where `resolvedRootDir` is used today  
 - Prefer **not** to thread `AgentSource` through all of `LifecycleOwner` in PR1 — only factory + path helpers  
 
 **Optional follow-in-PR1**
@@ -205,7 +205,7 @@ export function createClaudeCodeSource(options?: {
 **Tests**
 
 - Unit: `createClaudeCodeSource()` defaults; overrides for `rootDir` / `stateDir`  
-- Existing integration tests still pass with `claudeDir` option  
+- Existing integration tests still pass with `rootDir` (or deprecated `claudeDir`) option  
 
 **Out of scope**
 
@@ -353,7 +353,7 @@ export function createLiveDiskIngest(
       dbPath: options.dbPath,
     },
     {
-      claudeDir: options.source.rootDir,
+      rootDir: options.source.rootDir,
       errorSink: options.errorSink,
       // ...
     },
@@ -393,7 +393,7 @@ export function createSpaghettiService(options?: SpaghettiServiceOptions): Spagh
 
   const source =
     options?.source ??
-    createClaudeCodeSource({ rootDir: options?.claudeDir });
+    createClaudeCodeSource({ rootDir: options?.rootDir ?? options?.claudeDir });
 
   const fileService = createFileService();
   const sharedSqlite = createSqliteService();

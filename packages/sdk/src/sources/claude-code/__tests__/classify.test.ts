@@ -5,7 +5,7 @@
  *   - Happy case per category (12 branches).
  *   - slug / sessionId extraction correctness.
  *   - Hard-ignore by segment and by suffix.
- *   - Outside-claudeDir rejection.
+ *   - Outside-rootDir rejection.
  *   - Specificity ordering: subagent path wins over session path,
  *     sessions-index.json wins over session.
  *   - Cross-platform: Windows-style backslash paths classify the same
@@ -100,12 +100,12 @@ describe('classify — category happy paths', () => {
     assert.deepEqual(r, { category: 'plan' });
   });
 
-  test('settings: settings.json at claudeDir root', () => {
+  test('settings: settings.json at rootDir root', () => {
     const r = classify(p('settings.json'), CLAUDE);
     assert.deepEqual(r, { category: 'settings' });
   });
 
-  test('settings_local: settings.local.json at claudeDir root', () => {
+  test('settings_local: settings.local.json at rootDir root', () => {
     const r = classify(p('settings.local.json'), CLAUDE);
     assert.deepEqual(r, { category: 'settings_local' });
   });
@@ -184,7 +184,7 @@ describe('classify — hard-ignore suffixes', () => {
     });
   }
 
-  test('.DS_Store at claudeDir root → ignored', () => {
+  test('.DS_Store at rootDir root → ignored', () => {
     const r = classify(p('.DS_Store'), CLAUDE);
     assert.deepEqual(r, { category: 'ignored' });
   });
@@ -196,21 +196,21 @@ describe('classify — hard-ignore suffixes', () => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
-// OUTSIDE claudeDir
+// OUTSIDE rootDir
 // ═══════════════════════════════════════════════════════════════════════════
 
 describe('classify — defense in depth', () => {
-  test('absolute path outside claudeDir → ignored', () => {
+  test('absolute path outside rootDir → ignored', () => {
     const r = classify('/tmp/unrelated/file.jsonl', CLAUDE);
     assert.deepEqual(r, { category: 'ignored' });
   });
 
-  test('sibling of claudeDir → ignored', () => {
+  test('sibling of rootDir → ignored', () => {
     const r = classify('/home/user/.claude-backup/settings.json', CLAUDE);
     assert.deepEqual(r, { category: 'ignored' });
   });
 
-  test('claudeDir itself (rel=="") → ignored', () => {
+  test('rootDir itself (rel=="") → ignored', () => {
     const r = classify(CLAUDE, CLAUDE);
     assert.deepEqual(r, { category: 'ignored' });
   });

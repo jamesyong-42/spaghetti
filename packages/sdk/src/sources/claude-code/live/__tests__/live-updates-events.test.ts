@@ -75,20 +75,20 @@ function makeUserMessage(uuid: string, text: string): string {
 
 describe('api.live.onChange end-to-end delivery (RFC 005 C3.3 + C3.4)', () => {
   let tempRoot: string;
-  let claudeDir: string;
+  let rootDir: string;
   let sessionPath: string;
   let dbPath: string;
   let api: SpaghettiAPI;
 
   before(async () => {
     tempRoot = realpathSync(mkdtempSync(path.join(os.tmpdir(), 'spaghetti-live-events-')));
-    claudeDir = path.join(tempRoot, '.claude');
-    const projectDir = path.join(claudeDir, 'projects', SLUG);
+    rootDir = path.join(tempRoot, '.claude');
+    const projectDir = path.join(rootDir, 'projects', SLUG);
     sessionPath = path.join(projectDir, `${SESSION_ID}.jsonl`);
     mkdirSync(projectDir, { recursive: true });
     // todos/ present to avoid spurious onError noise when/if the test
     // grows to prewarm that scope.
-    mkdirSync(path.join(claudeDir, 'todos'), { recursive: true });
+    mkdirSync(path.join(rootDir, 'todos'), { recursive: true });
 
     dbPath = path.join(tempRoot, 'live.db');
 
@@ -96,7 +96,7 @@ describe('api.live.onChange end-to-end delivery (RFC 005 C3.3 + C3.4)', () => {
     // addon being prebuilt in every test environment. The live-
     // updates pipeline itself is engine-agnostic.
     api = createSpaghettiService({
-      claudeDir,
+      rootDir,
       dbPath,
       live: true,
       engine: 'ts',

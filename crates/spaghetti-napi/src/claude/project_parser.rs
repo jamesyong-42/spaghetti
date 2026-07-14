@@ -1,7 +1,7 @@
 //! Per-project streaming parser — ported from
 //! `packages/sdk/src/parser/project-parser.ts`.
 //!
-//! Single-threaded: given one `<claude_dir>/projects/<slug>/` directory,
+//! Single-threaded: given one `<root_dir>/projects/<slug>/` directory,
 //! walks every artifact (sessions index, MEMORY.md, JSONL session files,
 //! subagent transcripts, tool-result .txt files, todos, tasks, file-history
 //! snapshots) and pushes one [`IngestEvent`] per discovered artifact into a
@@ -97,12 +97,12 @@ impl ProjectParser {
     /// The only error returned is a fatal [`ParseError::ChannelClosed`].
     pub fn parse_project(
         &self,
-        claude_dir: &Path,
+        root_dir: &Path,
         slug: &str,
         events: &Sender<IngestEvent>,
     ) -> Result<(), ParseError> {
         let start = Instant::now();
-        let project_dir = claude_dir.join("projects").join(slug);
+        let project_dir = root_dir.join("projects").join(slug);
 
         // 1. Read sessions-index.json (or synthesise an empty one on miss)
         let (sessions_index, sessions_index_json) = read_sessions_index(&project_dir);
@@ -138,7 +138,7 @@ impl ProjectParser {
         //    is `ChannelClosed` — propagate it immediately so we don't spin
         //    over a dead channel.
         for entry in entries {
-            parse_one_session(claude_dir, &project_dir, slug, &entry, events)?;
+            parse_one_session(root_dir, &project_dir, slug, &entry, events)?;
         }
 
         // 6. Final project-complete marker
@@ -155,7 +155,7 @@ impl ProjectParser {
 // ─── Session parsing ────────────────────────────────────────────────────────
 
 fn parse_one_session(
-    claude_dir: &Path,
+    root_dir: &Path,
     project_dir: &Path,
     slug: &str,
     entry: &SessionIndexEntry,
@@ -269,7 +269,7 @@ fn parse_one_session(
     })?;
 
     // File history (always parsed, not gated by skipMessages — matching TS)
-    if let Some(history) = read_file_history(claude_dir, &session_id) {
+    if let Some(history) = read_file_history(root_dir, &session_id) {
         events.send(IngestEvent::FileHistory {
             session_id: session_id.clone(),
             history,
@@ -277,7 +277,7 @@ fn parse_one_session(
     }
 
     // Todos
-    for todo in read_todos(claude_dir, &session_id) {
+    for todo in read_todos(root_dir, &session_id) {
         events.send(IngestEvent::Todo {
             session_id: session_id.clone(),
             todo,
@@ -285,7 +285,7 @@ fn parse_one_session(
     }
 
     // Task
-    if let Some(task) = read_task(claude_dir, &session_id) {
+    if let Some(task) = read_task(root_dir, &session_id) {
         events.send(IngestEvent::Task { session_id, task })?;
     }
 
@@ -673,8 +673,8 @@ fn read_tool_results(project_dir: &Path, session_id: &str) -> Vec<PersistedToolR
 
 // ─── File history ───────────────────────────────────────────────────────────
 
-fn read_file_history(claude_dir: &Path, session_id: &str) -> Option<FileHistorySession> {
-    let dir = claude_dir.join("file-history").join(session_id);
+fn read_file_history(root_dir: &Path, session_id: &str) -> Option<FileHistorySession> {
+    let dir = root_dir.join("file-history").join(session_id);
     let read_dir = std::fs::read_dir(&dir).ok()?;
 
     let mut snapshots = Vec::new();
@@ -717,8 +717,8 @@ fn read_file_history(claude_dir: &Path, session_id: &str) -> Option<FileHistoryS
 
 // ─── Todos ──────────────────────────────────────────────────────────────────
 
-fn read_todos(claude_dir: &Path, session_id: &str) -> Vec<TodoFile> {
-    let dir = claude_dir.join("todos");
+fn read_todos(root_dir: &Path, session_id: &str) -> Vec<TodoFile> {
+    let dir = root_dir.join("todos");
     let Ok(read_dir) = std::fs::read_dir(&dir) else {
         return Vec::new();
     };
@@ -762,8 +762,8 @@ fn read_todos(claude_dir: &Path, session_id: &str) -> Vec<TodoFile> {
 
 // ─── Tasks ──────────────────────────────────────────────────────────────────
 
-fn read_task(claude_dir: &Path, session_id: &str) -> Option<TaskEntry> {
-    let task_dir = claude_dir.join("tasks").join(session_id);
+fn read_task(root_dir: &Path, session_id: &str) -> Option<TaskEntry> {
+    let task_dir = root_dir.join("tasks").join(session_id);
     let lock_path = task_dir.join(".lock");
     if !lock_path.exists() {
         return None;
@@ -923,20 +923,20 @@ fn peek_first_user_prompt(path: &Path) -> Option<String> {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// Plans — <claude_dir>/plans/*.md (global, not per-project)
+// Plans — <root_dir>/plans/*.md (global, not per-project)
 // ═══════════════════════════════════════════════════════════════════════════
 
 /// First markdown heading — the TS side's `/^#\s+(.+)$/m` in `buildPlanIndex`.
 static PLAN_TITLE: Lazy<Regex> =
     Lazy::new(|| Regex::new(r"(?m)^#\s+(.+)$").expect("PLAN_TITLE regex compiles"));
 
-/// Parse every plan file under `<claude_dir>/plans/` — the port of
+/// Parse every plan file under `<root_dir>/plans/` — the port of
 /// `ProjectParserImpl.buildPlanIndex` (project-parser.ts): slug is the
 /// file stem, title the first `# ` heading (else the slug), size the
 /// on-disk byte length. Unreadable / non-`.md` entries are skipped like
 /// the TS per-file `try/catch`. Sorted by slug for deterministic emission.
-pub(crate) fn parse_plans(claude_dir: &Path) -> Vec<PlanFile> {
-    let plans_dir = claude_dir.join("plans");
+pub(crate) fn parse_plans(root_dir: &Path) -> Vec<PlanFile> {
+    let plans_dir = root_dir.join("plans");
     let mut plans: Vec<PlanFile> = Vec::new();
 
     let entries = match std::fs::read_dir(&plans_dir) {
@@ -995,19 +995,19 @@ mod tests {
         rx.try_iter().collect()
     }
 
-    fn run_parser(claude_dir: &Path, slug: &str) -> Vec<IngestEvent> {
+    fn run_parser(root_dir: &Path, slug: &str) -> Vec<IngestEvent> {
         let (tx, rx) = bounded::<IngestEvent>(1024);
         let parser = ProjectParser::new();
         parser
-            .parse_project(claude_dir, slug, &tx)
+            .parse_project(root_dir, slug, &tx)
             .expect("parse_project should succeed");
         drop(tx);
         drain(&rx)
     }
 
-    /// Build `<claude_dir>/projects/<slug>/` and return the project dir.
-    fn mk_project(claude_dir: &Path, slug: &str) -> PathBuf {
-        let p = claude_dir.join("projects").join(slug);
+    /// Build `<root_dir>/projects/<slug>/` and return the project dir.
+    fn mk_project(root_dir: &Path, slug: &str) -> PathBuf {
+        let p = root_dir.join("projects").join(slug);
         fs::create_dir_all(&p).unwrap();
         p
     }
@@ -1154,7 +1154,7 @@ mod tests {
         fs::write(project_dir.join("sessions-index.json"), idx).unwrap();
         fs::write(project_dir.join(format!("{session_id}.jsonl")), "").unwrap();
 
-        // todos live under <claude_dir>/todos/<session>-agent-<agent>.json
+        // todos live under <root_dir>/todos/<session>-agent-<agent>.json
         let todos_dir = dir.path().join("todos");
         fs::create_dir_all(&todos_dir).unwrap();
         let todo_file = todos_dir.join(format!("{session_id}-agent-xyz.json"));

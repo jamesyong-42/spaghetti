@@ -23,22 +23,22 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import * as fs from 'node:fs';
 
-const claudeDir = path.join(os.homedir(), '.claude');
+const rootDir = path.join(os.homedir(), '.claude');
 const targetSlug = '-Users-jamesyong';
 
 console.log('=== SPAGHETTI JSONL PARSE DEBUGGER ===');
-console.log(`Claude dir: ${claudeDir}`);
+console.log(`Claude dir: ${rootDir}`);
 console.log(`Target project: ${targetSlug}`);
 console.log('');
 
 // Step 1: Check the project directory exists and list files
-const projectDir = path.join(claudeDir, 'projects', targetSlug);
+const projectDir = path.join(rootDir, 'projects', targetSlug);
 console.log(`Project dir: ${projectDir}`);
 console.log(`Exists: ${fs.existsSync(projectDir)}`);
 
 if (fs.existsSync(projectDir)) {
   const files = fs.readdirSync(projectDir);
-  const jsonlFiles = files.filter(f => f.endsWith('.jsonl'));
+  const jsonlFiles = files.filter((f) => f.endsWith('.jsonl'));
   console.log(`Total files: ${files.length}`);
   console.log(`JSONL files: ${jsonlFiles.length}`);
   for (const f of jsonlFiles) {
@@ -104,7 +104,7 @@ const debugSink: ProjectParseSink = {
 
   onSession(slug: string, entry: SessionIndexEntry): void {
     sessionCount++;
-    const jsonlPath = path.join(claudeDir, 'projects', slug, `${entry.sessionId}.jsonl`);
+    const jsonlPath = path.join(rootDir, 'projects', slug, `${entry.sessionId}.jsonl`);
     const exists = fs.existsSync(jsonlPath);
     if (!exists) {
       // Only log a few missing ones
@@ -166,7 +166,7 @@ const debugSink: ProjectParseSink = {
 // Step 5: Run the parser
 console.log('--- Running parseProjectStreaming ---');
 try {
-  parser.parseProjectStreaming(claudeDir, targetSlug, debugSink);
+  parser.parseProjectStreaming(rootDir, targetSlug, debugSink);
 } catch (error) {
   console.error(`PARSER THREW: ${error}`);
 }
@@ -197,33 +197,40 @@ console.log('');
 console.log('--- Direct streaming reader test ---');
 import { readJsonlStreaming } from '../packages/core/src/io/streaming-jsonl-reader.js';
 
-const jsonlFiles = fs.readdirSync(projectDir).filter(f => f.endsWith('.jsonl'));
+const jsonlFiles = fs.readdirSync(projectDir).filter((f) => f.endsWith('.jsonl'));
 for (const jsonlFile of jsonlFiles) {
   const filePath = path.join(projectDir, jsonlFile);
   const stats = fs.statSync(filePath);
   let directMsgCount = 0;
   let directErrors = 0;
 
-  const result = readJsonlStreaming(filePath, (_entry, _index, _offset) => {
-    directMsgCount++;
-  }, {
-    onError: (lineIndex, error) => {
-      directErrors++;
-      console.log(`  [ERROR] line ${lineIndex}: ${error}`);
+  const result = readJsonlStreaming(
+    filePath,
+    (_entry, _index, _offset) => {
+      directMsgCount++;
     },
-  });
+    {
+      onError: (lineIndex, error) => {
+        directErrors++;
+        console.log(`  [ERROR] line ${lineIndex}: ${error}`);
+      },
+    },
+  );
 
   console.log(`File: ${jsonlFile} (${stats.size} bytes)`);
-  console.log(`  totalLines=${result.totalLines}, processed=${result.processedLines}, errors=${result.errorCount}, callbacks=${directMsgCount}`);
+  console.log(
+    `  totalLines=${result.totalLines}, processed=${result.processedLines}, errors=${result.errorCount}, callbacks=${directMsgCount}`,
+  );
 }
 
 // Step 8: Test ALL projects to find which have 0 messages
 console.log('');
 console.log('--- Testing ALL projects ---');
-const projectsDir = path.join(claudeDir, 'projects');
-const allProjectDirs = fs.readdirSync(projectsDir, { withFileTypes: true })
-  .filter(d => d.isDirectory())
-  .map(d => d.name);
+const projectsDir = path.join(rootDir, 'projects');
+const allProjectDirs = fs
+  .readdirSync(projectsDir, { withFileTypes: true })
+  .filter((d) => d.isDirectory())
+  .map((d) => d.name);
 
 console.log(`Total project directories: ${allProjectDirs.length}`);
 
@@ -236,8 +243,12 @@ for (const slug of allProjectDirs) {
   const countSink: ProjectParseSink = {
     onProject() {},
     onProjectMemory() {},
-    onSession() { totalSessions++; },
-    onMessage() { totalMsgs++; },
+    onSession() {
+      totalSessions++;
+    },
+    onMessage() {
+      totalMsgs++;
+    },
     onSubagent() {},
     onToolResult() {},
     onFileHistory() {},
@@ -249,14 +260,14 @@ for (const slug of allProjectDirs) {
   };
 
   try {
-    parser.parseProjectStreaming(claudeDir, slug, countSink);
+    parser.parseProjectStreaming(rootDir, slug, countSink);
   } catch {
     // skip
   }
 
   if (totalSessions > 0 && totalMsgs === 0) {
     const projDir = path.join(projectsDir, slug);
-    const hasJsonl = fs.readdirSync(projDir).some(f => f.endsWith('.jsonl'));
+    const hasJsonl = fs.readdirSync(projDir).some((f) => f.endsWith('.jsonl'));
     zeroMessageProjects.push(`${slug} (${totalSessions} sessions, has_jsonl=${hasJsonl})`);
   }
 }

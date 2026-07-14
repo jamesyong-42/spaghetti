@@ -1,7 +1,7 @@
 /**
  * workflow-ingestion.test.ts — the Workflow feature (2026-07 re-audit).
  *
- * Boots the real service (TS engine) against a temp claudeDir containing
+ * Boots the real service (TS engine) against a temp rootDir containing
  * a workflow run + a top-level subagent + a nested workflow subagent, and
  * asserts the nested transcript is ingested (it was invisible before),
  * grouped under its run, and that the API surfaces workflows and their
@@ -33,15 +33,15 @@ function userLine(uuid: string, text: string): string {
 
 describe('Workflow ingestion', () => {
   let tempDir: string;
-  let claudeDir: string;
+  let rootDir: string;
   let dbPath: string;
 
   beforeEach((t) => {
     const safe = t.name.replace(/[^a-zA-Z0-9]/g, '_');
     tempDir = mkdtempSync(path.join(os.tmpdir(), `spaghetti-wf-${safe}-`));
-    claudeDir = path.join(tempDir, '.claude');
+    rootDir = path.join(tempDir, '.claude');
     dbPath = path.join(tempDir, 'test.db');
-    const projectDir = path.join(claudeDir, 'projects', SLUG);
+    const projectDir = path.join(rootDir, 'projects', SLUG);
     const sessionDir = path.join(projectDir, SESSION_ID);
     mkdirSync(path.join(sessionDir, 'workflows'), { recursive: true });
     mkdirSync(path.join(sessionDir, 'subagents', 'workflows', 'wf_run01'), { recursive: true });
@@ -82,7 +82,7 @@ describe('Workflow ingestion', () => {
   });
 
   async function boot(): Promise<SpaghettiAPI> {
-    const svc = createSpaghettiService({ engine: 'ts', claudeDir, dbPath });
+    const svc = createSpaghettiService({ engine: 'ts', rootDir, dbPath });
     await svc.initialize();
     return svc;
   }
@@ -123,8 +123,8 @@ describe('Workflow ingestion', () => {
 
   test('a session with no workflows returns empty', async () => {
     // Remove the workflow dir + nested subagents for this case.
-    rmSync(path.join(claudeDir, 'projects', SLUG, SESSION_ID, 'workflows'), { recursive: true, force: true });
-    rmSync(path.join(claudeDir, 'projects', SLUG, SESSION_ID, 'subagents', 'workflows'), {
+    rmSync(path.join(rootDir, 'projects', SLUG, SESSION_ID, 'workflows'), { recursive: true, force: true });
+    rmSync(path.join(rootDir, 'projects', SLUG, SESSION_ID, 'subagents', 'workflows'), {
       recursive: true,
       force: true,
     });

@@ -22,7 +22,7 @@ import { createGrokSource } from '../sources/index.js';
 import type { SpaghettiAPI } from '../index.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const FIXTURE_CLAUDE_DIR = path.resolve(here, '../../../../crates/spaghetti-napi/fixtures/small/.claude');
+const FIXTURE_ROOT_DIR = path.resolve(here, '../../../../crates/spaghetti-napi/fixtures/small/.claude');
 const GROK_SESSION = '019f5d61-da35-7b60-a1b5-02055fd8fcdd';
 const GROK_CWD = '/tmp/grok-proj';
 const GROK_SLUG = '-tmp-grok-proj';
@@ -61,7 +61,7 @@ describe('multi-source ingest (claude + grok)', () => {
     writeGrokFixture(grokRoot);
 
     spaghetti = createSpaghettiService({
-      claudeDir: FIXTURE_CLAUDE_DIR,
+      rootDir: FIXTURE_ROOT_DIR,
       additionalSources: [createGrokSource({ rootDir: grokRoot })],
       dbPath: path.join(tempDir, 'spaghetti.db'),
     });

@@ -142,7 +142,7 @@ All of §2.4 is **TS-only**.
 - `ClaudeCodeParserImpl` at `packages/sdk/src/parser/claude-code-parser.ts:43`. Composes the three sub-parsers via factories: `createProjectParser(fileService)`, `createConfigParser(fileService)`, `createAnalyticsParser(fileService)`.
 - `parseSync(options?)` at line 58 — returns `ClaudeCodeAgentData` with projects, config, and analytics filled in.
 - `parseStreaming(sink, options?)` at line 80 — streaming variant; only projects stream through a `ProjectParseSink` so worker threads can forward events to the main-thread writer.
-- `parseProjectStreaming(claudeDir, slug, sink)` at line 94 — per-project update path.
+- `parseProjectStreaming(rootDir, slug, sink)` at line 94 — per-project update path.
 
 ### 3.3 Sub-parsers
 
@@ -165,7 +165,7 @@ All of §2.4 is **TS-only**.
 
 ### 3.6 Worker pool (`packages/sdk/src/workers/`)
 
-- **`WorkerPoolImpl.parseProjects(claudeDir, slugs[], onMessage)`** at `worker-pool.ts:58`. Spawns `min(cpus - 1, 8)` workers. Queue-based distribution assigns slugs to idle workers.
+- **`WorkerPoolImpl.parseProjects(rootDir, slugs[], onMessage)`** at `worker-pool.ts:58`. Spawns `min(cpus - 1, 8)` workers. Queue-based distribution assigns slugs to idle workers.
 - **`parse-worker.ts`** — worker thread. Receives `'parse-project'` messages on `parentPort`, parses via `ProjectParserImpl.parseProjectStreaming`, batches 150 messages per `postMessage()` back to main thread.
 - Main thread's `IngestService` is the sole writer; workers never touch SQLite.
 
@@ -203,14 +203,14 @@ Module → primary type:
 - Exported functions (`lib.rs`, line numbers from `ingest.rs`):
   - `ingest(opts: IngestOptions, on_progress?: ThreadsafeFunction) -> AsyncTask<IngestStats>` — `ingest.rs:129`. Runs on a libuv worker thread via `AsyncTask`; returns a `Promise<IngestStats>` in JS.
   - `native_version() -> String` — `lib.rs:28`. Returns `CARGO_PKG_VERSION`.
-- `IngestOptions` fields: `claude_dir`, `db_path`, `mode` (`"cold" | "warm"`), `progress_interval_ms?`, `parallelism?`.
+- `IngestOptions` fields: `agent_dir` (NAPI; Claude data root), `db_path`, `mode` (`"cold" | "warm"`), `progress_interval_ms?`, `parallelism?`.
 - Progress callback: invoked non-blocking with `{ phase: 'scanning' | 'parsing' | 'finalizing', … }`.
 
 ### 4.2 Ingest orchestrator — `src/ingest.rs`
 
 - `run_ingest(opts, on_progress)` at `ingest.rs:277`. Steps:
   1. Warm-start pre-check (line 285): compute fingerprint diff; if empty, return early.
-  2. Project discovery: scan `<claude_dir>/projects/` sequentially (line 292).
+  2. Project discovery: scan `<root_dir>/projects/` sequentially (line 292).
   3. Rayon thread pool built per-call, parallelism clamped to `[1, 8]`, default `min(cpu_count, 8)` (`resolve_parallelism` at line 196).
   4. Each worker calls `ProjectParser::parse_project`, pushes `IngestEvent`s to a per-project unbounded `crossbeam_channel`, then drains into a shared bounded channel.
   5. A single dedicated writer thread consumes the shared channel and writes via rusqlite (line 318).
@@ -219,7 +219,7 @@ Module → primary type:
 
 ### 4.3 Project parser — `src/project_parser.rs`
 
-- `ProjectParser::parse_project(&self, claude_dir, slug, events)` at line 83. Walk order:
+- `ProjectParser::parse_project(&self, root_dir, slug, events)` at line 83. Walk order:
   1. Read/synthesize `sessions-index.json` → emit `IngestEvent::Project`.
   2. Read `memory/MEMORY.md` → `IngestEvent::ProjectMemory`.
   3. Merge index entries with discovered on-disk sessions.
@@ -253,7 +253,7 @@ All events flow through `crossbeam_channel` (bounded per parallelism), consumed 
 ### 4.7 Fingerprint store — `src/fingerprint.rs`
 
 - `SourceFingerprint { path, mtime_ms, size, byte_position?, category, project_slug?, session_id? }`.
-- `compute_diff(claude_dir, stored)` walks `projects/`, `file-history/`, `todos/`, `tasks/`, returns `{ added, modified, deleted }` sets. Used by `run_ingest` for warm-start skipping.
+- `compute_diff(root_dir, stored)` walks `projects/`, `file-history/`, `todos/`, `tasks/`, returns `{ added, modified, deleted }` sets. Used by `run_ingest` for warm-start skipping.
 - Eight tracked categories: `session`, `subagent`, `tool_result`, `memory`, `sessions_index`, `todo`, `task`, `file_history`.
 
 ### 4.8 FTS extraction — `src/fts_text.rs`

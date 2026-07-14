@@ -20,7 +20,7 @@ import type { ConfigParser } from '../config-parser.js';
 describe('ConfigParser settings.local.json', () => {
   let tempDir: string;
   let parser: ConfigParser;
-  let claudeDir: string;
+  let rootDir: string;
 
   before(() => {
     tempDir = mkdtempSync(path.join(os.tmpdir(), 'spaghetti-slocal-'));
@@ -30,18 +30,18 @@ describe('ConfigParser settings.local.json', () => {
   after(() => rmSync(tempDir, { recursive: true, force: true }));
 
   beforeEach((t) => {
-    claudeDir = path.join(tempDir, t.name.replace(/[^a-zA-Z0-9]/g, '_'));
-    mkdirSync(claudeDir, { recursive: true });
-    writeFileSync(path.join(claudeDir, 'settings.json'), JSON.stringify({ permissions: { allow: ['Read'] } }));
+    rootDir = path.join(tempDir, t.name.replace(/[^a-zA-Z0-9]/g, '_'));
+    mkdirSync(rootDir, { recursive: true });
+    writeFileSync(path.join(rootDir, 'settings.json'), JSON.stringify({ permissions: { allow: ['Read'] } }));
   });
 
   test('settings.local.json is parsed into config.settingsLocal', () => {
     writeFileSync(
-      path.join(claudeDir, 'settings.local.json'),
+      path.join(rootDir, 'settings.local.json'),
       JSON.stringify({ permissions: { allow: ['Bash(git*)'] }, skipAutoPermissionPrompt: true }),
     );
 
-    const config = parser.parseConfig(claudeDir);
+    const config = parser.parseConfig(rootDir);
 
     assert.deepEqual(config.settings.permissions.allow, ['Read']);
     assert.ok(config.settingsLocal, 'settingsLocal should be present');
@@ -50,7 +50,7 @@ describe('ConfigParser settings.local.json', () => {
   });
 
   test('settingsLocal is null when the file is absent', () => {
-    const config = parser.parseConfig(claudeDir);
+    const config = parser.parseConfig(rootDir);
     assert.equal(config.settingsLocal, null);
   });
 
@@ -60,7 +60,7 @@ describe('ConfigParser settings.local.json', () => {
 
   test('new settings.json keys are typed on SettingsFile', () => {
     writeFileSync(
-      path.join(claudeDir, 'settings.json'),
+      path.join(rootDir, 'settings.json'),
       JSON.stringify({
         permissions: { allow: [] },
         tui: 'fullscreen',
@@ -69,7 +69,7 @@ describe('ConfigParser settings.local.json', () => {
         skipWorkflowUsageWarning: true,
       }),
     );
-    const s = parser.parseConfig(claudeDir).settings;
+    const s = parser.parseConfig(rootDir).settings;
     assert.equal(s.tui, 'fullscreen');
     assert.equal(s.autoCompactEnabled, false);
     assert.equal(s.agentPushNotifEnabled, true);
@@ -78,31 +78,31 @@ describe('ConfigParser settings.local.json', () => {
 
   test('mcp-needs-auth-cache.json is read into config.mcpNeedsAuth', () => {
     writeFileSync(
-      path.join(claudeDir, 'mcp-needs-auth-cache.json'),
+      path.join(rootDir, 'mcp-needs-auth-cache.json'),
       JSON.stringify({ 'plugin:vercel:vercel': { timestamp: 1779286151774, id: 'auth-xyz' }, gmail: { timestamp: 1 } }),
     );
-    const c = parser.parseConfig(claudeDir);
+    const c = parser.parseConfig(rootDir);
     assert.equal(c.mcpNeedsAuth?.['plugin:vercel:vercel'].id, 'auth-xyz');
     assert.equal(c.mcpNeedsAuth?.['gmail'].timestamp, 1);
     assert.equal(c.mcpNeedsAuth?.['gmail'].id, undefined);
   });
 
   test('plugins/blocklist.json is read into plugins.blocklist', () => {
-    mkdirSync(path.join(claudeDir, 'plugins'), { recursive: true });
+    mkdirSync(path.join(rootDir, 'plugins'), { recursive: true });
     writeFileSync(
-      path.join(claudeDir, 'plugins', 'blocklist.json'),
+      path.join(rootDir, 'plugins', 'blocklist.json'),
       JSON.stringify({
         fetchedAt: '2026-03-31T22:19:08.632Z',
         plugins: [{ plugin: 'code-review@official', added_at: '2026-02-11T03:16:31.424Z', reason: 'test' }],
       }),
     );
-    const b = parser.parseConfig(claudeDir).plugins.blocklist;
+    const b = parser.parseConfig(rootDir).plugins.blocklist;
     assert.equal(b?.plugins.length, 1);
     assert.equal(b?.plugins[0].plugin, 'code-review@official');
   });
 
   test('mcpNeedsAuth + blocklist are null/absent when files are missing', () => {
-    const c = parser.parseConfig(claudeDir);
+    const c = parser.parseConfig(rootDir);
     assert.equal(c.mcpNeedsAuth, null);
     assert.equal(c.plugins.blocklist, null);
     assert.equal(parser.empty().mcpNeedsAuth, null);

@@ -31,15 +31,15 @@ function userLine(uuid: string): string {
 
 describe('Subagent .meta.json sidecar', () => {
   let tempDir: string;
-  let claudeDir: string;
+  let rootDir: string;
   let dbPath: string;
   let subagentsDir: string;
 
   beforeEach((t) => {
     tempDir = mkdtempSync(path.join(os.tmpdir(), `spaghetti-meta-${t.name.replace(/[^a-z0-9]/gi, '_')}-`));
-    claudeDir = path.join(tempDir, '.claude');
+    rootDir = path.join(tempDir, '.claude');
     dbPath = path.join(tempDir, 'test.db');
-    const projectDir = path.join(claudeDir, 'projects', SLUG);
+    const projectDir = path.join(rootDir, 'projects', SLUG);
     subagentsDir = path.join(projectDir, SESSION_ID, 'subagents');
     mkdirSync(subagentsDir, { recursive: true });
     writeFileSync(path.join(projectDir, `${SESSION_ID}.jsonl`), userLine('u0') + '\n');
@@ -59,7 +59,7 @@ describe('Subagent .meta.json sidecar', () => {
   after(() => rmSync(tempDir, { recursive: true, force: true }));
 
   async function boot(): Promise<SpaghettiAPI> {
-    const svc = createSpaghettiService({ engine: 'ts', claudeDir, dbPath });
+    const svc = createSpaghettiService({ engine: 'ts', rootDir, dbPath });
     await svc.initialize();
     return svc;
   }

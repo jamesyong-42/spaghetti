@@ -73,12 +73,12 @@ describe('ConfigParser teams/', () => {
   });
 
   // Each test gets a fresh fake ~/.claude dir so cases stay independent.
-  let claudeDir: string;
+  let rootDir: string;
   let teamsDir: string;
   beforeEach((t) => {
     const safe = t.name.replace(/[^a-zA-Z0-9]/g, '_');
-    claudeDir = path.join(tempDir, safe);
-    teamsDir = path.join(claudeDir, 'teams');
+    rootDir = path.join(tempDir, safe);
+    teamsDir = path.join(rootDir, 'teams');
     mkdirSync(teamsDir, { recursive: true });
   });
 
@@ -124,7 +124,7 @@ describe('ConfigParser teams/', () => {
       implementer: [inboxMessage('team-lead')],
     });
 
-    const teams = parser.parseConfig(claudeDir).teams;
+    const teams = parser.parseConfig(rootDir).teams;
 
     assert.equal(teams.length, 1);
     const team = teams[0];
@@ -148,7 +148,7 @@ describe('ConfigParser teams/', () => {
   test('team without inboxes dir gets empty inboxes', () => {
     writeTeam('config-only', teamConfig('config-only'));
 
-    const teams = parser.parseConfig(claudeDir).teams;
+    const teams = parser.parseConfig(rootDir).teams;
 
     assert.equal(teams.length, 1);
     assert.equal(teams[0].config?.name, 'config-only');
@@ -158,7 +158,7 @@ describe('ConfigParser teams/', () => {
   test('orphaned inbox-only team dir surfaces with null config', () => {
     writeTeam('orphan', null, { architect: [inboxMessage('team-lead')] });
 
-    const teams = parser.parseConfig(claudeDir).teams;
+    const teams = parser.parseConfig(rootDir).teams;
 
     assert.equal(teams.length, 1);
     assert.equal(teams[0].teamId, 'orphan');
@@ -170,7 +170,7 @@ describe('ConfigParser teams/', () => {
     writeFileSync(path.join(teamsDir, '.DS_Store'), 'not json');
     writeTeam('real-team', teamConfig('real-team'));
 
-    const teams = parser.parseConfig(claudeDir).teams;
+    const teams = parser.parseConfig(rootDir).teams;
 
     assert.deepEqual(
       teams.map((t) => t.teamId),
@@ -181,7 +181,7 @@ describe('ConfigParser teams/', () => {
   test('corrupt config.json yields a team with null config', () => {
     writeTeam('broken', '{ not valid json');
 
-    const teams = parser.parseConfig(claudeDir).teams;
+    const teams = parser.parseConfig(rootDir).teams;
 
     assert.equal(teams.length, 1);
     assert.equal(teams[0].teamId, 'broken');
@@ -195,7 +195,7 @@ describe('ConfigParser teams/', () => {
       'not-array': { from: 'x' },
     });
 
-    const teams = parser.parseConfig(claudeDir).teams;
+    const teams = parser.parseConfig(rootDir).teams;
 
     assert.deepEqual(Object.keys(teams[0].inboxes), ['good']);
   });
@@ -203,7 +203,7 @@ describe('ConfigParser teams/', () => {
   test('missing teams dir parses to an empty list', () => {
     rmSync(teamsDir, { recursive: true, force: true });
 
-    assert.deepEqual(parser.parseConfig(claudeDir).teams, []);
+    assert.deepEqual(parser.parseConfig(rootDir).teams, []);
   });
 
   test('teams are sorted by teamId for deterministic output', () => {
@@ -211,7 +211,7 @@ describe('ConfigParser teams/', () => {
     writeTeam('alpha', teamConfig('alpha'));
     writeTeam('mid', teamConfig('mid'));
 
-    const teams = parser.parseConfig(claudeDir).teams;
+    const teams = parser.parseConfig(rootDir).teams;
 
     assert.deepEqual(
       teams.map((t) => t.teamId),

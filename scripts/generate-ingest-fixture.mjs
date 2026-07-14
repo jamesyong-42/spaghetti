@@ -381,7 +381,7 @@ const todoSession = projectResults[0].sessionIds[0];
 const taskSession = projectResults[1].sessionIds[0];
 const historySession = projectResults[2].sessionIds[0];
 
-// Todos: <claudeDir>/todos/<session>-agent-<agent>.json
+// Todos: <rootDir>/todos/<session>-agent-<agent>.json
 write(
   path.join(CLAUDE_DIR, 'todos', `${todoSession}-agent-agent_main.json`),
   JSON.stringify(
@@ -395,11 +395,11 @@ write(
   ),
 );
 
-// Tasks: <claudeDir>/tasks/<session>/.lock + .highwatermark
+// Tasks: <rootDir>/tasks/<session>/.lock + .highwatermark
 write(path.join(CLAUDE_DIR, 'tasks', taskSession, '.lock'), '');
 write(path.join(CLAUDE_DIR, 'tasks', taskSession, '.highwatermark'), '42\n');
 
-// File history: <claudeDir>/file-history/<session>/<hash>@v<version>
+// File history: <rootDir>/file-history/<session>/<hash>@v<version>
 // We deliberately only emit one snapshot — the ingest code stores snapshots
 // as a JSON array whose order comes straight from `readdir`, and readdir's
 // order is not portable (macOS APFS and Rust's std::fs::read_dir disagree

@@ -294,7 +294,7 @@ classDiagram
     }
     class Router {
       <<fn>>
-      +classify(path, claudeDir) RouteResult
+      +classify(path, rootDir) RouteResult
     }
     class SubscriberRegistry {
       <<interface>>

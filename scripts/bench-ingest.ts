@@ -58,7 +58,7 @@ const { values } = parseArgs({
 
 const repoRoot = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..');
 const defaultFixture = path.join(repoRoot, 'crates/spaghetti-napi/fixtures/small/.claude');
-const fixtureClaudeDir = path.resolve(expandTilde(values.fixture ?? defaultFixture));
+const fixtureRootDir = path.resolve(expandTilde(values.fixture ?? defaultFixture));
 
 const runs = parseIntOrDie(values.runs ?? '3', 'runs');
 const warmup = parseIntOrDie(values.warmup ?? '1', 'warmup');
@@ -83,8 +83,8 @@ if (mode === 'warm' && only !== 'rust') {
   process.exit(2);
 }
 
-if (!existsSync(fixtureClaudeDir)) {
-  console.error(`fixture not found: ${fixtureClaudeDir}`);
+if (!existsSync(fixtureRootDir)) {
+  console.error(`fixture not found: ${fixtureRootDir}`);
   process.exit(2);
 }
 
@@ -136,7 +136,9 @@ function formatMs(n: number): string {
 }
 
 function printSummary(s: Summary): void {
-  console.log(`  ${s.label.padEnd(6)}  min ${formatMs(s.min).padStart(8)}   med ${formatMs(s.median).padStart(8)}   mean ${formatMs(s.mean).padStart(8)}   max ${formatMs(s.max).padStart(8)}`);
+  console.log(
+    `  ${s.label.padEnd(6)}  min ${formatMs(s.min).padStart(8)}   med ${formatMs(s.median).padStart(8)}   mean ${formatMs(s.mean).padStart(8)}   max ${formatMs(s.max).padStart(8)}`,
+  );
   const samples = s.samples.map(formatMs).join('  ');
   console.log(`          samples: ${samples}`);
 }
@@ -160,7 +162,7 @@ async function runRustOnce(dbPath: string): Promise<number> {
   const native = require('@vibecook/spaghetti-sdk-native') as NativeAddon;
   const t0 = performance.now();
   await native.ingest({
-    agentDir: fixtureClaudeDir,
+    agentDir: fixtureRootDir,
     dbPath,
     mode,
     parallelism,
@@ -172,7 +174,7 @@ async function seedWarmDb(dbPath: string): Promise<void> {
   cleanDb(dbPath);
   const native = require('@vibecook/spaghetti-sdk-native') as NativeAddon;
   await native.ingest({
-    agentDir: fixtureClaudeDir,
+    agentDir: fixtureRootDir,
     dbPath,
     mode: 'cold',
     parallelism,
@@ -181,17 +183,14 @@ async function seedWarmDb(dbPath: string): Promise<void> {
 
 async function runTsOnce(dbPath: string): Promise<number> {
   cleanDb(dbPath);
-  const svc = createSpaghettiService({ claudeDir: fixtureClaudeDir, dbPath });
+  const svc = createSpaghettiService({ rootDir: fixtureRootDir, dbPath });
   const t0 = performance.now();
   await svc.initialize();
   svc.shutdown();
   return performance.now() - t0;
 }
 
-async function runBench(
-  label: string,
-  fn: (dbPath: string) => Promise<number>,
-): Promise<Summary> {
+async function runBench(label: string, fn: (dbPath: string) => Promise<number>): Promise<Summary> {
   const dbPath = path.join(tmpdir(), `bench-ingest-${label.toLowerCase()}.db`);
 
   // For warm mode we seed the DB with one cold run before any warm
@@ -244,7 +243,7 @@ function writeReport(results: Summary[]): void {
   } = {
     runs,
     warmup,
-    fixture: fixtureClaudeDir,
+    fixture: fixtureRootDir,
     native: native.nativeVersion(),
     cold: {},
     warm: {},
@@ -306,10 +305,9 @@ function compareToBaseline(results: Summary[]): boolean {
   for (const row of rows) {
     const baselineStr = row.baseline === null ? '    null' : formatMs(row.baseline).padStart(9);
     const currentStr = formatMs(row.current).padStart(8);
-    const deltaStr = row.deltaPct === null ? '     n/a' : `${row.deltaPct >= 0 ? '+' : ''}${row.deltaPct.toFixed(1)}%`.padStart(8);
-    console.log(
-      `  ${row.metric.padEnd(28)}  ${baselineStr}  ${currentStr}  ${deltaStr}  ${row.verdict}`,
-    );
+    const deltaStr =
+      row.deltaPct === null ? '     n/a' : `${row.deltaPct >= 0 ? '+' : ''}${row.deltaPct.toFixed(1)}%`.padStart(8);
+    console.log(`  ${row.metric.padEnd(28)}  ${baselineStr}  ${currentStr}  ${deltaStr}  ${row.verdict}`);
   }
 
   const failed = rows.some((r) => r.verdict === 'fail');
@@ -344,7 +342,7 @@ function buildCompareRow(metric: string, entry: BaselineEntry, current: number):
 async function main(): Promise<void> {
   const native = require('@vibecook/spaghetti-sdk-native') as NativeAddon;
 
-  console.log(`fixture:       ${fixtureClaudeDir}`);
+  console.log(`fixture:       ${fixtureRootDir}`);
   console.log(`mode:          ${mode}`);
   console.log(`runs:          ${runs} (+ ${warmup} warmup)`);
   if (parallelism !== undefined) console.log(`parallelism:   ${parallelism}`);
@@ -374,7 +372,9 @@ async function main(): Promise<void> {
   if (rust && ts) {
     console.log('');
     const speedup = ts.median / rust.median;
-    console.log(`speedup (median): ${speedup.toFixed(2)}×   (TS ${formatMs(ts.median)} → Rust ${formatMs(rust.median)})`);
+    console.log(
+      `speedup (median): ${speedup.toFixed(2)}×   (TS ${formatMs(ts.median)} → Rust ${formatMs(rust.median)})`,
+    );
   }
 
   writeReport(results);

@@ -1,7 +1,7 @@
 //! Fingerprint diff — port of the warm-start fingerprint comparison in
 //! `packages/sdk/src/data/ingest-service.ts` + `agent-data-service.ts`.
 //!
-//! Compares on-disk state of `<claude_dir>` against `source_files`
+//! Compares on-disk state of `<root_dir>` against `source_files`
 //! fingerprints stored during the last ingest, producing the
 //! added / modified / deleted change set that drives the warm-start
 //! incremental ingest.
@@ -254,15 +254,15 @@ impl<'a> FingerprintStore<'a> {
 
 // ─── Discovery + diff ──────────────────────────────────────────────────────
 
-/// Walk `<claude_dir>` and diff discovered files against `stored`.
+/// Walk `<root_dir>` and diff discovered files against `stored`.
 ///
 /// See the module docs for the taxonomy and per-category path shapes. The
 /// result is a pure change set — no filesystem writes, no DB writes.
 pub fn compute_diff(
-    claude_dir: &Path,
+    root_dir: &Path,
     stored: &HashMap<String, SourceFingerprint>,
 ) -> Result<FingerprintDiff, FingerprintError> {
-    let discovered = discover_all(claude_dir)?;
+    let discovered = discover_all(root_dir)?;
 
     let mut diff = FingerprintDiff::default();
     let mut seen_paths: std::collections::HashSet<&str> =
@@ -317,7 +317,7 @@ pub fn compute_diff(
 /// Walk the five top-level subtrees we care about and collect every file
 /// that matches one of the recognised category shapes.
 ///
-/// Uses explicit subtree walks instead of a single `WalkDir(claude_dir)`
+/// Uses explicit subtree walks instead of a single `WalkDir(root_dir)`
 /// for two reasons:
 /// 1. The TS parser scans exactly these subpaths with fixed glob patterns
 ///    — mirroring that keeps behaviour aligned across the Node / native
@@ -325,18 +325,18 @@ pub fn compute_diff(
 /// 2. A `~/.claude` tree contains unrelated dirs (`plugins/`, `shell/`,
 ///    `ide/`, `statsig/`, etc.) we do *not* want to fingerprint. An
 ///    allow-listed walk is O(files we care about), not O(everything).
-fn discover_all(claude_dir: &Path) -> Result<Vec<DiscoveredFile>, FingerprintError> {
+fn discover_all(root_dir: &Path) -> Result<Vec<DiscoveredFile>, FingerprintError> {
     let mut out = Vec::new();
 
-    discover_projects(&claude_dir.join("projects"), &mut out)?;
-    discover_todos(&claude_dir.join("todos"), &mut out)?;
-    discover_tasks(&claude_dir.join("tasks"), &mut out)?;
-    discover_file_history(&claude_dir.join("file-history"), &mut out)?;
+    discover_projects(&root_dir.join("projects"), &mut out)?;
+    discover_todos(&root_dir.join("todos"), &mut out)?;
+    discover_tasks(&root_dir.join("tasks"), &mut out)?;
+    discover_file_history(&root_dir.join("file-history"), &mut out)?;
 
     Ok(out)
 }
 
-/// Scan `<claude_dir>/projects/<slug>/*` for every artefact category we
+/// Scan `<root_dir>/projects/<slug>/*` for every artefact category we
 /// recognise. A missing `projects/` dir is not an error — matches the
 /// TS `try { ... } catch { /* projects dir doesn't exist */ }` pattern.
 fn discover_projects(
