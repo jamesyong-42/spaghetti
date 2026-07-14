@@ -48,27 +48,42 @@ export class SpaghettiDataService extends EventEmitter implements ClaudeCodeAgen
     }
   }
 
-  // ── Lifecycle (fan across owners) ─────────────────────────────────────────
+  // ── Lifecycle — exclusive native queue ───────────────────────────────────
+  //
+  //   exclusiveIngest() × N  (serial, shared SQLite CLOSED — all may use rs)
+  //   attachShared()    × N  (open shared handle once, light post-steps)
+  //   startLivePipeline() × N
+  //
+  // This is how N agents each use native bulk without racing better-sqlite3.
 
   async initialize(): Promise<void> {
     this.ready = false;
     const start = Date.now();
-    // Sequential: owners share one SQLite handle; the first opens/creates the
-    // schema, the rest reuse it. Concurrency here would race the open.
-    //
-    // Pause any live pipelines between owners so a later owner’s cold/warm
-    // write (and any exclusive native access) is not racing a live tailer.
-    // Restart every live watch after all owners finish.
-    for (const owner of this.owners) {
-      await this.pauseAllLive();
-      await owner.initialize();
-    }
-    await this.resumeAllLive();
+    await this.runPhasedIngest();
     this.ready = true;
     this.emit('ready', { durationMs: Date.now() - start });
   }
 
-  private async pauseAllLive(): Promise<void> {
+  /**
+   * Serial exclusive queue + shared attach + live. Used by initialize and
+   * rebuildIndex so multi-source always prefers native rs for every owner.
+   */
+  private async runPhasedIngest(): Promise<void> {
+    // Phase 1 — each owner gets the file alone (native MEMORY journal OK).
+    for (const owner of this.owners) {
+      await owner.exclusiveIngest();
+    }
+    // Phase 2 — open shared better-sqlite3 once; attach every source.
+    for (const owner of this.owners) {
+      await owner.attachShared();
+    }
+    // Phase 3 — Plane 2 after every source is warm.
+    for (const owner of this.owners) {
+      await owner.startLivePipeline();
+    }
+  }
+
+  private async stopAllLive(): Promise<void> {
     for (const owner of this.owners) {
       const live = owner.getLiveWatch();
       if (live) {
@@ -81,16 +96,9 @@ export class SpaghettiDataService extends EventEmitter implements ClaudeCodeAgen
     }
   }
 
-  private async resumeAllLive(): Promise<void> {
+  private releaseAllShared(): void {
     for (const owner of this.owners) {
-      const live = owner.getLiveWatch();
-      if (live) {
-        try {
-          await live.start();
-        } catch {
-          /* best-effort — owner may not have created a watch */
-        }
-      }
+      owner.releaseShared?.();
     }
   }
 
@@ -114,17 +122,26 @@ export class SpaghettiDataService extends EventEmitter implements ClaudeCodeAgen
   }
 
   async rebuild(): Promise<void> {
-    for (const owner of this.owners) {
-      await owner.rebuild();
-    }
+    // Full phased re-warm without deleting the file (fingerprints still apply).
+    this.ready = false;
+    await this.stopAllLive();
+    this.releaseAllShared();
+    await this.runPhasedIngest();
+    this.ready = true;
     this.emit('change', { changes: [], timestamp: Date.now() });
   }
 
   async rebuildIndex(): Promise<{ durationMs: number }> {
     const start = Date.now();
-    for (const owner of this.owners) {
-      await owner.rebuildIndex();
-    }
+    this.ready = false;
+    await this.stopAllLive();
+    this.releaseAllShared();
+    // Wipe the shared cache once (primary owner owns the path), then re-queue
+    // every source through exclusive native ingest.
+    const wiper = this.owners.find((o) => typeof o.wipeCache === 'function');
+    wiper?.wipeCache?.();
+    await this.runPhasedIngest();
+    this.ready = true;
     return { durationMs: Date.now() - start };
   }
 

@@ -129,59 +129,22 @@ export class ClaudeCodeLifecycleOwner extends EventEmitter implements ClaudeCode
   }
 
   // ─────────────────────────────────────────────────────────────────────────
-  // Lifecycle
+  // Lifecycle — multi-source exclusive queue phases
   // ─────────────────────────────────────────────────────────────────────────
 
+  /**
+   * Solo path: exclusiveIngest → attachShared → startLivePipeline.
+   * Multi-source coordinators call the three phases separately so every
+   * agent gets exclusive native access in series.
+   */
   async initialize(): Promise<void> {
     const startTime = Date.now();
-
     try {
-      // Ensure the DB directory exists
-      const dbDir = path.dirname(this.dbPath);
-      if (!existsSync(dbDir)) {
-        mkdirSync(dbDir, { recursive: true });
-      }
-
-      // Use the Rust ingest core when this instance is configured for the
-      // `rs` engine and the native addon loads; fall back to the TS path
-      // otherwise. The engine is fixed in the constructor (explicit option
-      // wins over env vars and the persisted config file), so `initialize()`
-      // and `rebuildIndex()` on the same instance always take the same path.
-      const native = this.engine === 'rs' ? loadNativeAddon() : null;
-
-      if (native) {
-        await this.initializeWithNative(native);
-      } else {
-        await this.initializeWithTypeScript();
-      }
-
-      // Parse config and analytics (small data, always sync — not covered
-      // by the native ingest yet).
-      this.emitProgress('parsing', 'Parsing config and analytics...');
-      const fullData = this.parser.parseSync({
-        claudeDir: this.claudeDir,
-        skipProjects: true,
-        skipSessionMessages: true,
-      });
-      this.store.setConfig(fullData.config);
-      this.store.setAnalytics(fullData.analytics);
-
-      // RFC 005 C2.7: with the SQLite baseline caught up, spin up the
-      // live-updates pipeline so subsequent filesystem activity keeps
-      // the DB warm. A failure here is non-fatal for reads — the store
-      // is already populated; we surface the error via the service's
-      // event emitter and continue.
-      if (this.liveUpdates) {
-        try {
-          await this.liveUpdates.start();
-        } catch (err) {
-          this.emit('error', { error: err instanceof Error ? err.message : String(err) });
-        }
-      }
-
+      await this.exclusiveIngest();
+      await this.attachShared();
+      await this.startLivePipeline();
       this.ready = true;
-      const durationMs = Date.now() - startTime;
-      this.emit('ready', { durationMs });
+      this.emit('ready', { durationMs: Date.now() - startTime });
     } catch (error) {
       this.emit('error', { error: error instanceof Error ? error.message : String(error) });
       throw error;
@@ -189,16 +152,98 @@ export class ClaudeCodeLifecycleOwner extends EventEmitter implements ClaudeCode
   }
 
   /**
-   * Native-ingest path: delegate the heavy lifting to `@vibecook/spaghetti-sdk-native`.
-   *
-   * The native addon runs the full cold/warm ingest in Rust on its own
-   * write connection, then closes cleanly. We open read + write services
-   * against the same DB file afterwards for subsequent queries and any
-   * live update writes (hooks, channel messages, etc.).
-   *
-   * We always pass `mode: 'warm'` — the Rust orchestrator self-detects
-   * a missing/empty DB and falls through to a full cold ingest, so
-   * callers don't have to pre-check.
+   * Phase 1 — exclusive cold/warm. Leaves shared better-sqlite3 **closed**
+   * so a subsequent owner can also run native bulk (`journal_mode=MEMORY`).
+   */
+  async exclusiveIngest(): Promise<void> {
+    this.ready = false;
+    const dbDir = path.dirname(this.dbPath);
+    if (!existsSync(dbDir)) {
+      mkdirSync(dbDir, { recursive: true });
+    }
+
+    // Ensure we do not hold the file open across exclusive native turns.
+    this.releaseShared();
+
+    const native = this.engine === 'rs' ? loadNativeAddon() : null;
+    if (native) {
+      await this.initializeWithNative(native);
+      // Native owns its own connection and closes it — shared handle stays closed.
+    } else {
+      // TS path needs the handle during ingest, then must release it.
+      this.emitProgress('parsing', 'Opening database...');
+      this.queryService.open(this.dbPath);
+      this.ingestService.open(this.dbPath);
+      try {
+        await this.initializeWithTypeScript();
+      } finally {
+        this.releaseShared();
+      }
+    }
+  }
+
+  /**
+   * Phase 2 — open shared handle + config/analytics (not covered by native).
+   */
+  async attachShared(): Promise<void> {
+    this.queryService.open(this.dbPath);
+    this.ingestService.open(this.dbPath);
+
+    this.emitProgress('parsing', 'Parsing config and analytics...');
+    const fullData = this.parser.parseSync({
+      claudeDir: this.claudeDir,
+      skipProjects: true,
+      skipSessionMessages: true,
+    });
+    this.store.setConfig(fullData.config);
+    this.store.setAnalytics(fullData.analytics);
+  }
+
+  /** Phase 3 — Plane 2 live (opt-in). Marks the owner ready for multi-source. */
+  async startLivePipeline(): Promise<void> {
+    if (this.liveUpdates) {
+      try {
+        await this.liveUpdates.start();
+      } catch (err) {
+        this.emit('error', { error: err instanceof Error ? err.message : String(err) });
+      }
+    }
+    this.ready = true;
+  }
+
+  releaseShared(): void {
+    try {
+      this.ingestService.close();
+    } catch {
+      /* ignore */
+    }
+    try {
+      this.queryService.close();
+    } catch {
+      /* ignore */
+    }
+  }
+
+  /** Delete the shared cache file so the next exclusiveIngest is a full cold start. */
+  wipeCache(): void {
+    this.releaseShared();
+    for (const suffix of ['', '-wal', '-shm', '-journal']) {
+      const p = this.dbPath + suffix;
+      if (existsSync(p)) {
+        try {
+          // eslint-disable-next-line @typescript-eslint/no-require-imports
+          const fs = require('node:fs') as typeof import('node:fs');
+          fs.rmSync(p, { force: true });
+        } catch {
+          /* best-effort */
+        }
+      }
+    }
+  }
+
+  /**
+   * Native-ingest path: exclusive Rust connection only — does **not** open
+   * better-sqlite3. {@link attachShared} opens the shared handle afterwards.
    */
   private async initializeWithNative(native: NonNullable<ReturnType<typeof loadNativeAddon>>): Promise<void> {
     this.emitProgress('parsing', `Running native ingest (${native.nativeVersion()})...`);
@@ -211,9 +256,6 @@ export class ClaudeCodeLifecycleOwner extends EventEmitter implements ClaudeCode
         sourceId: 'claude-code',
       },
       (progress) => {
-        // Map native phases to the SDK's user-facing progress events.
-        // 'parsing' ticks per-project-complete so the UI shows steady
-        // movement (e.g. "Parsing project 12/112...").
         switch (progress.phase) {
           case 'scanning':
             this.emitProgress(
@@ -237,12 +279,6 @@ export class ClaudeCodeLifecycleOwner extends EventEmitter implements ClaudeCode
         }
       },
     );
-
-    // Open both services against the (now-populated) DB. The ingest
-    // service stays open for post-init writes like hook-event appends;
-    // the query service serves reads.
-    this.queryService.open(this.dbPath);
-    this.ingestService.open(this.dbPath);
   }
 
   /**
@@ -252,14 +288,10 @@ export class ClaudeCodeLifecycleOwner extends EventEmitter implements ClaudeCode
   private static readonly MSG_INDEX_HEAL_KEY = 'heal_msg_index_v1';
 
   /**
-   * Fallback TS-ingest path. Used when the native addon isn't installed
-   * or when `SPAG_NATIVE_INGEST=0`.
+   * Fallback TS-ingest path. Caller must open the DB first and is responsible
+   * for closing it after exclusiveIngest when multi-source needs a free file.
    */
   private async initializeWithTypeScript(): Promise<void> {
-    this.emitProgress('parsing', 'Opening database...');
-    this.queryService.open(this.dbPath);
-    this.ingestService.open(this.dbPath);
-
     const fingerprints = this.ingestService.getAllFingerprints();
     const isColdStart = fingerprints.length === 0;
 
@@ -268,11 +300,7 @@ export class ClaudeCodeLifecycleOwner extends EventEmitter implements ClaudeCode
       this.ingestService.setMeta(ClaudeCodeLifecycleOwner.MSG_INDEX_HEAL_KEY, '1');
     } else if (this.ingestService.getMeta(ClaudeCodeLifecycleOwner.MSG_INDEX_HEAL_KEY) === null) {
       // One-shot heal: releases before the incremental msg_index fix
-      // overwrote the head of active sessions with appended messages
-      // (the streaming reader's line index restarts at 0 on resumed
-      // reads and messages upsert on (session_id, msg_index)). The
-      // JSONL on disk is intact, so one full re-parse restores every
-      // clobbered row; the marker keeps this from ever running again.
+      // overwrote the head of active sessions with appended messages.
       await this.warmStartFullReparse('Healing message indexes from a previous version...');
       this.ingestService.setMeta(ClaudeCodeLifecycleOwner.MSG_INDEX_HEAL_KEY, '1');
     } else {
@@ -281,43 +309,14 @@ export class ClaudeCodeLifecycleOwner extends EventEmitter implements ClaudeCode
   }
 
   /**
-   * Force a full cold rebuild of the index.
-   *
-   * Closes any open write connection, deletes the SQLite file, then
-   * re-ingests from scratch. Callable from the UI (e.g. a "rebuild
-   * index" command) when the user suspects their DB is out of sync
-   * with `~/.claude` — or when a schema bump requires a clean slate.
-   *
-   * Uses the native path when available; falls back to deleting + re-
-   * invoking the TS ingest otherwise.
+   * Force a full cold rebuild (solo). Multi-source rebuild uses the
+   * coordinator wipe + exclusive queue so every agent re-ingests with rs.
    */
   async rebuildIndex(): Promise<{ durationMs: number }> {
     const start = Date.now();
-
-    // Close any open connections so we can safely delete the file.
-    this.queryService.close();
-    this.ingestService.close();
     this.ready = false;
-
-    // Delete the DB and its WAL side-files.
-    for (const suffix of ['', '-wal', '-shm', '-journal']) {
-      const p = this.dbPath + suffix;
-      if (existsSync(p)) {
-        try {
-          // Use rmSync via require('fs') to avoid adding a new top-level import.
-          // eslint-disable-next-line @typescript-eslint/no-require-imports
-          const fs = require('node:fs') as typeof import('node:fs');
-          fs.rmSync(p, { force: true });
-        } catch {
-          // Best-effort: if we can't remove a leftover side-file, ingest
-          // will still succeed against the main file.
-        }
-      }
-    }
-
-    // Re-initialize from scratch.
+    this.wipeCache();
     await this.initialize();
-
     return { durationMs: Date.now() - start };
   }
 

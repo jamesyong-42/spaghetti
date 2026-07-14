@@ -2,23 +2,20 @@
  * CodexLifecycleOwner — Codex's ingest-lifecycle owner (RFC 006 multi-source).
  *
  * Lives under `sources/codex/` (product code). Implements the shared
- * `LifecycleOwner` contract: ingests Codex rollouts
- * (`sessions/YYYY/MM/DD/rollout-*.jsonl`) into the SHARED store under
+ * `LifecycleOwner` contract: ingests Codex rollouts into the SHARED store under
  * `sourceId: 'codex'`.
  *
- * Engine:
- * - **rs** (when native addon loads AND the shared SQLite handle is not yet
- *   open): `native.ingest({ sourceId: 'codex' })` with exclusive access
- * - **ts** otherwise — including when Claude (or another owner) already
- *   opened better-sqlite3 on the same file. Native bulk uses
- *   `journal_mode=MEMORY`, which races with a live better-sqlite3 connection
- *   and can SQLITE_CORRUPT the cache.
+ * ## Multi-source exclusive queue
  *
- * Live (Plane 2, opt-in) always uses the TS writer for Change events + token
- * attribution on incremental tails.
+ * Participates in the three-phase protocol so **native rs is always used when
+ * available** — even when Claude already warm-started the same cache:
  *
- * Failures are non-fatal: a Codex ingest error emits `error` and leaves the rest
- * of the app (Claude) working — Codex is an additive source, not a dependency.
+ * 1. `exclusiveIngest` — `native.ingest({ sourceId: 'codex' })` with the shared
+ *    better-sqlite3 handle **closed** (MEMORY journal is safe).
+ * 2. `attachShared` — open shared handle + stamp extract meta.
+ * 3. `startLivePipeline` — TS live tail for Change events.
+ *
+ * Failures in exclusive/attach are non-fatal (emit `error`, leave Claude up).
  */
 
 import { EventEmitter } from 'events';
@@ -63,35 +60,58 @@ export class CodexLifecycleOwner extends EventEmitter implements LifecycleOwner 
     this.engine = engine ?? resolveEngine();
   }
 
+  /** Solo composition of the three multi-source phases. */
   async initialize(): Promise<void> {
     this.ready = false;
     const start = Date.now();
     try {
-      this.emit('progress', { phase: 'parsing', message: 'Ingesting Codex sessions…' });
+      await this.exclusiveIngest();
+      await this.attachShared();
+      await this.startLivePipeline();
+      this.ready = true;
+      this.emit('ready', { durationMs: Date.now() - start });
+    } catch (error) {
+      this.emit('error', { error: error instanceof Error ? error.message : String(error) });
+    }
+  }
 
-      const native = this.engine === 'rs' ? loadNativeAddon() : null;
-      // Exclusive native only when no peer already holds better-sqlite3.
-      // Shared multi-source: primary (Claude) opens first → we take the TS path.
-      const sharedAlreadyOpen = this.ingestService.isOpen();
+  /**
+   * Phase 1 — exclusive cold/warm. Prefers native rs; leaves shared handle closed.
+   */
+  async exclusiveIngest(): Promise<void> {
+    this.ready = false;
+    this.emit('progress', { phase: 'parsing', message: 'Ingesting Codex sessions…' });
 
-      if (native && !sharedAlreadyOpen) {
-        // Native first (exclusive), then open the shared handle for meta/live.
-        await this.initializeWithNative(native);
-        this.ingestService.open(this.dbPath);
-        this.ingestService.setMeta(CODEX_EXTRACT_META_KEY, CODEX_EXTRACT_VERSION);
-      } else {
-        this.ingestService.open(this.dbPath);
-        if (native && sharedAlreadyOpen) {
-          this.emit('progress', {
-            phase: 'parsing',
-            message: 'Codex: shared DB open — using TypeScript ingest (safe with multi-source)…',
-          });
-        }
-        await this.initializeWithTypeScript();
-      }
+    // Never hold better-sqlite3 open during exclusive native / before peer native.
+    this.releaseShared();
 
-      // Plane 2: live watcher after baseline (TS write path for Change events).
-      if (this.live && !this.liveWatch) {
+    const native = this.engine === 'rs' ? loadNativeAddon() : null;
+    if (native) {
+      await this.initializeWithNative(native);
+      return;
+    }
+
+    // Pure-TS exclusive: open → ingest → close so peers can still take native next.
+    this.ingestService.open(this.dbPath);
+    try {
+      await this.initializeWithTypeScript();
+    } finally {
+      this.releaseShared();
+    }
+  }
+
+  /** Phase 2 — open shared handle + stamp extract version meta. */
+  async attachShared(): Promise<void> {
+    this.ingestService.open(this.dbPath);
+    // Native path stamps meta here (after open). TS path may have stamped already;
+    // re-stamp is idempotent.
+    this.ingestService.setMeta(CODEX_EXTRACT_META_KEY, CODEX_EXTRACT_VERSION);
+  }
+
+  /** Phase 3 — live tail (TS writer for Change events + token attribution). */
+  async startLivePipeline(): Promise<void> {
+    if (this.live) {
+      if (!this.liveWatch) {
         this.liveWatch = createCodexLiveWatch({
           fileService: this.fileService,
           sessionsDir: this.source.paths.sessionsDir,
@@ -99,18 +119,21 @@ export class CodexLifecycleOwner extends EventEmitter implements LifecycleOwner 
           store: this.store,
           errorSink: this.errorSink,
         });
-        await this.liveWatch.start();
       }
+      await this.liveWatch.start();
+    }
+    this.ready = true;
+  }
 
-      this.ready = true;
-      this.emit('ready', { durationMs: Date.now() - start });
-    } catch (error) {
-      // Non-fatal: keep the rest of the app alive if Codex ingest fails.
-      this.emit('error', { error: error instanceof Error ? error.message : String(error) });
+  releaseShared(): void {
+    try {
+      this.ingestService.close();
+    } catch {
+      /* ignore — may already be closed by a peer that shares the handle */
     }
   }
 
-  /** Native Codex cold/warm path (Rust CodexReader + Writer source_id=codex). */
+  /** Native Codex cold/warm (exclusive connection inside the addon). */
   private async initializeWithNative(native: NonNullable<ReturnType<typeof loadNativeAddon>>): Promise<void> {
     this.emit('progress', {
       phase: 'parsing',
@@ -139,7 +162,7 @@ export class CodexLifecycleOwner extends EventEmitter implements LifecycleOwner 
     );
   }
 
-  /** TypeScript CodexReader path (fallback when native is unavailable or unsafe). */
+  /** TypeScript CodexReader path (when native unavailable). Handle must be open. */
   private async initializeWithTypeScript(): Promise<void> {
     const extractVer = this.ingestService.getMeta(CODEX_EXTRACT_META_KEY);
     const forceReread = extractVer !== CODEX_EXTRACT_VERSION;
@@ -187,7 +210,7 @@ export class CodexLifecycleOwner extends EventEmitter implements LifecycleOwner 
 
   async rebuildIndex(): Promise<{ durationMs: number }> {
     const start = Date.now();
-    await this.rebuild();
+    await this.initialize();
     return { durationMs: Date.now() - start };
   }
 

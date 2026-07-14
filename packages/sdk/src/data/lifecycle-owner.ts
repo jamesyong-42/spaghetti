@@ -148,18 +148,69 @@ export interface LifecycleInternal {
  * `search`, etc. query the shared store, which already unifies every source's
  * rows, so reads are a shared facade, not a per-source concern.
  *
+ * ## Multi-source exclusive queue (all agents may use native `rs`)
+ *
+ * Native bulk ingest switches SQLite to `journal_mode=MEMORY` and must own the
+ * file alone. {@link SpaghettiDataService} therefore runs a three-phase protocol
+ * so N agents can each use the Rust path without racing better-sqlite3:
+ *
+ * 1. **`exclusiveIngest()`** × N (serial) — cold/warm; shared better-sqlite3
+ *    MUST stay closed. Prefer `native.ingest`. Safe for MEMORY journal.
+ * 2. **`attachShared()`** × N — open the shared handle (idempotent) + light
+ *    post-steps (config, meta). Do **not** start live.
+ * 3. **`startLivePipeline()`** × N — Plane 2 watchers after every source is warm.
+ *
+ * Solo `initialize()` is the composition of those three phases.
+ *
  * Implementations: `ClaudeCodeLifecycleOwner` (`sources/claude-code/`),
- * `CodexLifecycleOwner` (`sources/codex/`). A coordinator fans
- * `initialize`/`shutdown`/`rebuild` across all owners.
+ * `CodexLifecycleOwner` (`sources/codex/`).
  */
 export interface LifecycleOwner extends LifecycleInternal {
   /** The `AgentSource.id` this owner ingests for (stamped on its rows). */
   readonly sourceId: string;
+
+  /**
+   * Phase 1 — exclusive cold/warm. Shared better-sqlite3 must remain **closed**.
+   * Prefer native rs when available. May open temporarily for a pure-TS path
+   * but must close before returning so the next owner can run native too.
+   */
+  exclusiveIngest(): Promise<void>;
+
+  /**
+   * Phase 2 — shared handle is available. Open it idempotently if needed, then
+   * run lightweight attach (config parse, schema meta). Must not start live.
+   */
+  attachShared(): Promise<void>;
+
+  /**
+   * Phase 3 — start Plane 2 after all owners finished attach. No-op when live
+   * was not requested for this source.
+   */
+  startLivePipeline(): Promise<void>;
+
+  /**
+   * Optional: close this owner's view of the shared handle (and delete the
+   * cache file for a full rebuild). Multi-source wipe runs only on owners that
+   * implement file deletion; others only release connections.
+   */
+  releaseShared?(): void;
+
+  /**
+   * Optional: delete the on-disk cache (and WAL). Only one owner should delete
+   * the shared file — typically the primary. Called once before a full rebuild.
+   */
+  wipeCache?(): void;
+
+  /**
+   * Solo convenience: exclusiveIngest → attachShared → startLivePipeline.
+   * Multi-source coordinators should call the three phases instead so every
+   * agent gets a turn at exclusive native access.
+   */
   initialize(): Promise<void>;
   shutdown(): void;
   shutdownAsync?(): Promise<void>;
   rebuild(): Promise<void>;
-  /** Full cold rebuild of this source's rows. */
+  /** Full cold rebuild of this source's rows (solo). Multi-source uses coordinator. */
   rebuildIndex(): Promise<{ durationMs: number }>;
   /** Owners emit `progress`/`change`/`error`; the coordinator forwards them. */
   on(event: string, listener: (...args: unknown[]) => void): this;
