@@ -18,6 +18,10 @@ pnpm coverage:validate      # check claims against last scan
 # Or re-scan then validate
 pnpm coverage:check         # scan + validate
 
+# HTML report (self-contained; open in a browser)
+pnpm coverage:report
+open docs/coverage/report.html   # or scripts/coverage/out/report.html
+
 # One agent
 python3 scripts/coverage/run_scan.py codex
 python3 scripts/coverage/validate_claim.py codex
@@ -38,7 +42,8 @@ scripts/coverage/
   run_scan.py               entry: scan
   run_validate.py           entry: validate (± --rescan)
   validate_claim.py         claim ↔ ground-truth checks
-  out/                      local scan JSON (gitignored)
+  build_report.py           build self-contained HTML report
+  out/                      local scan JSON + report.html (gitignored)
   claude_code/
     scan_ground_truth.py
     claim.json              machine claim (source of truth)

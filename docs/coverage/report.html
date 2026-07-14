@@ -1,0 +1,574 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Spaghetti · Agent coverage</title>
+<style>
+  :root {
+    --bg: #0b0f14;
+    --bg2: #121821;
+    --bg3: #1a222e;
+    --border: #2a3544;
+    --text: #e7eef7;
+    --muted: #8b9bb0;
+    --accent: #2dd4bf;
+    --accent2: #38bdf8;
+    --ingested: #34d399;
+    --partial: #fbbf24;
+    --ignored: #94a3b8;
+    --oos: #64748b;
+    --unknown: #f87171;
+    --danger: #fb7185;
+    --radius: 12px;
+    --font: "IBM Plex Sans", ui-sans-serif, system-ui, -apple-system, sans-serif;
+    --mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; background: var(--bg); color: var(--text); font-family: var(--font); }
+  body {
+    min-height: 100vh;
+    background-image:
+      radial-gradient(ellipse 80% 50% at 10% -10%, rgba(45,212,191,0.12), transparent),
+      radial-gradient(ellipse 60% 40% at 100% 0%, rgba(56,189,248,0.10), transparent);
+  }
+  a { color: var(--accent2); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  .wrap { max-width: 1120px; margin: 0 auto; padding: 28px 20px 80px; }
+  header.hero {
+    display: flex; flex-wrap: wrap; gap: 16px; align-items: flex-end;
+    justify-content: space-between; margin-bottom: 28px;
+  }
+  .brand { display: flex; flex-direction: column; gap: 6px; }
+  .brand h1 {
+    margin: 0; font-size: 1.65rem; letter-spacing: -0.02em; font-weight: 650;
+  }
+  .brand h1 span { color: var(--accent); }
+  .brand p { margin: 0; color: var(--muted); font-size: 0.95rem; max-width: 52ch; line-height: 1.45; }
+  .meta { color: var(--muted); font-size: 0.8rem; font-family: var(--mono); }
+  .tabs {
+    display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 18px;
+  }
+  .tab {
+    border: 1px solid var(--border); background: var(--bg2); color: var(--text);
+    padding: 8px 14px; border-radius: 999px; cursor: pointer; font: inherit; font-size: 0.9rem;
+  }
+  .tab:hover { border-color: var(--accent); }
+  .tab.active {
+    background: linear-gradient(135deg, rgba(45,212,191,0.18), rgba(56,189,248,0.12));
+    border-color: var(--accent); color: #fff;
+  }
+  .panel { display: none; }
+  .panel.active { display: block; animation: fade .25s ease; }
+  @keyframes fade { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+
+  .grid { display: grid; gap: 14px; grid-template-columns: repeat(12, 1fr); margin-bottom: 18px; }
+  .card {
+    background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius);
+    padding: 16px 18px; grid-column: span 12;
+  }
+  .card.sm { grid-column: span 3; }
+  .card.md { grid-column: span 6; }
+  @media (max-width: 900px) {
+    .card.sm, .card.md { grid-column: span 6; }
+  }
+  @media (max-width: 560px) {
+    .card.sm, .card.md { grid-column: span 12; }
+  }
+  .card h2 { margin: 0 0 6px; font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); font-weight: 600; }
+  .card .big { font-size: 1.75rem; font-weight: 700; letter-spacing: -0.03em; font-variant-numeric: tabular-nums; }
+  .card .sub { color: var(--muted); font-size: 0.85rem; margin-top: 4px; }
+
+  .bar {
+    height: 12px; border-radius: 999px; background: var(--bg3); overflow: hidden;
+    display: flex; margin: 10px 0 6px;
+  }
+  .bar > i { display: block; height: 100%; }
+  .bar .ingested { background: var(--ingested); }
+  .bar .partial { background: var(--partial); }
+  .bar .ignored { background: var(--ignored); }
+  .bar .oos { background: var(--oos); }
+  .bar .unknown { background: var(--unknown); }
+  .legend { display: flex; flex-wrap: wrap; gap: 10px 16px; font-size: 0.8rem; color: var(--muted); }
+  .legend span::before {
+    content: ""; display: inline-block; width: 8px; height: 8px; border-radius: 50%;
+    margin-right: 6px; vertical-align: middle;
+  }
+  .legend .ingested::before { background: var(--ingested); }
+  .legend .partial::before { background: var(--partial); }
+  .legend .ignored::before { background: var(--ignored); }
+  .legend .oos::before { background: var(--oos); }
+  .legend .unknown::before { background: var(--unknown); }
+
+  .desc {
+    background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius);
+    padding: 14px 16px; margin-bottom: 16px; color: var(--muted); line-height: 1.5; font-size: 0.92rem;
+  }
+  .engines { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+  .pill {
+    font-size: 0.75rem; font-family: var(--mono); padding: 3px 8px; border-radius: 6px;
+    border: 1px solid var(--border); background: var(--bg3); color: var(--muted);
+  }
+  .pill.on { border-color: rgba(45,212,191,0.4); color: var(--accent); }
+  .pill.off { opacity: 0.55; }
+
+  .toolbar {
+    display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin: 8px 0 12px;
+  }
+  .toolbar input, .toolbar select {
+    background: var(--bg3); border: 1px solid var(--border); color: var(--text);
+    border-radius: 8px; padding: 8px 10px; font: inherit; font-size: 0.88rem;
+  }
+  .toolbar input { min-width: 220px; flex: 1; }
+  table {
+    width: 100%; border-collapse: collapse; font-size: 0.88rem;
+  }
+  th, td {
+    text-align: left; padding: 10px 10px; border-bottom: 1px solid var(--border);
+    vertical-align: top;
+  }
+  th {
+    color: var(--muted); font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.05em;
+    font-weight: 600; position: sticky; top: 0; background: var(--bg2); z-index: 1;
+  }
+  tr:hover td { background: rgba(255,255,255,0.02); }
+  .status {
+    display: inline-flex; align-items: center; gap: 6px;
+    font-family: var(--mono); font-size: 0.75rem; font-weight: 600;
+    padding: 2px 8px; border-radius: 999px; border: 1px solid transparent;
+  }
+  .status.ingested { color: #065f46; background: rgba(52,211,153,0.2); border-color: rgba(52,211,153,0.35); color: #6ee7b7; }
+  .status.partial { color: #fde68a; background: rgba(251,191,36,0.15); border-color: rgba(251,191,36,0.35); }
+  .status.ignored { color: #cbd5e1; background: rgba(148,163,184,0.12); border-color: rgba(148,163,184,0.3); }
+  .status.out_of_scope { color: #94a3b8; background: rgba(100,116,139,0.15); border-color: rgba(100,116,139,0.3); }
+  .status.unknown { color: #fecaca; background: rgba(248,113,113,0.15); border-color: rgba(248,113,113,0.35); }
+  .id { font-family: var(--mono); font-size: 0.8rem; word-break: break-all; }
+  .notes { color: var(--muted); font-size: 0.82rem; line-height: 1.4; max-width: 42ch; }
+  .count { font-variant-numeric: tabular-nums; font-family: var(--mono); white-space: nowrap; }
+  .count.muted { color: var(--muted); }
+  .bar-mini {
+    display: inline-block; width: 72px; height: 6px; border-radius: 4px; background: var(--bg3);
+    vertical-align: middle; margin-right: 8px; overflow: hidden;
+  }
+  .bar-mini > i { display: block; height: 100%; background: var(--accent2); }
+
+  .section-title {
+    margin: 22px 0 10px; font-size: 1.05rem; font-weight: 650; letter-spacing: -0.01em;
+  }
+  .warn {
+    border: 1px solid rgba(251,191,36,0.35); background: rgba(251,191,36,0.08);
+    color: #fde68a; border-radius: var(--radius); padding: 12px 14px; margin-bottom: 14px; font-size: 0.9rem;
+  }
+  .empty { color: var(--muted); padding: 24px; text-align: center; }
+  footer {
+    margin-top: 40px; padding-top: 16px; border-top: 1px solid var(--border);
+    color: var(--muted); font-size: 0.8rem; line-height: 1.5;
+  }
+  .table-wrap {
+    overflow: auto; max-height: 560px; border: 1px solid var(--border);
+    border-radius: var(--radius); background: var(--bg2);
+  }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <header class="hero">
+      <div class="brand">
+        <h1><span>Spaghetti</span> · agent coverage</h1>
+        <p>What exists on disk vs what we claim to ingest — per agent, from ground-truth scans and checked-in claims.</p>
+      </div>
+      <div class="meta">Generated 2026-07-14 00:40 UTC</div>
+    </header>
+
+    <div class="tabs" id="tabs"></div>
+    <div id="panels"></div>
+
+    <footer>
+      Machine claims: <code>scripts/coverage/*/claim.json</code> ·
+      Scans: <code>scripts/coverage/out/*-ground-truth.json</code> ·
+      Rebuild: <code>pnpm coverage:report</code> ·
+      Validate: <code>pnpm coverage:check</code>
+    </footer>
+  </div>
+
+<script>
+const DATA = {"generatedAt": "2026-07-14T00:40:25.743778+00:00", "agents": [{"agentId": "claude-code", "claim": {"schemaVersion": 1, "agentId": "claude-code", "updated": "2026-07-13", "rootDefault": "~/.claude", "description": "Honest coverage claim for Claude Code. Status is product intent, not aspirational. Validators fail when ground truth shows buckets with no claim entry.", "engines": {"ts": "packages/sdk TypeScript ingest", "rs": "crates/spaghetti-napi native cold/warm/live batch"}, "surfaces": [{"id": "session.jsonl.line", "status": "ingested", "match": {"bucket": "session.jsonl.line"}, "engines": {"ts": true, "rs": true}, "product": ["messages", "search", "fts", "stats"], "notes": "Every valid JSONL line becomes a messages row (Claude stores a row per line)."}, {"id": "session.message_type.*", "status": "ingested", "match": {"bucketPrefix": "session.message_type"}, "engines": {"ts": true, "rs": true}, "product": ["messages"], "notes": "All observed `type` values stored in messages.msg_type + raw data. Unknown types still stored; FTS may be empty."}, {"id": "project.memory", "status": "ingested", "match": {"bucket": "project.memory"}, "engines": {"ts": true, "rs": true}, "product": ["memory"], "notes": "projects/\u003cslug\u003e/memory/MEMORY.md"}, {"id": "project.sessions_index", "status": "ingested", "match": {"bucket": "project.sessions_index"}, "engines": {"ts": true, "rs": true}, "product": ["sessions", "projects"], "notes": "sessions-index.json; discovery also finds UUID jsonl not in index."}, {"id": "subagent.jsonl", "status": "ingested", "match": {"bucket": "subagent.jsonl"}, "engines": {"ts": true, "rs": true}, "product": ["subagents"], "notes": "agent-*.jsonl under session subagents/; workflow nesting supported."}, {"id": "tool_result.file", "status": "ingested", "match": {"bucket": "tool_result.file"}, "engines": {"ts": true, "rs": true}, "product": ["tool_results"], "notes": "tool-results/*.txt sidecars."}, {"id": "workflow.file", "status": "ingested", "match": {"bucket": "workflow.file"}, "engines": {"ts": true, "rs": true}, "product": ["workflows"], "notes": "workflow run records under subagents/workflows/."}, {"id": "secondary.todos", "status": "ingested", "match": {"bucket": "secondary.todos"}, "engines": {"ts": true, "rs": true}, "product": ["todos"]}, {"id": "secondary.plans", "status": "ingested", "match": {"bucket": "secondary.plans"}, "engines": {"ts": true, "rs": true}, "product": ["plans"]}, {"id": "secondary.tasks", "status": "ingested", "match": {"bucket": "secondary.tasks"}, "engines": {"ts": true, "rs": true}, "product": ["tasks"]}, {"id": "secondary.file-history", "status": "ingested", "match": {"bucket": "secondary.file-history"}, "engines": {"ts": true, "rs": true}, "product": ["file_history"]}, {"id": "secondary.teams", "status": "partial", "match": {"bucket": "secondary.teams"}, "engines": {"ts": true, "rs": false}, "product": ["teams"], "notes": "TS cold parse into config domain; not SQLite/FTS; no live watch; RS none."}, {"id": "secondary.sessions_pid", "status": "partial", "match": {"bucket": "secondary.sessions_pid"}, "engines": {"ts": true, "rs": false}, "product": ["runtime.active_sessions"], "notes": "Active PID registry via api.runtime / listActiveSessions; not durable index."}, {"id": "secondary.plugins", "status": "partial", "match": {"bucket": "secondary.plugins"}, "engines": {"ts": true, "rs": false}, "product": ["config"], "notes": "Plugin config readers exist; not full plugin code/body ingest."}, {"id": "toplevel.settings.json", "status": "ingested", "match": {"toplevel": "settings.json"}, "engines": {"ts": true, "rs": false}, "product": ["settings"], "notes": "Config domain TS."}, {"id": "toplevel.settings.local.json", "status": "ingested", "match": {"toplevel": "settings.local.json"}, "engines": {"ts": true, "rs": false}, "product": ["settings"], "notes": "Promoted into config readers (2026-07)."}, {"id": "toplevel.backups", "status": "ignored", "match": {"toplevel": "backups"}, "engines": {"ts": false, "rs": false}, "notes": "Types exist; no parser wired (PARSER-UNPARSED-DATA)."}, {"id": "toplevel.hooks", "status": "ignored", "match": {"toplevel": "hooks"}, "engines": {"ts": false, "rs": false}, "notes": "Hook scripts on disk not loaded; hook *events* via Spaghetti plugin JSONL."}, {"id": "toplevel.telemetry", "status": "ignored", "match": {"toplevel": "telemetry"}, "engines": {"ts": false, "rs": false}, "notes": "High volume; hard-ignored on live path."}, {"id": "toplevel.debug", "status": "ignored", "match": {"toplevel": "debug"}, "engines": {"ts": false, "rs": false}}, {"id": "toplevel.paste-cache", "status": "ignored", "match": {"toplevel": "paste-cache"}, "engines": {"ts": false, "rs": false}}, {"id": "toplevel.session-env", "status": "partial", "match": {"toplevel": "session-env"}, "engines": {"ts": true, "rs": false}, "notes": "Script listing / types refreshed; not full content index."}, {"id": "toplevel.credentials", "status": "out_of_scope", "match": {"toplevel": ".credentials.json"}, "engines": {"ts": false, "rs": false}, "notes": "Must-not-parse secrets."}, {"id": "toplevel.statsig", "status": "partial", "match": {"toplevel": "statsig"}, "engines": {"ts": true, "rs": false}, "notes": "Types exist; limited readers."}, {"id": "toplevel.shell-snapshots", "status": "ignored", "match": {"toplevel": "shell-snapshots"}, "engines": {"ts": false, "rs": false}}, {"id": "toplevel.cache", "status": "ignored", "match": {"toplevel": "cache"}, "engines": {"ts": false, "rs": false}}, {"id": "toplevel.ide", "status": "ignored", "match": {"toplevel": "ide"}, "engines": {"ts": false, "rs": false}}, {"id": "toplevel.history.jsonl", "status": "ignored", "match": {"toplevel": "history.jsonl"}, "engines": {"ts": false, "rs": false}, "notes": "If present; not the session transcript source of truth."}, {"id": "toplevel.CLAUDE.md", "status": "ignored", "match": {"toplevel": "CLAUDE.md"}, "engines": {"ts": false, "rs": false}, "notes": "Root global instructions; per-project MEMORY.md is ingested."}, {"id": "toplevel.projects", "status": "ingested", "match": {"toplevel": "projects"}, "engines": {"ts": true, "rs": true}, "product": ["projects"], "notes": "Primary corpus root."}, {"id": "toplevel.mcp-needs-auth-cache.json", "status": "partial", "match": {"toplevel": "mcp-needs-auth-cache.json"}, "engines": {"ts": true, "rs": false}, "notes": "Reader wired (2026-07 audit LOW); not a product tab."}, {"id": "toplevel.stats-cache.json", "status": "ignored", "match": {"toplevel": "stats-cache.json"}, "engines": {"ts": false, "rs": false}, "notes": "Claude Code local cache; not Spaghetti index input."}, {"id": "toplevel.statusline-command.sh", "status": "ignored", "match": {"toplevel": "statusline-command.sh"}, "engines": {"ts": false, "rs": false}}, {"id": "toplevel..last-cleanup", "status": "out_of_scope", "match": {"toplevel": ".last-cleanup"}, "engines": {"ts": false, "rs": false}}, {"id": "toplevel..last-update-result.json", "status": "out_of_scope", "match": {"toplevel": ".last-update-result.json"}, "engines": {"ts": false, "rs": false}}, {"id": "toplevel..spaghetti-live-state.json", "status": "out_of_scope", "match": {"toplevel": ".spaghetti-live-state.json"}, "engines": {"ts": false, "rs": false}, "notes": "Spaghetti-owned helper state if present under .claude; not agent corpus."}, {"id": "toplevel..DS_Store", "status": "out_of_scope", "match": {"toplevel": ".DS_Store"}, "engines": {"ts": false, "rs": false}}, {"id": "toplevel..idea", "status": "out_of_scope", "match": {"toplevel": ".idea"}, "engines": {"ts": false, "rs": false}}, {"id": "toplevel.vercel-plugin-device-id", "status": "out_of_scope", "match": {"toplevel": "vercel-plugin-device-id"}, "engines": {"ts": false, "rs": false}, "notes": "Few-byte Vercel plugin ids; see PARSER-UNPARSED-DATA."}, {"id": "toplevel.vercel-plugin-telemetry-preference", "status": "out_of_scope", "match": {"toplevel": "vercel-plugin-telemetry-preference"}, "engines": {"ts": false, "rs": false}}], "policy": {"undocumentedBucket": "fail", "zeroCountUndocumented": "ignore", "requireClaimForToplevelWithBytes": true, "minBytesForToplevelClaim": 1}}, "groundTruth": {"agentId": "claude-code", "buckets": {"project.memory": {"count": 16}, "project.sessions_index": {"count": 16}, "secondary": {"file-history": {"bytes": 193680078, "exists": true, "file_count": 16229}, "plans": {"bytes": 378303, "exists": true, "file_count": 35}, "plugins": {"bytes": 357187237, "exists": true, "file_count": 11329}, "sessions_pid": {"bytes": 3411, "exists": true, "file_count": 8}, "tasks": {"bytes": 72432, "exists": true, "file_count": 316}, "teams": {"bytes": 740371, "exists": true, "file_count": 91}, "todos": {"bytes": 7076, "exists": true, "file_count": 2459}}, "session.jsonl.line": {"bytes": 875644743, "count": 394991, "files": 285, "lines_total": 394991}, "session.message_type": {"agent-name": 159, "ai-title": 5523, "assistant": 87658, "attachment": 154456, "bridge-session": 2555, "custom-title": 75, "file-history-snapshot": 8204, "last-prompt": 9151, "mode": 5109, "permission-mode": 9265, "pr-link": 2336, "progress": 45926, "queue-operation": 2793, "system": 9851, "user": 51930}, "subagent.jsonl": {"count": 4501}, "tool_result.file": {"count": 1650}, "workflow.file": {"count": 1518}}, "notes": "session.message_type keys are Claude JSONL `type` discriminators. session.jsonl.line.count is valid JSON lines (not only user/assistant).", "projectCount": 130, "projectsSample": [{"has_memory": false, "message_type_totals": {"attachment": 10, "file-history-snapshot": 2, "last-prompt": 4, "mode": 2, "permission-mode": 2, "user": 6}, "session_files": 2, "slug": "-"}, {"has_memory": true, "message_type_totals": {"assistant": 70, "attachment": 32, "file-history-snapshot": 29, "last-prompt": 16, "mode": 5, "permission-mode": 11, "progress": 742, "system": 26, "user": 76}, "session_files": 12, "slug": "-Users-jamesyong"}, {"has_memory": false, "message_type_totals": {}, "session_files": 0, "slug": "-Users-jamesyong--claude"}, {"has_memory": false, "message_type_totals": {}, "session_files": 0, "slug": "-Users-jamesyong--claude-code-on-the-go-sessions-usage-query"}, {"has_memory": false, "message_type_totals": {}, "session_files": 0, "slug": "-Users-jamesyong--claude-on-the-go-sessions-usage-query"}, {"has_memory": false, "message_type_totals": {"assistant": 135, "file-history-snapshot": 28, "last-prompt": 1, "progress": 216, "queue-operation": 6, "system": 14, "user": 116}, "session_files": 4, "slug": "-Users-jamesyong-Projects-duke-2024-portfolio-template-2025-portfolio"}, {"has_memory": false, "message_type_totals": {"ai-title": 10, "assistant": 68, "attachment": 126, "file-history-snapshot": 5, "last-prompt": 11, "mode": 11, "permission-mode": 11, "system": 10, "user": 31}, "session_files": 1, "slug": "-Users-jamesyong-Projects-duke-tricount"}, {"has_memory": false, "message_type_totals": {"assistant": 88, "file-history-snapshot": 4, "last-prompt": 1, "progress": 132, "system": 7, "user": 56}, "session_files": 1, "slug": "-Users-jamesyong-Projects-house-6004-Orchard-Avenue"}, {"has_memory": false, "message_type_totals": {"agent-name": 1, "assistant": 177, "attachment": 18, "custom-title": 1, "file-history-snapshot": 35, "last-prompt": 1, "permission-mode": 4, "progress": 708, "queue-operation": 8, "system": 29, "user": 127}, "session_files": 2, "slug": "-Users-jamesyong-Projects-jabali-editor"}, {"has_memory": false, "message_type_totals": {"assistant": 16, "attachment": 84, "file-history-snapshot": 1, "last-prompt": 1, "permission-mode": 4, "system": 2, "user": 14}, "session_files": 1, "slug": "-Users-jamesyong-Projects-jabali-game-hosting-bridge"}, {"has_memory": false, "message_type_totals": {}, "session_files": 0, "slug": "-Users-jamesyong-Projects-jabali-gel"}, {"has_memory": false, "message_type_totals": {"ai-title": 3, "assistant": 22, "attachment": 76, "file-history-snapshot": 6, "last-prompt": 4, "permission-mode": 5, "system": 8, "user": 15}, "session_files": 2, "slug": "-Users-jamesyong-Projects-jabali-infra-nakama"}, {"has_memory": false, "message_type_totals": {"assistant": 3, "attachment": 17, "file-history-snapshot": 1, "last-prompt": 1, "permission-mode": 4, "system": 2, "user": 2}, "session_files": 1, "slug": "-Users-jamesyong-Projects-jabali-loader"}, {"has_memory": false, "message_type_totals": {"agent-name": 5, "ai-title": 7, "assistant": 6000, "attachment": 6864, "custom-title": 5, "file-history-snapshot": 805, "last-prompt": 607, "mode": 53, "permission-mode": 615, "pr-link": 507, "progress": 5993, "queue-operation": 118, "system": 1182, "user": 3834}, "session_files": 12, "slug": "-Users-jamesyong-Projects-jabali-studio-meme-app"}, {"has_memory": false, "message_type_totals": {}, "session_files": 0, "slug": "-Users-jamesyong-Projects-jabali-studio-meme-app-apps-web"}, {"has_memory": false, "message_type_totals": {}, "session_files": 0, "slug": "-Users-jamesyong-Projects-jabali-studio-meme-app-packages-project-template-template"}, {"has_memory": false, "message_type_totals": {}, "session_files": 0, "slug": "-Users-jamesyong-Projects-jabali-template"}, {"has_memory": false, "message_type_totals": {"assistant": 18, "file-history-snapshot": 2, "progress": 129, "system": 4, "user": 12}, "session_files": 1, "slug": "-Users-jamesyong-Projects-jabali-ts-plugin"}, {"has_memory": false, "message_type_totals": {"assistant": 77, "file-history-snapshot": 14, "last-prompt": 2, "progress": 352, "system": 11, "user": 60}, "session_files": 3, "slug": "-Users-jamesyong-Projects-jabali-ts-plugin-origin"}, {"has_memory": false, "message_type_totals": {"assistant": 44, "attachment": 17, "file-history-snapshot": 10, "last-prompt": 1, "permission-mode": 4, "system": 14, "user": 32}, "session_files": 2, "slug": "-Users-jamesyong-Projects-jabali-web-client"}, {"has_memory": true, "message_type_totals": {"assistant": 200, "attachment": 4, "file-history-snapshot": 43, "last-prompt": 2, "permission-mode": 2, "progress": 376, "queue-operation": 12, "system": 31, "user": 146}, "session_files": 1, "slug": "-Users-jamesyong-Projects-job"}, {"has_memory": false, "message_type_totals": {"ai-title": 25, "assistant": 147, "attachment": 295, "file-history-snapshot": 23, "last-prompt": 26, "permission-mode": 26, "queue-operation": 8, "system": 12, "user": 75}, "session_files": 1, "slug": "-Users-jamesyong-Projects-job-sde"}, {"has_memory": false, "message_type_totals": {"file-history-snapshot": 1, "progress": 1, "system": 2, "user": 3}, "session_files": 1, "slug": "-Users-jamesyong-Projects-other"}, {"has_memory": false, "message_type_totals": {}, "session_files": 0, "slug": "-Users-jamesyong-Projects-other-cleopatra-dev"}, {"has_memory": false, "message_type_totals": {"assistant": 454, "file-history-snapshot": 61, "queue-operation": 2, "system": 62, "user": 295}, "session_files": 1, "slug": "-Users-jamesyong-Projects-other-cleopatra-dev-2022-cleopatra-2026-cleopatra"}, {"has_memory": false, "message_type_totals": {"assistant": 597, "file-history-snapshot": 86, "last-prompt": 6, "progress": 1532, "queue-operation": 26, "system": 15, "user": 445}, "session_files": 2, "slug": "-Users-jamesyong-Projects-other-cleopatra-dev-2022-cleopatra-frontend"}, {"has_memory": true, "message_type_totals": {"assistant": 4062, "file-history-snapshot": 357, "last-prompt": 23, "progress": 13402, "queue-operation": 326, "system": 742, "user": 2887}, "session_files": 6, "slug": "-Users-jamesyong-Projects-project100"}, {"has_memory": false, "message_type_totals": {"assistant": 25, "file-history-snapshot": 2, "last-prompt": 1, "progress": 34, "queue-operation": 4, "system": 2, "user": 16}, "session_files": 1, "slug": "-Users-jamesyong-Projects-project100-flights"}, {"has_memory": false, "message_type_totals": {"assistant": 84, "attachment": 276, "file-history-snapshot": 7, "last-prompt": 2, "permission-mode": 4, "queue-operation": 34, "system": 32, "user": 64}, "session_files": 2, "slug": "-Users-jamesyong-Projects-project100-ghostty-proto"}, {"has_memory": true, "message_type_totals": {"agent-name": 2, "ai-title": 1038, "assistant": 13984, "attachment": 33542, "bridge-session": 595, "custom-title": 2, "file-history-snapshot": 1216, "last-prompt": 2208, "mode": 655, "permission-mode": 2269, "pr-link": 191, "queue-operation": 154, "system": 1446, "user": 7647}, "session_files": 30, "slug": "-Users-jamesyong-Projects-project100-infinite-canvas"}, {"has_memory": false, "message_type_totals": {}, "session_files": 0, "slug": "-Users-jamesyong-Projects-project100-infinite-canvas-apps-playground"}, {"has_memory": false, "message_type_totals": {}, "session_files": 0, "slug": "-Users-jamesyong-Projects-project100-infinite-canvas-docs-architecture"}, {"has_memory": true, "message_type_totals": {"ai-title": 968, "assistant": 5115, "attachment": 11363, "bridge-session": 543, "file-history-snapshot": 340, "last-prompt": 972, "mode": 971, "permission-mode": 971, "queue-operation": 47, "system": 263, "user": 2856}, "session_files": 3, "slug": "-Users-jamesyong-Projects-project100-infinite-canvas-engine"}, {"has_memory": false, "message_type_totals": {}, "session_files": 0, "slug": "-Users-jamesyong-Projects-project100-infinite-canvas-packages-infinite-canvas-src"}, {"has_memory": false, "message_type_totals": {}, "session_files": 0, "slug": "-Users-jamesyong-Projects-project100-lean-ecs"}, {"has_memory": false, "message_type_totals": {"assistant": 536, "attachment": 1269, "file-history-snapshot": 54, "last-prompt": 79, "permission-mode": 85, "queue-operation": 4, "system": 34, "user": 330}, "session_files": 2, "slug": "-Users-jamesyong-Projects-project100-mille"}, {"has_memory": false, "message_type_totals": {}, "session_files": 0, "slug": "-Users-jamesyong-Projects-project100-p007-p007-webgpu-llm-arena"}, {"has_memory": true, "message_type_totals": {"file-history-snapshot": 6, "last-prompt": 1, "progress": 16, "system": 2, "user": 17}, "session_files": 4, "slug": "-Users-jamesyong-Projects-project100-p008"}, {"has_memory": true, "message_type_totals": {"agent-name": 2, "assistant": 1655, "attachment": 7900, "custom-title": 2, "file-history-snapshot": 222, "last-prompt": 7, "mode": 1, "permission-mode": 13, "queue-operation": 20, "system": 128, "user": 1027}, "session_files": 7, "slug": "-Users-jamesyong-Projects-project100-p008-avocado"}, {"has_memory": false, "message_type_totals": {}, "session_files": 0, "slug": "-Users-jamesyong-Projects-project100-p008-avocado-apps-playground"}, {"has_memory": false, "message_type_totals": {}, "session_files": 0, "slug": "-Users-jamesyong-Projects-project100-p008-avocado-node_modules-.pnpm-electron@35.7.5-node_modules-electron"}, {"has_memory": false, "message_type_totals": {}, "session_files": 0, "slug": "-Users-jamesyong-Projects-project100-p008-avocado-packages-cli"}, {"has_memory": false, "message_type_totals": {}, "session_files": 0, "slug": "-Users-jamesyong-Projects-project100-p008-avocado-packages-sdk"}, {"has_memory": false, "message_type_totals": {"agent-name": 1, "assistant": 753, "attachment": 1141, "custom-title": 1, "file-history-snapshot": 101, "last-prompt": 1, "permission-mode": 2, "queue-operation": 8, "system": 94, "user": 520}, "session_files": 2, "slug": "-Users-jamesyong-Projects-project100-p008-cheeseboard"}, {"has_memory": false, "message_type_totals": {}, "session_files": 0, "slug": "-Users-jamesyong-Projects-project100-p008-cheeseboard-src-tauri"}, {"has_memory": false, "message_type_totals": {"assistant": 4, "attachment": 20, "file-history-snapshot": 5, "last-prompt": 4, "mode": 4, "permission-mode": 4, "system": 4, "user": 5}, "session_files": 2, "slug": "-Users-jamesyong-Projects-project100-p008-chopsticks"}, {"has_memory": false, "message_type_totals": {"agent-name": 16, "assistant": 31, "attachment": 100, "custom-title": 16, "file-history-snapshot": 4, "last-prompt": 20, "mode": 5, "permission-mode": 4, "queue-operation": 16, "system": 5, "user": 21}, "session_files": 9, "slug": "-Users-jamesyong-Projects-project100-p008-chopsticks-probe"}, {"has_memory": false, "message_type_totals": {}, "session_files": 0, "slug": "-Users-jamesyong-Projects-project100-p008-p008-claude-on-the-go"}, {"has_memory": false, "message_type_totals": {"assistant": 441, "file-history-snapshot": 54, "progress": 1148, "queue-operation": 2, "system": 19, "user": 275}, "session_files": 4, "slug": "-Users-jamesyong-Projects-project100-p008-p008-claude-on-the-go-packages"}, {"has_memory": false, "message_type_totals": {}, "session_files": 0, "slug": "-Users-jamesyong-Projects-project100-p008-p008-claude-on-the-go-packages-cli"}], "root": "~/.claude", "rootExists": true, "scannedAt": "2026-07-14T00:33:24.774677+00:00", "schemaVersion": 1, "toplevel": {".DS_Store": {"bytes": 10244, "exists": true, "kind": "file"}, ".idea": {"bytes": 5104, "child_count": 5, "exists": true, "kind": "dir"}, ".last-cleanup": {"bytes": 24, "exists": true, "kind": "file"}, ".last-update-result.json": {"bytes": 162, "exists": true, "kind": "file"}, ".spaghetti-live-state.json": {"bytes": 39, "exists": true, "kind": "file"}, "CLAUDE.md": {"bytes": 644, "exists": true, "kind": "file"}, "backups": {"bytes": 1221430, "child_count": 5, "exists": true, "kind": "dir"}, "cache": {"bytes": 432286, "child_count": 2, "exists": true, "kind": "dir"}, "debug": {"bytes": 129218660, "child_count": 55, "exists": true, "kind": "dir"}, "file-history": {"bytes": 193680078, "child_count": 315, "exists": true, "kind": "dir"}, "history.jsonl": {"bytes": 3007802, "exists": true, "kind": "file"}, "hooks": {"bytes": 6141, "child_count": 1, "exists": true, "kind": "dir"}, "ide": {"bytes": 2005, "child_count": 8, "exists": true, "kind": "dir"}, "mcp-needs-auth-cache.json": {"bytes": 273, "exists": true, "kind": "file"}, "paste-cache": {"bytes": 1158855, "child_count": 231, "exists": true, "kind": "dir"}, "plans": {"bytes": 378303, "child_count": 35, "exists": true, "kind": "dir"}, "plugins": {"bytes": 357187237, "child_count": 9, "exists": true, "kind": "dir"}, "projects": {"bytes": 2067444043, "child_count": 131, "exists": true, "kind": "dir"}, "session-env": {"bytes": 148014, "child_count": 513, "exists": true, "kind": "dir"}, "sessions": {"bytes": 3411, "child_count": 8, "exists": true, "kind": "dir"}, "settings.json": {"bytes": 4606, "exists": true, "kind": "file"}, "settings.local.json": {"bytes": 1110, "exists": true, "kind": "file"}, "shell-snapshots": {"bytes": 230841581, "child_count": 1255, "exists": true, "kind": "dir"}, "stats-cache.json": {"bytes": 37688, "exists": true, "kind": "file"}, "statsig": {"bytes": 24948, "child_count": 5, "exists": true, "kind": "dir"}, "statusline-command.sh": {"bytes": 1179, "exists": true, "kind": "file"}, "tasks": {"bytes": 72432, "child_count": 211, "exists": true, "kind": "dir"}, "teams": {"bytes": 740371, "child_count": 12, "exists": true, "kind": "dir"}, "telemetry": {"bytes": 172211, "child_count": 30, "exists": true, "kind": "dir"}, "todos": {"bytes": 7076, "child_count": 2459, "exists": true, "kind": "dir"}, "vercel-plugin-device-id": {"bytes": 36, "exists": true, "kind": "file"}, "vercel-plugin-telemetry-preference": {"bytes": 8, "exists": true, "kind": "file"}}}, "groundTruthPath": "scripts/coverage/out/claude-code-ground-truth.json"}, {"agentId": "codex", "claim": {"schemaVersion": 1, "agentId": "codex", "updated": "2026-07-13", "rootDefault": "~/.codex", "description": "Honest coverage claim for OpenAI Codex CLI. v1 is a thin multi-agent slice: projects/sessions/chat messages/search/tokens/live rollouts. Most rollout record kinds and side artifacts are deliberately not productized yet — but they must stay documented.", "engines": {"ts": "packages/sdk sources/codex + CodexLifecycleOwner (only engine today)", "rs": "not implemented for Codex"}, "surfaces": [{"id": "rollout.file", "status": "ingested", "match": {"bucket": "rollout.file"}, "engines": {"ts": true, "rs": false}, "product": ["projects", "sessions"], "notes": "sessions/**/rollout-*.jsonl discovered by CodexReader."}, {"id": "rollout.record_type.response_item/message", "status": "ingested", "match": {"recordType": "response_item/message"}, "engines": {"ts": true, "rs": false}, "product": ["messages", "search", "fts"], "notes": "Only chat turns written to messages (role→msgType, content text flatten)."}, {"id": "rollout.record_type.event_msg/token_count", "status": "partial", "match": {"recordType": "event_msg/token_count"}, "engines": {"ts": true, "rs": false}, "product": ["tokens"], "notes": "Not stored as rows; last_token_usage attributed onto prior assistant; else tiktoken estimate."}, {"id": "rollout.record_type.session_meta", "status": "partial", "match": {"recordType": "session_meta"}, "engines": {"ts": true, "rs": false}, "product": ["projects", "sessions"], "notes": "Peeked for cwd + session id; not stored as a message row."}, {"id": "rollout.record_type.response_item/function_call", "status": "ignored", "match": {"recordType": "response_item/function_call"}, "engines": {"ts": false, "rs": false}, "notes": "Largest volume class on real installs. extract()→null. Candidate for tool timeline."}, {"id": "rollout.record_type.response_item/function_call_output", "status": "ignored", "match": {"recordType": "response_item/function_call_output"}, "engines": {"ts": false, "rs": false}, "notes": "Paired with function_call via call_id; not stored."}, {"id": "rollout.record_type.response_item/custom_tool_call", "status": "ignored", "match": {"recordType": "response_item/custom_tool_call"}, "engines": {"ts": false, "rs": false}}, {"id": "rollout.record_type.response_item/custom_tool_call_output", "status": "ignored", "match": {"recordType": "response_item/custom_tool_call_output"}, "engines": {"ts": false, "rs": false}}, {"id": "rollout.record_type.response_item/reasoning", "status": "ignored", "match": {"recordType": "response_item/reasoning"}, "engines": {"ts": false, "rs": false}, "notes": "Summary legible; encrypted_content opaque. Not indexed."}, {"id": "rollout.record_type.response_item/web_search_call", "status": "ignored", "match": {"recordType": "response_item/web_search_call"}, "engines": {"ts": false, "rs": false}}, {"id": "rollout.record_type.response_item/tool_search_call", "status": "ignored", "match": {"recordType": "response_item/tool_search_call"}, "engines": {"ts": false, "rs": false}, "notes": "Rare tool-catalog search items; same treatment as other non-message response_items."}, {"id": "rollout.record_type.response_item/tool_search_output", "status": "ignored", "match": {"recordType": "response_item/tool_search_output"}, "engines": {"ts": false, "rs": false}}, {"id": "rollout.record_type.turn_context", "status": "ignored", "match": {"recordType": "turn_context"}, "engines": {"ts": false, "rs": false}}, {"id": "rollout.record_type.compacted", "status": "ignored", "match": {"recordType": "compacted"}, "engines": {"ts": false, "rs": false}}, {"id": "rollout.record_type.world_state", "status": "ignored", "match": {"recordType": "world_state"}, "engines": {"ts": false, "rs": false}}, {"id": "rollout.record_type.event_msg/*", "status": "ignored", "match": {"recordTypePrefix": "event_msg/"}, "engines": {"ts": false, "rs": false}, "notes": "UI/telemetry projection stream (except token_count partial). Prefer response_item as canonical. Prefix match covers agent_message, exec_command_*, patch_*, etc."}, {"id": "toplevel.sessions", "status": "ingested", "match": {"toplevel": "sessions"}, "engines": {"ts": true, "rs": false}, "product": ["projects", "sessions", "messages"]}, {"id": "toplevel.config.toml", "status": "ignored", "match": {"toplevel": "config.toml"}, "engines": {"ts": false, "rs": false}, "notes": "Path mapped as settingsFile only; not parsed into config tables."}, {"id": "toplevel.history.jsonl", "status": "ignored", "match": {"toplevel": "history.jsonl"}, "engines": {"ts": false, "rs": false}, "notes": "Cross-session prompt log; not the transcript SoT."}, {"id": "toplevel.auth.json", "status": "out_of_scope", "match": {"toplevel": "auth.json"}, "engines": {"ts": false, "rs": false}, "notes": "Secrets — must-not-parse."}, {"id": "toplevel.memories", "status": "ignored", "match": {"toplevel": "memories"}, "engines": {"ts": false, "rs": false}}, {"id": "toplevel.shell_snapshots", "status": "ignored", "match": {"toplevel": "shell_snapshots"}, "engines": {"ts": false, "rs": false}}, {"id": "toplevel.skills", "status": "ignored", "match": {"toplevel": "skills"}, "engines": {"ts": false, "rs": false}}, {"id": "toplevel.plugins", "status": "ignored", "match": {"toplevel": "plugins"}, "engines": {"ts": false, "rs": false}}, {"id": "toplevel.rules", "status": "ignored", "match": {"toplevel": "rules"}, "engines": {"ts": false, "rs": false}}, {"id": "toplevel.state_sqlite", "status": "ignored", "match": {"toplevelGlob": "state_*.sqlite"}, "engines": {"ts": false, "rs": false}, "notes": "Derived index — not transcript SoT (RFC 006 survey)."}, {"id": "toplevel.logs_sqlite", "status": "ignored", "match": {"toplevelGlob": "logs_*.sqlite"}, "engines": {"ts": false, "rs": false}, "notes": "Operational logs DB; not product history."}, {"id": "toplevel.goals_sqlite", "status": "ignored", "match": {"toplevelGlob": "goals_*.sqlite"}, "engines": {"ts": false, "rs": false}}, {"id": "toplevel.memories_sqlite", "status": "ignored", "match": {"toplevelGlob": "memories_*.sqlite"}, "engines": {"ts": false, "rs": false}}, {"id": "toplevel.cache", "status": "ignored", "match": {"toplevel": "cache"}, "engines": {"ts": false, "rs": false}}, {"id": "toplevel.log", "status": "ignored", "match": {"toplevel": "log"}, "engines": {"ts": false, "rs": false}}, {"id": "toplevel.tmp", "status": "out_of_scope", "match": {"toplevel": "tmp"}, "engines": {"ts": false, "rs": false}}, {"id": "toplevel..tmp", "status": "out_of_scope", "match": {"toplevel": ".tmp"}, "engines": {"ts": false, "rs": false}}, {"id": "toplevel.sqlite", "status": "ignored", "match": {"toplevel": "sqlite"}, "engines": {"ts": false, "rs": false}}, {"id": "toplevel.models_cache.json", "status": "ignored", "match": {"toplevel": "models_cache.json"}, "engines": {"ts": false, "rs": false}}, {"id": "toplevel.version.json", "status": "ignored", "match": {"toplevel": "version.json"}, "engines": {"ts": false, "rs": false}}, {"id": "toplevel.installation_id", "status": "out_of_scope", "match": {"toplevel": "installation_id"}, "engines": {"ts": false, "rs": false}}, {"id": "toplevel.computer-use", "status": "ignored", "match": {"toplevel": "computer-use"}, "engines": {"ts": false, "rs": false}}, {"id": "toplevel.app-server-control", "status": "ignored", "match": {"toplevel": "app-server-control"}, "engines": {"ts": false, "rs": false}}, {"id": "toplevel.vendor_imports", "status": "ignored", "match": {"toplevel": "vendor_imports"}, "engines": {"ts": false, "rs": false}}, {"id": "toplevel..codex-global-state.json", "status": "ignored", "match": {"toplevel": ".codex-global-state.json"}, "engines": {"ts": false, "rs": false}}, {"id": "toplevel..codex-global-state.json.bak", "status": "out_of_scope", "match": {"toplevel": ".codex-global-state.json.bak"}, "engines": {"ts": false, "rs": false}}, {"id": "toplevel..personality_migration", "status": "out_of_scope", "match": {"toplevel": ".personality_migration"}, "engines": {"ts": false, "rs": false}}, {"id": "toplevel..idea", "status": "out_of_scope", "match": {"toplevel": ".idea"}, "engines": {"ts": false, "rs": false}, "notes": "IDE private."}], "policy": {"undocumentedBucket": "fail", "zeroCountUndocumented": "ignore", "requireClaimForToplevelWithBytes": true, "minBytesForToplevelClaim": 1, "requireClaimForRecordTypesWithCount": true, "minCountForRecordTypeClaim": 1}}, "groundTruth": {"agentId": "codex", "buckets": {"rollout.chat_messages": {"count": 1522}, "rollout.file": {"bytes": 39651540, "count": 54, "lines": 16647, "valid_json": 16647}, "rollout.reasoning": {"count": 2258}, "rollout.record_type": {"compacted": 7, "event_msg/agent_message": 1073, "event_msg/agent_reasoning": 536, "event_msg/context_compacted": 7, "event_msg/exec_command_end": 755, "event_msg/patch_apply_end": 86, "event_msg/task_complete": 153, "event_msg/task_started": 156, "event_msg/thread_rolled_back": 1, "event_msg/thread_settings_applied": 10, "event_msg/token_count": 2681, "event_msg/turn_aborted": 4, "event_msg/user_message": 275, "event_msg/web_search_end": 75, "response_item/custom_tool_call": 378, "response_item/custom_tool_call_output": 378, "response_item/function_call": 2953, "response_item/function_call_output": 2953, "response_item/message": 1522, "response_item/reasoning": 1722, "response_item/tool_search_call": 1, "response_item/tool_search_output": 1, "response_item/web_search_call": 82, "session_meta": 54, "turn_context": 768, "world_state": 16}, "rollout.token_count_events": {"count": 2681}, "rollout.tool_ish": {"count": 6662}}, "notes": "rollout.record_type keys: response_item/\u003cpayload.type\u003e, event_msg/\u003cpayload.type\u003e, or top-level type. Spaghetti Codex v1 stores only response_item/message as messages; token_count is used for attribution without storing the event row.", "rolloutsSample": [{"bytes": 13947, "lines": 12, "parse_errors": 0, "path": "~/.codex/sessions/2026/01/15/rollout-2026-01-15T16-36-09-019bc43b-284e-7061-b081-49da74ce1199.jsonl", "valid_json": 12}, {"bytes": 595432, "lines": 365, "parse_errors": 0, "path": "~/.codex/sessions/2026/01/15/rollout-2026-01-15T16-43-24-019bc441-ca4a-7f02-8984-f20b6f158ebb.jsonl", "valid_json": 365}, {"bytes": 749540, "lines": 327, "parse_errors": 0, "path": "~/.codex/sessions/2026/01/16/rollout-2026-01-16T13-04-25-019bc89f-a97d-7410-90ce-62a47d8b9fc3.jsonl", "valid_json": 327}, {"bytes": 8537, "lines": 4, "parse_errors": 0, "path": "~/.codex/sessions/2026/01/20/rollout-2026-01-20T14-22-51-019bdcdc-1d5a-7650-863d-d6f7abc935f1.jsonl", "valid_json": 4}, {"bytes": 8493, "lines": 4, "parse_errors": 0, "path": "~/.codex/sessions/2026/01/20/rollout-2026-01-20T23-30-36-019bded1-96e8-7323-9f92-9572d5380ee0.jsonl", "valid_json": 4}, {"bytes": 735646, "lines": 498, "parse_errors": 0, "path": "~/.codex/sessions/2026/01/22/rollout-2026-01-22T17-24-02-019be7ce-b78b-71e2-aa94-f13e84f9e9ec.jsonl", "valid_json": 498}, {"bytes": 486206, "lines": 366, "parse_errors": 0, "path": "~/.codex/sessions/2026/01/22/rollout-2026-01-22T18-34-49-019be80f-855c-78d3-aab7-1b19708c0cfc.jsonl", "valid_json": 366}, {"bytes": 2385728, "lines": 1403, "parse_errors": 0, "path": "~/.codex/sessions/2026/01/24/rollout-2026-01-24T02-18-58-019beede-d228-74f1-a7e7-797b58c17104.jsonl", "valid_json": 1403}, {"bytes": 1086957, "lines": 447, "parse_errors": 0, "path": "~/.codex/sessions/2026/01/25/rollout-2026-01-25T23-42-15-019bf89c-0d01-72a1-a106-4bbfbdf3427f.jsonl", "valid_json": 447}, {"bytes": 841040, "lines": 678, "parse_errors": 0, "path": "~/.codex/sessions/2026/01/26/rollout-2026-01-26T13-20-05-019bfb88-cc84-7812-a405-602d73454d18.jsonl", "valid_json": 678}, {"bytes": 352370, "lines": 261, "parse_errors": 0, "path": "~/.codex/sessions/2026/01/26/rollout-2026-01-26T15-20-01-019bfbf6-9ca2-7061-88d3-1b6b9a19e072.jsonl", "valid_json": 261}, {"bytes": 13477, "lines": 4, "parse_errors": 0, "path": "~/.codex/sessions/2026/03/15/rollout-2026-03-15T19-15-12-019cf46d-0924-7523-b3f5-f6f5cc0fcd16.jsonl", "valid_json": 4}, {"bytes": 467965, "lines": 122, "parse_errors": 0, "path": "~/.codex/sessions/2026/03/15/rollout-2026-03-15T19-15-54-019cf46d-af1f-7a63-a829-7a9be43f4bd7.jsonl", "valid_json": 122}, {"bytes": 879887, "lines": 296, "parse_errors": 0, "path": "~/.codex/sessions/2026/03/22/rollout-2026-03-22T17-12-14-019d1808-f808-7143-99e4-f3d04a4750d2.jsonl", "valid_json": 296}, {"bytes": 722593, "lines": 175, "parse_errors": 0, "path": "~/.codex/sessions/2026/04/03/rollout-2026-04-03T16-36-19-019d55b4-66d3-7381-93d8-6c46cc148f46.jsonl", "valid_json": 175}, {"bytes": 2211839, "lines": 1321, "parse_errors": 0, "path": "~/.codex/sessions/2026/04/10/rollout-2026-04-10T19-08-29-019d7a4c-3953-74f0-bc35-d7c252519570.jsonl", "valid_json": 1321}, {"bytes": 123104, "lines": 78, "parse_errors": 0, "path": "~/.codex/sessions/2026/04/10/rollout-2026-04-10T19-19-47-019d7a56-947d-74c1-9c77-3b8b4c4a317f.jsonl", "valid_json": 78}, {"bytes": 1339613, "lines": 840, "parse_errors": 0, "path": "~/.codex/sessions/2026/04/10/rollout-2026-04-10T19-21-36-019d7a58-3c3b-7c32-9cf1-e8df3b2818b4.jsonl", "valid_json": 840}, {"bytes": 276446, "lines": 131, "parse_errors": 0, "path": "~/.codex/sessions/2026/04/11/rollout-2026-04-11T16-13-16-019d7ed2-2d1a-7252-b36e-4923b5769f3b.jsonl", "valid_json": 131}, {"bytes": 944413, "lines": 281, "parse_errors": 0, "path": "~/.codex/sessions/2026/04/11/rollout-2026-04-11T20-58-07-019d7fd6-f6dc-7093-a4e9-10b03ce406d9.jsonl", "valid_json": 281}, {"bytes": 724542, "lines": 578, "parse_errors": 0, "path": "~/.codex/sessions/2026/04/12/rollout-2026-04-12T16-39-54-019d8410-e9e6-7ba3-a0ff-a771573ee4a1.jsonl", "valid_json": 578}, {"bytes": 339989, "lines": 192, "parse_errors": 0, "path": "~/.codex/sessions/2026/04/13/rollout-2026-04-13T09-59-16-019d87c8-7d76-7ce1-bea8-e871c6d8d6ee.jsonl", "valid_json": 192}, {"bytes": 327186, "lines": 210, "parse_errors": 0, "path": "~/.codex/sessions/2026/04/14/rollout-2026-04-14T18-10-23-019d8eb0-7a5d-78b0-8025-9ba3be7f5934.jsonl", "valid_json": 210}, {"bytes": 282257, "lines": 119, "parse_errors": 0, "path": "~/.codex/sessions/2026/04/14/rollout-2026-04-14T18-56-35-019d8eda-c722-7242-9e32-9133da98c86b.jsonl", "valid_json": 119}, {"bytes": 272843, "lines": 146, "parse_errors": 0, "path": "~/.codex/sessions/2026/04/14/rollout-2026-04-14T19-24-37-019d8ef4-707a-7641-8193-038a4c964516.jsonl", "valid_json": 146}, {"bytes": 38870, "lines": 10, "parse_errors": 0, "path": "~/.codex/sessions/2026/04/22/rollout-2026-04-22T21-03-24-019db7dc-f4e3-7231-928b-07b6719755b6.jsonl", "valid_json": 10}, {"bytes": 970717, "lines": 225, "parse_errors": 0, "path": "~/.codex/sessions/2026/04/22/rollout-2026-04-22T21-03-55-019db7dd-6dcc-7012-83bf-8ab1dd0d3d7f.jsonl", "valid_json": 225}, {"bytes": 550846, "lines": 206, "parse_errors": 0, "path": "~/.codex/sessions/2026/04/24/rollout-2026-04-24T23-26-08-019dc2ac-588d-7ce3-bfc6-ab27dd0860a6.jsonl", "valid_json": 206}, {"bytes": 1262796, "lines": 255, "parse_errors": 0, "path": "~/.codex/sessions/2026/05/19/rollout-2026-05-19T22-19-46-019e43d3-60ea-7bd1-905b-7a590d790699.jsonl", "valid_json": 255}, {"bytes": 1958625, "lines": 826, "parse_errors": 0, "path": "~/.codex/sessions/2026/05/27/rollout-2026-05-27T17-12-20-019e6bec-c970-7b80-bfa2-c5292c3443b8.jsonl", "valid_json": 826}], "root": "~/.codex", "rootExists": true, "scannedAt": "2026-07-14T00:33:05.668991+00:00", "schemaVersion": 1, "toplevel": {".codex-global-state.json": {"bytes": 2575, "exists": true, "kind": "file"}, ".codex-global-state.json.bak": {"bytes": 2575, "exists": true, "kind": "file"}, ".idea": {"bytes": 3625, "exists": true, "file_count": 4, "kind": "dir"}, ".personality_migration": {"bytes": 3, "exists": true, "kind": "file"}, ".tmp": {"bytes": 261819451, "exists": true, "file_count": 6452, "kind": "dir"}, "app-server-control": {"bytes": 0, "exists": true, "file_count": 1, "kind": "dir"}, "auth.json": {"bytes": 4056, "exists": true, "kind": "file"}, "cache": {"bytes": 12463270, "exists": true, "file_count": 4, "kind": "dir"}, "computer-use": {"bytes": 62095251, "exists": true, "file_count": 166, "kind": "dir"}, "config.toml": {"bytes": 5240, "exists": true, "kind": "file"}, "goals_1.sqlite": {"bytes": 24576, "exists": true, "kind": "file"}, "goals_1.sqlite-shm": {"bytes": 32768, "exists": true, "kind": "file"}, "goals_1.sqlite-wal": {"bytes": 8272, "exists": true, "kind": "file"}, "history.jsonl": {"bytes": 99139, "exists": true, "kind": "file"}, "installation_id": {"bytes": 36, "exists": true, "kind": "file"}, "log": {"bytes": 0, "exists": true, "file_count": 0, "kind": "dir"}, "logs_2.sqlite": {"bytes": 39735296, "exists": true, "kind": "file"}, "logs_2.sqlite-shm": {"bytes": 32768, "exists": true, "kind": "file"}, "logs_2.sqlite-wal": {"bytes": 4354872, "exists": true, "kind": "file"}, "memories": {"bytes": 0, "exists": true, "file_count": 0, "kind": "dir"}, "memories_1.sqlite": {"bytes": 40960, "exists": true, "kind": "file"}, "memories_1.sqlite-shm": {"bytes": 32768, "exists": true, "kind": "file"}, "memories_1.sqlite-wal": {"bytes": 20632, "exists": true, "kind": "file"}, "models_cache.json": {"bytes": 245986, "exists": true, "kind": "file"}, "plugins": {"bytes": 348958213, "exists": true, "file_count": 830, "kind": "dir"}, "rules": {"bytes": 1102, "exists": true, "file_count": 1, "kind": "dir"}, "sessions": {"bytes": 39651540, "exists": true, "file_count": 54, "kind": "dir"}, "shell_snapshots": {"bytes": 1193793, "exists": true, "file_count": 4, "kind": "dir"}, "skills": {"bytes": 374701, "exists": true, "file_count": 50, "kind": "dir"}, "sqlite": {"bytes": 73728, "exists": true, "file_count": 1, "kind": "dir"}, "state_5.sqlite": {"bytes": 675840, "exists": true, "kind": "file"}, "state_5.sqlite-shm": {"bytes": 32768, "exists": true, "kind": "file"}, "state_5.sqlite-wal": {"bytes": 3040592, "exists": true, "kind": "file"}, "tmp": {"bytes": 3124246656, "exists": true, "file_count": 16, "kind": "dir"}, "vendor_imports": {"bytes": 1320, "exists": true, "file_count": 1, "kind": "dir"}, "version.json": {"bytes": 102, "exists": true, "kind": "file"}}}, "groundTruthPath": "scripts/coverage/out/codex-ground-truth.json"}]};
+
+const STATUS_ORDER = { ingested: 0, partial: 1, ignored: 2, out_of_scope: 3, unknown: 4 };
+
+function fmt(n) {
+  if (n == null || Number.isNaN(n)) return "—";
+  return Number(n).toLocaleString();
+}
+function fmtBytes(n) {
+  if (n == null) return "—";
+  if (n < 1024) return n + " B";
+  if (n < 1048576) return (n/1024).toFixed(1) + " KB";
+  if (n < 1073741824) return (n/1048576).toFixed(1) + " MB";
+  return (n/1073741824).toFixed(2) + " GB";
+}
+function esc(s) {
+  return String(s ?? "").replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+function surfaceCoversRecordType(surface, rt) {
+  const m = surface.match || {};
+  if (m.recordType === rt) return true;
+  if (m.recordTypePrefix && rt.startsWith(m.recordTypePrefix)) return true;
+  return false;
+}
+
+function statusForRecordType(claim, rt) {
+  const hits = (claim.surfaces || []).filter(s => surfaceCoversRecordType(s, rt));
+  if (!hits.length) return "unknown";
+  // prefer most "product-facing" status
+  hits.sort((a,b) => (STATUS_ORDER[a.status]??9) - (STATUS_ORDER[b.status]??9));
+  return hits[0].status;
+}
+
+function computeStats(agent) {
+  const claim = agent.claim;
+  const gt = agent.groundTruth;
+  const surfaces = claim.surfaces || [];
+  const byStatus = { ingested: 0, partial: 0, ignored: 0, out_of_scope: 0, unknown: 0 };
+  for (const s of surfaces) byStatus[s.status] = (byStatus[s.status] || 0) + 1;
+
+  let recordStats = null;
+  if (gt && gt.buckets && gt.buckets["rollout.record_type"]) {
+    const rt = gt.buckets["rollout.record_type"];
+    let total = 0, ingested = 0, partial = 0, ignored = 0, unknown = 0;
+    const rows = [];
+    for (const [k, v] of Object.entries(rt)) {
+      const c = Number(v) || 0;
+      total += c;
+      const st = statusForRecordType(claim, k);
+      if (st === "ingested") ingested += c;
+      else if (st === "partial") partial += c;
+      else if (st === "ignored" || st === "out_of_scope") ignored += c;
+      else unknown += c;
+      rows.push({ type: k, count: c, status: st });
+    }
+    rows.sort((a,b) => b.count - a.count);
+    recordStats = { total, ingested, partial, ignored, unknown, rows, pct: total ? (100*ingested/total) : 0 };
+  }
+
+  let sessionLines = null;
+  if (gt && gt.buckets && gt.buckets["session.jsonl.line"]) {
+    sessionLines = gt.buckets["session.jsonl.line"];
+  }
+
+  return { byStatus, recordStats, sessionLines, surfaces };
+}
+
+function statusBadge(st) {
+  return `<span class="status ${esc(st)}">${esc(st)}</span>`;
+}
+
+function enginePills(engines) {
+  if (!engines) return "";
+  const ts = engines.ts ? "on" : "off";
+  const rs = engines.rs ? "on" : "off";
+  return `<span class="pill ${ts}">TS ${engines.ts ? "✓" : "—"}</span>
+          <span class="pill ${rs}">RS ${engines.rs ? "✓" : "—"}</span>`;
+}
+
+function renderAgent(agent) {
+  const stats = computeStats(agent);
+  const claim = agent.claim;
+  const gt = agent.groundTruth;
+  const rs = stats.recordStats;
+
+  let heroCards = "";
+  if (rs) {
+    heroCards = `
+      <div class="card sm"><h2>Ingested records</h2>
+        <div class="big" style="color:var(--ingested)">${rs.pct.toFixed(1)}%</div>
+        <div class="sub">${fmt(rs.ingested)} / ${fmt(rs.total)} rollout lines</div>
+      </div>
+      <div class="card sm"><h2>Partial</h2>
+        <div class="big" style="color:var(--partial)">${fmt(rs.partial)}</div>
+        <div class="sub">used but not fully stored</div>
+      </div>
+      <div class="card sm"><h2>Ignored</h2>
+        <div class="big">${fmt(rs.ignored)}</div>
+        <div class="sub">documented, not productized</div>
+      </div>
+      <div class="card sm"><h2>Unknown</h2>
+        <div class="big" style="color:${rs.unknown ? "var(--danger)" : "var(--muted)"}">${fmt(rs.unknown)}</div>
+        <div class="sub">${rs.unknown ? "fix claim.json!" : "none — good"}</div>
+      </div>`;
+  } else if (stats.sessionLines) {
+    heroCards = `
+      <div class="card sm"><h2>Session JSONL</h2>
+        <div class="big">${fmt(stats.sessionLines.count)}</div>
+        <div class="sub">valid lines (claimed ingested)</div>
+      </div>
+      <div class="card sm"><h2>Session files</h2>
+        <div class="big">${fmt(stats.sessionLines.files)}</div>
+        <div class="sub">${fmtBytes(stats.sessionLines.bytes)}</div>
+      </div>
+      <div class="card sm"><h2>Claim surfaces</h2>
+        <div class="big">${fmt(stats.surfaces.length)}</div>
+        <div class="sub">documented entries</div>
+      </div>
+      <div class="card sm"><h2>Projects</h2>
+        <div class="big">${fmt(gt?.projectCount)}</div>
+        <div class="sub">${esc(gt?.root || claim.rootDefault || "")}</div>
+      </div>`;
+  } else {
+    heroCards = `
+      <div class="card md"><h2>Ground truth</h2>
+        <div class="big" style="font-size:1.2rem;color:var(--partial)">Not scanned yet</div>
+        <div class="sub">Run <code>pnpm coverage:scan</code> then <code>pnpm coverage:report</code></div>
+      </div>
+      <div class="card sm"><h2>Claim surfaces</h2>
+        <div class="big">${fmt(stats.surfaces.length)}</div>
+      </div>
+      <div class="card sm"><h2>Root</h2>
+        <div class="sub" style="margin-top:8px;font-family:var(--mono)">${esc(claim.rootDefault || "")}</div>
+      </div>`;
+  }
+
+  // status stack bar for surfaces
+  const totalSurf = stats.surfaces.length || 1;
+  const barSegs = ["ingested","partial","ignored","out_of_scope"].map(st => {
+    const n = stats.byStatus[st] || 0;
+    const w = (100 * n / totalSurf).toFixed(2);
+    return n ? `<i class="${st}" style="width:${w}%"></i>` : "";
+  }).join("");
+
+  let recordTable = "";
+  if (rs) {
+    const maxC = rs.rows[0]?.count || 1;
+    recordTable = `
+      <h3 class="section-title">Rollout record types (ground truth × claim)</h3>
+      <div class="toolbar">
+        <input type="search" data-filter="records" placeholder="Filter types…" />
+        <select data-filter-status="records">
+          <option value="">All statuses</option>
+          <option>ingested</option><option>partial</option><option>ignored</option><option>unknown</option>
+        </select>
+      </div>
+      <div class="table-wrap">
+        <table data-table="records">
+          <thead><tr>
+            <th>Record type</th><th>Count</th><th>Share</th><th>Claim status</th>
+          </tr></thead>
+          <tbody>
+            ${rs.rows.map(r => {
+              const pct = 100 * r.count / (rs.total || 1);
+              const w = 100 * r.count / maxC;
+              return `<tr data-status="${esc(r.status)}" data-text="${esc(r.type)}">
+                <td class="id">${esc(r.type)}</td>
+                <td class="count">${fmt(r.count)}</td>
+                <td class="count muted"><span class="bar-mini"><i style="width:${w}%"></i></span>${pct.toFixed(1)}%</td>
+                <td>${statusBadge(r.status)}</td>
+              </tr>`;
+            }).join("")}
+          </tbody>
+        </table>
+      </div>`;
+  }
+
+  // message type histogram for Claude
+  let msgTypesTable = "";
+  const msgTypes = gt?.buckets?.["session.message_type"];
+  if (msgTypes && typeof msgTypes === "object") {
+    const rows = Object.entries(msgTypes).map(([k,v]) => ({k, v: Number(v)||0})).sort((a,b)=>b.v-a.v);
+    const maxC = rows[0]?.v || 1;
+    const total = rows.reduce((s,r)=>s+r.v,0) || 1;
+    msgTypesTable = `
+      <h3 class="section-title">Session message <code>type</code> histogram</h3>
+      <div class="table-wrap" style="max-height:360px">
+        <table>
+          <thead><tr><th>type</th><th>Count</th><th>Share</th></tr></thead>
+          <tbody>
+            ${rows.map(r => {
+              const pct = 100*r.v/total;
+              const w = 100*r.v/maxC;
+              return `<tr>
+                <td class="id">${esc(r.k)}</td>
+                <td class="count">${fmt(r.v)}</td>
+                <td class="count muted"><span class="bar-mini"><i style="width:${w}%"></i></span>${pct.toFixed(1)}%</td>
+              </tr>`;
+            }).join("")}
+          </tbody>
+        </table>
+      </div>`;
+  }
+
+  // secondary buckets Claude
+  let secondaryHtml = "";
+  const secondary = gt?.buckets?.secondary;
+  if (secondary && typeof secondary === "object") {
+    const rows = Object.entries(secondary).map(([k,v]) => ({
+      k, files: v?.file_count||0, bytes: v?.bytes||0, exists: !!v?.exists
+    })).filter(r => r.exists).sort((a,b)=>b.files-a.files);
+    if (rows.length) {
+      secondaryHtml = `
+        <h3 class="section-title">Secondary trees</h3>
+        <div class="table-wrap" style="max-height:280px">
+          <table>
+            <thead><tr><th>Tree</th><th>Files</th><th>Size</th></tr></thead>
+            <tbody>
+              ${rows.map(r => `<tr>
+                <td class="id">${esc(r.k)}</td>
+                <td class="count">${fmt(r.files)}</td>
+                <td class="count muted">${fmtBytes(r.bytes)}</td>
+              </tr>`).join("")}
+            </tbody>
+          </table>
+        </div>`;
+    }
+  }
+
+  // surfaces table
+  const surfaces = [...stats.surfaces].sort((a,b) => {
+    const d = (STATUS_ORDER[a.status]??9) - (STATUS_ORDER[b.status]??9);
+    return d || a.id.localeCompare(b.id);
+  });
+
+  const surfacesTable = `
+    <h3 class="section-title">Claim surfaces</h3>
+    <div class="toolbar">
+      <input type="search" data-filter="surfaces" placeholder="Filter surface id / notes…" />
+      <select data-filter-status="surfaces">
+        <option value="">All statuses</option>
+        <option>ingested</option><option>partial</option><option>ignored</option><option>out_of_scope</option>
+      </select>
+    </div>
+    <div class="table-wrap">
+      <table data-table="surfaces">
+        <thead><tr>
+          <th>Status</th><th>Surface id</th><th>Engines</th><th>Product</th><th>Notes</th>
+        </tr></thead>
+        <tbody>
+          ${surfaces.map(s => `
+            <tr data-status="${esc(s.status)}" data-text="${esc(s.id + " " + (s.notes||""))}">
+              <td>${statusBadge(s.status)}</td>
+              <td class="id">${esc(s.id)}</td>
+              <td>${enginePills(s.engines)}</td>
+              <td class="notes">${esc((s.product||[]).join(", ") || "—")}</td>
+              <td class="notes">${esc(s.notes || "")}</td>
+            </tr>`).join("")}
+        </tbody>
+      </table>
+    </div>`;
+
+  const stackBar = rs ? `
+    <div class="card">
+      <h2>Volume by claim status (record counts)</h2>
+      <div class="bar">
+        ${rs.total ? `
+          <i class="ingested" style="width:${(100*rs.ingested/rs.total).toFixed(2)}%"></i>
+          <i class="partial" style="width:${(100*rs.partial/rs.total).toFixed(2)}%"></i>
+          <i class="ignored" style="width:${(100*rs.ignored/rs.total).toFixed(2)}%"></i>
+          <i class="unknown" style="width:${(100*rs.unknown/rs.total).toFixed(2)}%"></i>
+        ` : ""}
+      </div>
+      <div class="legend">
+        <span class="ingested">ingested ${fmt(rs.ingested)}</span>
+        <span class="partial">partial ${fmt(rs.partial)}</span>
+        <span class="ignored">ignored ${fmt(rs.ignored)}</span>
+        <span class="unknown">unknown ${fmt(rs.unknown)}</span>
+      </div>
+    </div>` : `
+    <div class="card">
+      <h2>Claim surfaces by status</h2>
+      <div class="bar">${barSegs}</div>
+      <div class="legend">
+        <span class="ingested">ingested ${stats.byStatus.ingested||0}</span>
+        <span class="partial">partial ${stats.byStatus.partial||0}</span>
+        <span class="ignored">ignored ${stats.byStatus.ignored||0}</span>
+        <span class="oos">out_of_scope ${stats.byStatus.out_of_scope||0}</span>
+      </div>
+    </div>`;
+
+  const warn = !gt ? `<div class="warn">No ground-truth scan found for this agent. Showing claim only. Run <code>pnpm coverage:scan</code>.</div>` : "";
+  const scanned = gt ? `<div class="meta" style="margin-bottom:10px">Scanned ${esc(gt.scannedAt || "")} · root ${esc(gt.root || "")}</div>` : "";
+
+  return `
+    ${warn}
+    ${scanned}
+    <div class="desc">
+      ${esc(claim.description || "")}
+      <div class="engines" style="margin-top:10px">
+        <span class="pill on">claim ${esc(claim.updated || "")}</span>
+        ${Object.entries(claim.engines||{}).map(([k,v]) =>
+          `<span class="pill" title="${esc(v)}">${esc(k)}: ${esc(String(v).slice(0,48))}${String(v).length>48?"…":""}</span>`
+        ).join("")}
+      </div>
+    </div>
+    <div class="grid">${heroCards}</div>
+    ${stackBar}
+    ${recordTable}
+    ${msgTypesTable}
+    ${secondaryHtml}
+    ${surfacesTable}
+  `;
+}
+
+function wireFilters(root) {
+  root.querySelectorAll("[data-filter]").forEach(input => {
+    const key = input.getAttribute("data-filter");
+    const statusSel = root.querySelector(`[data-filter-status="${key}"]`);
+    const table = root.querySelector(`[data-table="${key}"]`);
+    if (!table) return;
+    const apply = () => {
+      const q = (input.value || "").toLowerCase();
+      const st = statusSel ? statusSel.value : "";
+      table.querySelectorAll("tbody tr").forEach(tr => {
+        const text = (tr.getAttribute("data-text") || "").toLowerCase();
+        const rowSt = tr.getAttribute("data-status") || "";
+        const okQ = !q || text.includes(q);
+        const okS = !st || rowSt === st || (st === "ignored" && rowSt === "out_of_scope" && key === "records" ? false : rowSt === st);
+        // simpler:
+        const okStatus = !st || rowSt === st;
+        tr.style.display = (okQ && okStatus) ? "" : "none";
+      });
+    };
+    input.addEventListener("input", apply);
+    if (statusSel) statusSel.addEventListener("change", apply);
+  });
+}
+
+function main() {
+  const tabs = document.getElementById("tabs");
+  const panels = document.getElementById("panels");
+  const agents = DATA.agents || [];
+
+  if (!agents.length) {
+    panels.innerHTML = `<div class="empty">No agent data embedded. Run <code>pnpm coverage:report</code>.</div>`;
+    return;
+  }
+
+  agents.forEach((agent, i) => {
+    const id = agent.agentId;
+    const tab = document.createElement("button");
+    tab.className = "tab" + (i === 0 ? " active" : "");
+    tab.type = "button";
+    tab.textContent = id;
+    tab.dataset.agent = id;
+    tabs.appendChild(tab);
+
+    const panel = document.createElement("section");
+    panel.className = "panel" + (i === 0 ? " active" : "");
+    panel.dataset.agent = id;
+    panel.innerHTML = renderAgent(agent);
+    panels.appendChild(panel);
+    wireFilters(panel);
+  });
+
+  tabs.addEventListener("click", (e) => {
+    const t = e.target.closest(".tab");
+    if (!t) return;
+    const id = t.dataset.agent;
+    tabs.querySelectorAll(".tab").forEach(x => x.classList.toggle("active", x === t));
+    panels.querySelectorAll(".panel").forEach(p => p.classList.toggle("active", p.dataset.agent === id));
+  });
+}
+
+main();
+</script>
+</body>
+</html>

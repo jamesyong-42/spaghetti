@@ -29,6 +29,7 @@
     "coverage:scan": "python3 scripts/coverage/run_scan.py all",
     "coverage:validate": "python3 scripts/coverage/validate_claim.py all",
     "coverage:check": "python3 scripts/coverage/run_validate.py all --rescan",
+    "coverage:report": "python3 scripts/coverage/build_report.py",
     "test:packages": "pnpm --filter @vibecook/spaghetti-sdk test && pnpm --filter @vibecook/spaghetti test",
     "test:ingest-diff": "tsx scripts/ingest-diff.ts",
     "test:ingest-diff:medium": "tsx scripts/ingest-diff.ts --fixture crates/spaghetti-napi/fixtures/medium/.claude",

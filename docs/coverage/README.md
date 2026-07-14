@@ -11,6 +11,9 @@ These docs are the **human** side of the coverage harness under `scripts/coverag
 
 ```bash
 pnpm coverage:check
+pnpm coverage:report   # → docs/coverage/report.html
 ```
+
+**Interactive report:** open [report.html](./report.html) in a browser (rebuild after scanning so ground-truth bars stay current).
 
 See [`scripts/coverage/README.md`](../../scripts/coverage/README.md) for the full harness.
