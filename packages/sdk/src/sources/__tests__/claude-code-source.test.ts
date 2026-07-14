@@ -43,7 +43,7 @@ describe('createClaudeCodeSource', () => {
       engine: 'ts',
       dbPath: '/tmp/idx.db',
     });
-    assert.equal(opts.claudeDir, '/data/claude');
+    assert.equal(opts.rootDir, '/data/claude');
     assert.equal(opts.engine, 'ts');
     assert.equal(opts.dbPath, '/tmp/idx.db');
   });

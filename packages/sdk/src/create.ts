@@ -12,7 +12,7 @@ import { createFileService } from './io/file-service.js';
 import { createSqliteService } from './io/sqlite-service.js';
 import { createConsoleErrorSink, type ErrorSink } from './io/error-sink.js';
 import { createSpaghettiAppService } from './app-service.js';
-import type { ClaudeCodeAgentDataService, LifecycleOwner } from './data/agent-data-service.js';
+import type { AgentDataService, LifecycleOwner } from './data/agent-data-service.js';
 import { SpaghettiDataService } from './data/multi-source-service.js';
 import { loadNativeAddon } from './native.js';
 import { defaultDbPathForEngine, resolveEngine, type IngestEngine } from './settings.js';
@@ -25,17 +25,21 @@ import { createRuntimeBridge } from './planes/runtime-bridge.js';
 
 export interface SpaghettiServiceOptions {
   /** Override the data service implementation (for testing or custom setups) */
-  dataService?: ClaudeCodeAgentDataService;
+  dataService?: AgentDataService;
   /** Override the default DB path */
   dbPath?: string;
   /**
-   * Override the Claude data directory (defaults to ~/.claude).
-   * Ignored when {@link source} is provided.
+   * Primary agent data root when using the default Claude Code source
+   * (default `~/.claude`). Ignored when {@link source} is provided.
+   */
+  rootDir?: string;
+  /**
+   * @deprecated Use {@link rootDir}.
    */
   claudeDir?: string;
   /**
    * Explicit agent source adapter. Defaults to Claude Code using
-   * `claudeDir` (or `~/.claude`) as the root.
+   * `rootDir` / `claudeDir` (or `~/.claude`) as the root.
    */
   source?: AgentSource;
   /**
@@ -91,7 +95,7 @@ export function createSpaghettiService(options?: SpaghettiServiceOptions): Spagh
   const primary =
     options?.source ??
     createClaudeCodeSource({
-      rootDir: options?.claudeDir,
+      rootDir: options?.rootDir ?? options?.claudeDir,
     });
   const allSources: AgentSource[] = [primary, ...(options?.additionalSources ?? [])];
 

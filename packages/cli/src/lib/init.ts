@@ -42,6 +42,9 @@ let _service: SpaghettiAPI | null = null;
 
 export interface InitOptions {
   silent?: boolean;
+  /** Primary agent root (default Claude `~/.claude`). */
+  rootDir?: string;
+  /** @deprecated Use {@link rootDir}. */
   claudeDir?: string;
   dbPath?: string;
 }
@@ -116,7 +119,7 @@ function stripAnsi(str: string): string {
 
 export async function initService(opts?: InitOptions): Promise<SpaghettiAPI> {
   const service = createSpaghettiService({
-    claudeDir: opts?.claudeDir,
+    rootDir: opts?.rootDir ?? opts?.claudeDir,
     dbPath: opts?.dbPath,
     additionalSources: detectAdditionalSources(),
   });

@@ -8,9 +8,9 @@
  * owner serves reads; the store does. A single-source app passes one owner; a
  * multi-source app passes several, all writing into the same store.
  *
- * Implements the same `ClaudeCodeAgentDataService` surface `app-service.ts`
- * already consumes (the name is legacy; the surface is source-neutral), plus
- * `LifecycleInternal` for `getStore`/`getLiveUpdates`.
+ * Implements the same `AgentDataService` surface `app-service.ts` already
+ * consumes (agent-agnostic reads + multi-source lifecycle), plus
+ * `LifecycleInternal` for `getStore`/`getLiveWatch`.
  */
 
 import { EventEmitter } from 'events';
@@ -28,9 +28,9 @@ import type { SessionSummaryData, ProjectSummaryData } from './summary-types.js'
 import type { Project, Session, SessionMessage, AgentConfig, AgentAnalytic } from '../types/index.js';
 import type { AgentDataStore } from './agent-data-store.js';
 import type { LiveWatch } from '../live/live-watch.js';
-import type { ClaudeCodeAgentDataService, LifecycleInternal, LifecycleOwner } from './lifecycle-owner.js';
+import type { AgentDataService, LifecycleInternal, LifecycleOwner } from './lifecycle-owner.js';
 
-export class SpaghettiDataService extends EventEmitter implements ClaudeCodeAgentDataService, LifecycleInternal {
+export class SpaghettiDataService extends EventEmitter implements AgentDataService, LifecycleInternal {
   private ready = false;
 
   constructor(

@@ -6,8 +6,8 @@
  * - Codex → `sources/codex/lifecycle-owner.ts`
  *
  * This module keeps the shared interfaces (`LifecycleOwner`,
- * `ClaudeCodeAgentDataService`, options) and re-exports the Claude owner
- * class so existing imports from `./lifecycle-owner.js` / `agent-data-service`
+ * `AgentDataService`, options) and re-exports the Claude owner class so
+ * existing imports from `./lifecycle-owner.js` / `agent-data-service`
  * keep working without churn.
  */
 
@@ -57,7 +57,11 @@ export { ClaudeCodeLifecycleOwner } from '../sources/claude-code/lifecycle-owner
 // INTERFACE
 // ═══════════════════════════════════════════════════════════════════════════
 
-export interface ClaudeCodeAgentDataService extends EventEmitter {
+/**
+ * Multi-source data service surface (reads + lifecycle).
+ * Formerly Claude-branded; the implementation is agent-agnostic.
+ */
+export interface AgentDataService extends EventEmitter {
   initialize(): Promise<void>;
   shutdown(): void;
   /**
@@ -127,11 +131,11 @@ export interface ClaudeCodeAgentDataService extends EventEmitter {
  * NOT exported from the SDK barrel — `getStore()` returns the
  * `AgentDataStore` (an internal type with the subscriber registry on
  * it) and `getLiveUpdates()` returns the orchestrator (also internal).
- * Exposing either on the public `ClaudeCodeAgentDataService`
- * interface would leak implementation types into consumer code
- * (audit finding); keeping them on a separate interface that only
- * `LifecycleOwner` implements means `app-service.ts` reaches them
- * via duck-typing without the public surface advertising them.
+ * Exposing either on the public `AgentDataService` interface would leak
+ * implementation types into consumer code (audit finding); keeping them on
+ * a separate interface that only `LifecycleOwner` implements means
+ * `app-service.ts` reaches them via duck-typing without the public surface
+ * advertising them.
  */
 export interface LifecycleInternal {
   getStore(): AgentDataStore;
@@ -222,6 +226,14 @@ export interface LifecycleOwner extends LifecycleInternal {
 
 export interface AgentDataServiceOptions {
   dbPath?: string;
+  /**
+   * Primary agent data root (e.g. `~/.claude` for Claude Code).
+   * Prefer this over the deprecated {@link claudeDir} alias.
+   */
+  rootDir?: string;
+  /**
+   * @deprecated Use {@link rootDir}.
+   */
   claudeDir?: string;
   /**
    * Ingest engine to use for this service. When set, takes precedence over
@@ -232,3 +244,6 @@ export interface AgentDataServiceOptions {
    */
   engine?: IngestEngine;
 }
+
+/** @deprecated Use {@link AgentDataService}. */
+export type ClaudeCodeAgentDataService = AgentDataService;

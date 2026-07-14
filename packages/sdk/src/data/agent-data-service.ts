@@ -3,23 +3,18 @@
  *
  * Claude Code lifecycle implementation lives in
  * `sources/claude-code/lifecycle-owner.ts`. Shared contracts
- * (`LifecycleOwner`, `ClaudeCodeAgentDataService`, options) live in
- * `./lifecycle-owner.ts`. This module keeps every consumer —
- * `create.ts`, `index.ts`, `app-service.ts`, and downstream packages —
- * importing `AgentDataServiceImpl` / `ClaudeCodeAgentDataService` /
- * `AgentDataServiceOptions` from `./data/agent-data-service.js` without
- * churn.
+ * (`LifecycleOwner`, `AgentDataService`, options) live in
+ * `./lifecycle-owner.ts`.
  */
 
 export {
   // Impl: the class formerly known as `AgentDataServiceImpl`, now
   // `ClaudeCodeLifecycleOwner` under sources/claude-code/.
-  // Aliased back on the way out so existing `new AgentDataServiceImpl(...)`
-  // call-sites keep compiling.
   ClaudeCodeLifecycleOwner as AgentDataServiceImpl,
   ClaudeCodeLifecycleOwner,
-  // The per-source ingest-lifecycle interface + options.
   type LifecycleOwner,
+  type AgentDataService,
+  /** @deprecated Use AgentDataService */
   type ClaudeCodeAgentDataService,
   type AgentDataServiceOptions,
   // Segment / search / summary re-exports that previously lived on

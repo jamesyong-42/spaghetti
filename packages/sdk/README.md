@@ -1,6 +1,6 @@
 # @vibecook/spaghetti-sdk
 
-Local-first SDK for Claude Code data — parse `~/.claude`, index into SQLite, query sessions/messages/memory/todos/plans/subagents, and run full-text search.
+Local-first SDK for multi-agent history — index Claude Code, Codex, Grok (and more) into SQLite, query sessions/messages/artifacts, and run full-text search.
 
 Part of [Spaghetti](https://github.com/jamesyong-42/spaghetti).
 
@@ -24,7 +24,7 @@ React components are shipped under the `/react` subpath and require React 19 (pe
 ```ts
 import { createSpaghettiService } from '@vibecook/spaghetti-sdk';
 
-// Defaults: native Rust engine, ~/.claude as source, ~/.spaghetti/cache/spaghetti-rs.db as index.
+// Defaults: native Rust engine, ~/.claude primary source, ~/.spaghetti/cache/spaghetti-rs.db index.
 const spaghetti = createSpaghettiService();
 await spaghetti.initialize();
 
@@ -42,17 +42,21 @@ spaghetti.shutdown();
 
 | Field | Type | Default | Description |
 |---|---|---|---|
-| `claudeDir` | `string` | `~/.claude` | Source directory to parse. |
+| `rootDir` | `string` | `~/.claude` | Primary agent data root when using the default Claude Code source. |
+| `claudeDir` | `string` | — | **Deprecated.** Alias for `rootDir`. |
+| `source` | `AgentSource` | Claude Code | Explicit primary agent adapter. |
+| `additionalSources` | `AgentSource[]` | `[]` | Extra agents (e.g. Codex, Grok) into the same index. |
 | `dbPath` | `string` | `~/.spaghetti/cache/spaghetti-{rs,ts}.db` | SQLite index path. Default varies by engine so switching engines doesn't force a re-ingest. |
-| `engine` | `'rs' \| 'ts'` | resolved via [Engine selection](#engine-selection) | Pin the ingest engine for this service. Takes precedence over the process-wide `SPAG_ENGINE` env var and the persisted `~/.spaghetti/config.json` setting — useful when an app wants its own engine preference independent of the user's shell/config. |
-| `dataService` | `ClaudeCodeAgentDataService` | — | Inject a custom/mock implementation (testing). |
+| `engine` | `'rs' \| 'ts'` | resolved via [Engine selection](#engine-selection) | Pin the ingest engine for this service. Takes precedence over the process-wide `SPAG_ENGINE` env var and the persisted `~/.spaghetti/config.json` setting. |
+| `live` | `boolean` | `false` | Enable Plane 2 live disk ingest. |
+| `dataService` | `AgentDataService` | — | Inject a custom/mock implementation (testing). |
 
 ```ts
 // Pin the engine for this service without mutating global state.
 const svc = createSpaghettiService({ engine: 'rs', dbPath: '/tmp/my-index.db' });
 ```
 
-Two instances in the same process can point at different `claudeDir`s as long as each has its own `dbPath` — same DB file from two services risks `SQLITE_BUSY`.
+Two instances in the same process can point at different `rootDir`s as long as each has its own `dbPath` — same DB file from two services risks `SQLITE_BUSY`.
 
 ### Key methods
 

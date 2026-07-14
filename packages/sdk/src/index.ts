@@ -1,5 +1,6 @@
 /**
- * @vibecook/spaghetti-sdk — Standalone library for browsing and analyzing Claude Code agent data
+ * @vibecook/spaghetti-sdk — Local-first library for browsing multi-agent
+ * history (Claude Code, Codex, Grok, …) from on-disk agent data.
  */
 
 // Types
@@ -22,7 +23,11 @@ export { createSegmentStore, type SegmentStore } from './data/segment-store.js';
 // `createSpaghettiService(...)`. The shim file at
 // `./data/agent-data-service.js` keeps existing internal imports
 // working but the public barrel only exposes the interface.
-export { type ClaudeCodeAgentDataService, type AgentDataServiceOptions } from './data/agent-data-service.js';
+export {
+  type AgentDataService,
+  type ClaudeCodeAgentDataService,
+  type AgentDataServiceOptions,
+} from './data/agent-data-service.js';
 
 // Schema
 export { SCHEMA_VERSION, initializeSchema } from './data/schema.js';

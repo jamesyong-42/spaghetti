@@ -15,7 +15,7 @@ import type {
   SubagentMessagePage,
   SourceFilter,
 } from './api.js';
-import type { ClaudeCodeAgentDataService } from './data/agent-data-service.js';
+import type { AgentDataService } from './data/agent-data-service.js';
 import type { LifecycleInternal } from './data/lifecycle-owner.js';
 import type { AgentDataStore } from './data/agent-data-store.js';
 import type { LiveWatch } from './live/live-watch.js';
@@ -36,7 +36,7 @@ import type { RuntimeBridge } from './planes/runtime-bridge.js';
 import type { ErrorSink } from './io/error-sink.js';
 
 class SpaghettiAppService extends EventEmitter implements SpaghettiAPI {
-  private dataService: ClaudeCodeAgentDataService;
+  private dataService: AgentDataService;
   private runtimeBridge: RuntimeBridge | undefined;
 
   /**
@@ -53,7 +53,7 @@ class SpaghettiAppService extends EventEmitter implements SpaghettiAPI {
    */
   readonly runtime?: SpaghettiRuntime;
 
-  constructor(dataService: ClaudeCodeAgentDataService, errorSink?: ErrorSink, runtimeBridge?: RuntimeBridge) {
+  constructor(dataService: AgentDataService, errorSink?: ErrorSink, runtimeBridge?: RuntimeBridge) {
     super();
     this.dataService = dataService;
     this.runtimeBridge = runtimeBridge;
@@ -66,7 +66,7 @@ class SpaghettiAppService extends EventEmitter implements SpaghettiAPI {
     // C3.4: build api.live if the underlying service implements the
     // internal `LifecycleInternal` shape (only `LifecycleOwner` does
     // today). Reaches the methods via structural typing so the public
-    // `ClaudeCodeAgentDataService` interface stays free of internal
+    // `AgentDataService` interface stays free of internal
     // type leaks.
     const internal = dataService as Partial<LifecycleInternal>;
     const getStore = internal.getStore?.bind(internal) as (() => AgentDataStore) | undefined;
@@ -269,7 +269,7 @@ function toSessionListItem(data: SessionSummaryData): SessionListItem {
 }
 
 export function createSpaghettiAppService(
-  dataService: ClaudeCodeAgentDataService,
+  dataService: AgentDataService,
   errorSink?: ErrorSink,
   runtimeBridge?: RuntimeBridge,
 ): SpaghettiAPI {

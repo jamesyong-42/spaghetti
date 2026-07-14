@@ -37,7 +37,9 @@ export interface InitSdkOptions {
   dbPath: string;
   /** Ingest engine to run for this process. */
   engine: IngestEngine;
-  /** Optional Claude source dir; defaults to the SDK's `~/.claude`. */
+  /** Optional primary agent root; defaults to the SDK's `~/.claude` for Claude. */
+  rootDir?: string;
+  /** @deprecated Use {@link rootDir}. */
   claudeDir?: string;
 }
 
@@ -47,11 +49,12 @@ export function initSdk(options: InitSdkOptions): Promise<SpaghettiAPI> {
   activeEngine = options.engine;
   // Long-lived desktop surface: enable Plane 2 live disk updates so the
   // UI can stay current while Claude Code writes (matches TUI default).
+  const rootDir = options.rootDir ?? options.claudeDir;
   const service = createSpaghettiService({
     dbPath: options.dbPath,
     engine: options.engine,
     live: true,
-    ...(options.claudeDir ? { claudeDir: options.claudeDir } : {}),
+    ...(rootDir ? { rootDir } : {}),
   });
   sdkInstance = service;
 

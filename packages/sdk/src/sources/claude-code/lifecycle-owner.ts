@@ -46,11 +46,7 @@ import type {
 import type { QueryService } from '../../data/query-service.js';
 import type { IngestService } from '../../data/ingest-service.js';
 import type { AgentDataStore } from '../../data/agent-data-store.js';
-import type {
-  AgentDataServiceOptions,
-  ClaudeCodeAgentDataService,
-  LifecycleOwner,
-} from '../../data/lifecycle-owner.js';
+import type { AgentDataService, AgentDataServiceOptions, LifecycleOwner } from '../../data/lifecycle-owner.js';
 import type { ClaudeCodeParser } from './parser/claude-code-parser.js';
 import type { FileService } from '../../io/index.js';
 import type { ClaudeCodeLiveUpdates } from './live/live-updates.js';
@@ -76,7 +72,7 @@ interface SourceStatSnapshot {
   isJsonl: boolean;
 }
 
-export class ClaudeCodeLifecycleOwner extends EventEmitter implements ClaudeCodeAgentDataService, LifecycleOwner {
+export class ClaudeCodeLifecycleOwner extends EventEmitter implements AgentDataService, LifecycleOwner {
   /** RFC 006: the source this owner ingests for. Claude Code today. */
   readonly sourceId = 'claude-code';
   private fileService: FileService;
@@ -125,7 +121,7 @@ export class ClaudeCodeLifecycleOwner extends EventEmitter implements ClaudeCode
     this.liveUpdates = liveUpdates;
     this.engine = this.options.engine ?? resolveEngine();
     this.dbPath = this.options.dbPath ?? getDefaultDbPath(this.engine);
-    this.claudeDir = this.options.claudeDir ?? path.join(os.homedir(), '.claude');
+    this.claudeDir = this.options.rootDir ?? this.options.claudeDir ?? path.join(os.homedir(), '.claude');
   }
 
   // ─────────────────────────────────────────────────────────────────────────
