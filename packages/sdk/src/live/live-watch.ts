@@ -2,17 +2,18 @@
  * LiveWatch — the general per-source live-ingest contract (RFC 006 Plane 2).
  *
  * Every agent source's live pipeline implements this: it watches that source's
- * on-disk data and streams deltas into the shared store. Claude Code's rich
- * implementation is `LiveUpdates` (with `prewarm` scope ref-counting +
- * `isSaturated` backpressure); Codex's is `CodexLiveWatch`. The lifecycle owner
- * exposes whichever one it has via `getLiveWatch()`, so the app treats them
- * uniformly instead of special-casing one agent.
+ * on-disk data and streams deltas into the shared store.
  *
- * `prewarm` and `isSaturated` are OPTIONAL: they model Claude Code's multi-scope
- * watcher (lazily attach a subtree per subscribed topic) and its coalescing
- * queue. A source that simply watches its whole tree (Codex) omits them; the
- * `api.live` surface treats an absent `prewarm` as a no-op and absent
- * `isSaturated` as `false`.
+ * Implementations (product-owned):
+ * - Claude Code → `ClaudeCodeLiveUpdates` (`sources/claude-code/live/`)
+ * - Codex → `CodexLiveWatch` (`sources/codex/live-watch.ts`)
+ * - Grok → `GrokLiveWatch` (`sources/grok/live-watch.ts`)
+ *
+ * Lifecycle owners expose theirs via `getLiveWatch()`.
+ *
+ * `prewarm` and `isSaturated` are OPTIONAL (Claude multi-scope attach + queue
+ * backpressure). Whole-tree watchers omit them; `api.live` treats missing
+ * `prewarm` as no-op and missing `isSaturated` as `false`.
  */
 
 import type { ChangeTopic, Dispose } from './change-events.js';

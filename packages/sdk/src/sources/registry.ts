@@ -13,7 +13,7 @@ import { createIngestService } from '../data/ingest-service.js';
 import type { DurableStore } from '../store/durable-store.js';
 import type { NativeAddon } from '../native.js';
 import type { IngestEngine } from '../settings.js';
-import type { LiveDiskIngest } from '../planes/live-disk-ingest.js';
+import type { ClaudeCodeLiveDiskIngest } from './claude-code/live/disk-ingest.js';
 import { toLifecycleOptions } from '../planes/static-ingest.js';
 import { createClaudeCodeParser } from './claude-code/parser/index.js';
 import { ClaudeCodeLifecycleOwner } from './claude-code/lifecycle-owner.js';
@@ -34,11 +34,11 @@ export interface LifecycleOwnerFactoryDeps {
   engine: IngestEngine;
   native: NativeAddon | null;
   /**
-   * Prebuilt Claude LiveDiskIngest for the primary source only.
+   * Prebuilt Claude live pipeline for the primary Claude source only.
    * Undefined for secondary sources and non-Claude primaries (they use
-   * their own live watches inside the owner).
+   * their own LiveWatch implementations inside the owner).
    */
-  primaryLive?: LiveDiskIngest;
+  claudeLive?: ClaudeCodeLiveDiskIngest;
 }
 
 export type LifecycleOwnerFactory = (deps: LifecycleOwnerFactoryDeps) => LifecycleOwner;
@@ -58,7 +58,7 @@ const REGISTRY: Record<AgentSourceId, LifecycleOwnerFactory> = {
         engine: deps.engine,
         dbPath: deps.dbPath,
       }),
-      deps.primaryLive,
+      deps.claudeLive,
     );
   },
 

@@ -19,8 +19,8 @@ import { defaultDbPathForEngine, resolveEngine, type IngestEngine } from './sett
 import type { SpaghettiAPI } from './api.js';
 import { createClaudeCodeSource, type AgentSource } from './sources/index.js';
 import { createLifecycleOwnerForSource } from './sources/registry.js';
+import { createClaudeCodeLiveDiskIngest } from './sources/claude-code/live/disk-ingest.js';
 import { createDurableStore } from './store/durable-store.js';
-import { createLiveDiskIngest } from './planes/live-disk-ingest.js';
 import { createRuntimeBridge } from './planes/runtime-bridge.js';
 
 export interface SpaghettiServiceOptions {
@@ -118,12 +118,12 @@ export function createSpaghettiService(options?: SpaghettiServiceOptions): Spagh
   // spaghetti-{rs,ts}.db).
   const dbPath = options?.dbPath ?? defaultDbPathForEngine(resolvedEngine);
 
-  // Claude LiveDiskIngest only when primary is Claude Code and live is on.
-  // Codex/Grok own their live watches inside their LifecycleOwners.
+  // Claude live pipeline only when primary is Claude Code and live is on.
+  // Codex/Grok own their LiveWatch implementations inside their owners.
   const live = options?.live ?? false;
-  const primaryLive =
+  const claudeLive =
     live && primary.id === 'claude-code'
-      ? createLiveDiskIngest({
+      ? createClaudeCodeLiveDiskIngest({
           source: primary,
           store,
           fileService,
@@ -144,7 +144,7 @@ export function createSpaghettiService(options?: SpaghettiServiceOptions): Spagh
       live,
       engine: resolvedEngine,
       native: nativeAddon,
-      primaryLive: i === 0 ? primaryLive : undefined,
+      claudeLive: i === 0 ? claudeLive : undefined,
     });
     if (!owner) {
       errorSink.error(new Error(`No LifecycleOwner registered for source '${source.id}' — skipping.`));

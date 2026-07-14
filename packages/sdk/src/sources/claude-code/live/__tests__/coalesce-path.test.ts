@@ -16,7 +16,7 @@ import assert from 'node:assert/strict';
 import * as path from 'node:path';
 
 import { coalescePath, TASK_COALESCE_FILENAME } from '../live-updates.js';
-import type { RouteResult } from '../router.js';
+import type { RouteResult } from '../../../../live/router.js';
 
 const CLAUDE_DIR = '/tmp/claude';
 

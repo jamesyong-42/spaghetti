@@ -21,6 +21,13 @@ export {
   type ConfigParser,
   type AnalyticsParser,
 } from './parser/index.js';
+export {
+  createClaudeCodeLiveUpdates,
+  createClaudeCodeLiveDiskIngest,
+  type ClaudeCodeLiveUpdates,
+  type ClaudeCodeLiveDiskIngest,
+  watchSessionTranscript,
+} from './live/index.js';
 
 export interface ClaudeCodeSourceOptions {
   /** Override agent data root (default `~/.claude`). */

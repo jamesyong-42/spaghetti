@@ -53,7 +53,7 @@ import type {
 } from '../../data/lifecycle-owner.js';
 import type { ClaudeCodeParser } from './parser/claude-code-parser.js';
 import type { FileService } from '../../io/index.js';
-import type { LiveUpdates } from '../../live/live-updates.js';
+import type { ClaudeCodeLiveUpdates } from './live/live-updates.js';
 import type { LiveWatch } from '../../live/live-watch.js';
 import { createWorkerPool, isWorkerThreadsAvailable, type WorkerToMainMessage } from '../../workers/index.js';
 import { loadNativeAddon } from '../../native.js';
@@ -92,7 +92,7 @@ export class ClaudeCodeLifecycleOwner extends EventEmitter implements ClaudeCode
    * skip the start/stop calls and the service behaves identically to
    * the pre-RFC-005 build.
    */
-  private liveUpdates: LiveUpdates | undefined;
+  private liveUpdates: ClaudeCodeLiveUpdates | undefined;
 
   private ready = false;
   private dbPath: string;
@@ -113,7 +113,7 @@ export class ClaudeCodeLifecycleOwner extends EventEmitter implements ClaudeCode
     ingestService: IngestService,
     store: AgentDataStore,
     options?: AgentDataServiceOptions,
-    liveUpdates?: LiveUpdates,
+    liveUpdates?: ClaudeCodeLiveUpdates,
   ) {
     super();
     this.fileService = fileService;

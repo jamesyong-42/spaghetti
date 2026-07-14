@@ -20,9 +20,9 @@ import os from 'node:os';
 import path from 'node:path';
 import { mkdtempSync, rmSync, writeFileSync, appendFileSync, statSync, unlinkSync, mkdirSync } from 'node:fs';
 
-import { createFileService } from '../../io/file-service.js';
+import { createFileService } from '../../../../io/file-service.js';
 import { createIncrementalParser } from '../incremental-parser.js';
-import type { FileService } from '../../io/file-service.js';
+import type { FileService } from '../../../../io/file-service.js';
 import type { IncrementalParser, ParsedRow } from '../incremental-parser.js';
 import type { Checkpoint } from '../checkpoints.js';
 
@@ -510,7 +510,7 @@ describe('IncrementalParser (C2.4)', () => {
       path: eventPath,
       category: 'task',
       sessionId,
-      claudeDir,
+      rootDir: claudeDir,
       checkpoint: undefined,
     });
 

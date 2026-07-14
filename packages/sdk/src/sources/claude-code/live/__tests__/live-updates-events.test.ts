@@ -21,9 +21,9 @@ import os from 'node:os';
 import path from 'node:path';
 import { mkdtempSync, rmSync, mkdirSync, writeFileSync, realpathSync } from 'node:fs';
 
-import { createSpaghettiService } from '../../create.js';
-import type { SpaghettiAPI } from '../../api.js';
-import type { Change } from '../change-events.js';
+import { createSpaghettiService } from '../../../../create.js';
+import type { SpaghettiAPI } from '../../../../api.js';
+import type { Change } from '../../../../live/change-events.js';
 
 const SLUG = 'e2e-slug';
 const SESSION_ID = 'e2e-session';

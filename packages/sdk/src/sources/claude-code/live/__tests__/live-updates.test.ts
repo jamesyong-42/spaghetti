@@ -31,18 +31,18 @@ import os from 'node:os';
 import path from 'node:path';
 import { mkdtempSync, rmSync, mkdirSync, writeFileSync, appendFileSync, realpathSync, renameSync } from 'node:fs';
 
-import { createFileService } from '../../io/file-service.js';
-import { createSqliteService } from '../../io/sqlite-service.js';
-import { createQueryService } from '../../data/query-service.js';
-import { createIngestService } from '../../data/ingest-service.js';
-import { createAgentDataStore } from '../../data/agent-data-store.js';
-import { initializeSchema } from '../../data/schema.js';
+import { createFileService } from '../../../../io/file-service.js';
+import { createSqliteService } from '../../../../io/sqlite-service.js';
+import { createQueryService } from '../../../../data/query-service.js';
+import { createIngestService } from '../../../../data/ingest-service.js';
+import { createAgentDataStore } from '../../../../data/agent-data-store.js';
+import { initializeSchema } from '../../../../data/schema.js';
 import { createLiveUpdates, type LiveUpdates, type LiveUpdatesOptions } from '../live-updates.js';
-import type { SqliteService } from '../../io/index.js';
-import type { IngestService } from '../../data/ingest-service.js';
-import type { QueryService } from '../../data/query-service.js';
-import type { AgentDataStore } from '../../data/agent-data-store.js';
-import type { Change } from '../change-events.js';
+import type { SqliteService } from '../../../../io/index.js';
+import type { IngestService } from '../../../../data/ingest-service.js';
+import type { QueryService } from '../../../../data/query-service.js';
+import type { AgentDataStore } from '../../../../data/agent-data-store.js';
+import type { Change } from '../../../../live/change-events.js';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // CONSTANTS

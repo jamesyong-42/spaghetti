@@ -25,7 +25,7 @@ import type { FileService } from '../../io/file-service.js';
 import type { ErrorSink } from '../../io/error-sink.js';
 import type { IngestService } from '../../data/ingest-service.js';
 import type { AgentDataStore } from '../../data/agent-data-store.js';
-import type { ParsedRow } from '../../live/incremental-parser.js';
+import type { ParsedRow } from '../../live/parsed-row.js';
 import type { SessionIndexEntry, SessionsIndex } from '../../types/index.js';
 import { createParcelWatcher, createChokidarWatcher, type Watcher, type Unsubscribe } from '../../live/watcher.js';
 import type { LiveWatch } from '../../live/live-watch.js';
