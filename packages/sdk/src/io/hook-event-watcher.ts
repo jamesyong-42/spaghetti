@@ -8,7 +8,7 @@
 import { watch, existsSync, writeFileSync, mkdirSync, type FSWatcher } from 'fs';
 import { dirname } from 'path';
 import { readJsonlStreaming } from './streaming-jsonl-reader.js';
-import type { HookEvent } from '../types/hook-events.js';
+import type { HookEvent } from '../types/spaghetti/hook-events.js';
 import { createClaudeCodeSource } from '../sources/claude-code/index.js';
 
 // ─── Types ───────────────────────────────────────────────────────────────

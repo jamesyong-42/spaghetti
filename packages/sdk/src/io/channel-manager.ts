@@ -9,7 +9,7 @@
 
 import { createChannelRegistry, type ChannelRegistry } from './channel-registry.js';
 import { createChannelClient, type ChannelClient } from './channel-client.js';
-import type { ChannelIncoming, SessionInfo } from '../types/channel-messages.js';
+import type { ChannelIncoming, SessionInfo } from '../types/spaghetti/channel-messages.js';
 
 // ─── Types ───────────────────────────────────────────────────────────────
 

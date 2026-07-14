@@ -1,30 +1,24 @@
-// ═══════════════════════════════════════════════════════════════════════════════
-// RE-EXPORTS — all leaf types from each data module
-// ═══════════════════════════════════════════════════════════════════════════════
+/**
+ * Public type barrel — re-exports Claude on-disk shapes + Spaghetti runtime
+ * types, plus Claude aggregation models used by parsers and the store.
+ *
+ * Layout:
+ * - `types/claude/`     — ~/.claude on-disk product shapes
+ * - `types/spaghetti/`  — hooks + channel (Spaghetti-owned runtime)
+ *
+ * Prefer importing from `types/claude` or `types/spaghetti` in product code;
+ * this barrel remains stable for external consumers.
+ */
 
-export * from './projects.js';
-export * from './tasks.js';
-export * from './todos.js';
-export * from './debug.js';
-export * from './session-env.js';
-export * from './file-history-data.js';
-export * from './plans-data.js';
-export * from './shell-snapshots-data.js';
-export * from './paste-cache-data.js';
-export * from './plugins-data.js';
-export * from './telemetry-data.js';
-export * from './statsig-data.js';
-export * from './ide-data.js';
-export * from './cache-data.js';
-export * from './toplevel-files-data.js';
-export * from './teams-data.js';
-export * from './backups-data.js';
-export * from './hook-events.js';
-export * from './channel-messages.js';
+// ── Claude on-disk ─────────────────────────────────────────────────────────
+export * from './claude/index.js';
 
-// ═══════════════════════════════════════════════════════════════════════════════
-// IMPORTS — types used by aggregation interfaces below
-// ═══════════════════════════════════════════════════════════════════════════════
+// ── Spaghetti runtime ──────────────────────────────────────────────────────
+export * from './spaghetti/index.js';
+
+// ═══════════════════════════════════════════════════════════════════════════
+// CLAUDE CODE AGENT — top-level aggregation (parser output models)
+// ═══════════════════════════════════════════════════════════════════════════
 
 import type {
   SessionsIndex,
@@ -33,43 +27,34 @@ import type {
   SubagentType,
   PersistedToolResult,
   ProjectMemory,
-} from './projects.js';
-import type { FileHistorySession } from './file-history-data.js';
-import type { TodoFile } from './todos.js';
-import type { TaskEntry } from './tasks.js';
-import type { PlanFile } from './plans-data.js';
-
+} from './claude/projects.js';
+import type { FileHistorySession } from './claude/file-history-data.js';
+import type { TodoFile } from './claude/todos.js';
+import type { TaskEntry } from './claude/tasks.js';
+import type { PlanFile } from './claude/plans-data.js';
 import type {
   SettingsFile,
   StatusLineCommandFile,
   StatsCacheFile,
   HistoryFile,
   McpNeedsAuthCache,
-} from './toplevel-files-data.js';
-import type { PluginsDirectory } from './plugins-data.js';
-import type { StatsigDirectory } from './statsig-data.js';
-import type { IdeDirectory } from './ide-data.js';
-import type { ShellSnapshotsDirectory } from './shell-snapshots-data.js';
-import type { CacheDirectory } from './cache-data.js';
-import type { TelemetryDirectory } from './telemetry-data.js';
-import type { DebugLogFile, DebugLatestSymlink } from './debug.js';
-import type { PasteCacheDirectory } from './paste-cache-data.js';
-import type { SessionEnvDirectory } from './session-env.js';
-import type { TeamDirectory } from './teams-data.js';
-
-// ═══════════════════════════════════════════════════════════════════════════════
-// CLAUDE CODE AGENT — top-level aggregation
-// ═══════════════════════════════════════════════════════════════════════════════
+} from './claude/toplevel-files-data.js';
+import type { PluginsDirectory } from './claude/plugins-data.js';
+import type { StatsigDirectory } from './claude/statsig-data.js';
+import type { IdeDirectory } from './claude/ide-data.js';
+import type { ShellSnapshotsDirectory } from './claude/shell-snapshots-data.js';
+import type { CacheDirectory } from './claude/cache-data.js';
+import type { TelemetryDirectory } from './claude/telemetry-data.js';
+import type { DebugLogFile, DebugLatestSymlink } from './claude/debug.js';
+import type { PasteCacheDirectory } from './claude/paste-cache-data.js';
+import type { SessionEnvDirectory } from './claude/session-env.js';
+import type { TeamDirectory } from './claude/teams-data.js';
 
 export interface ClaudeCodeAgentData {
   projects: Project[];
   config: AgentConfig;
   analytics: AgentAnalytic;
 }
-
-// ═══════════════════════════════════════════════════════════════════════════════
-// PROJECT
-// ═══════════════════════════════════════════════════════════════════════════════
 
 export interface Project {
   slug: string;
@@ -141,10 +126,6 @@ export interface SubagentTranscript {
   workflowId: string;
 }
 
-// ═══════════════════════════════════════════════════════════════════════════════
-// AGENT CONFIG
-// ═══════════════════════════════════════════════════════════════════════════════
-
 export interface AgentConfig {
   settings: SettingsFile;
   /**
@@ -165,10 +146,6 @@ export interface AgentConfig {
   /** `mcp-needs-auth-cache.json` — MCP servers awaiting auth. Null when absent. */
   mcpNeedsAuth: McpNeedsAuthCache | null;
 }
-
-// ═══════════════════════════════════════════════════════════════════════════════
-// AGENT ANALYTIC
-// ═══════════════════════════════════════════════════════════════════════════════
 
 export interface AgentAnalytic {
   statsCache: StatsCacheFile;

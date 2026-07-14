@@ -1,14 +1,2 @@
-/**
- * TypeScript interfaces for ~/.claude/plans/
- */
-
-export interface PlanFile {
-  slug: string;
-  title: string;
-  content: string;
-  size: number;
-}
-
-export interface PlansDirectory {
-  plans: PlanFile[];
-}
+/** @deprecated Import from `types/claude/plans-data.js` or `types/claude`. */
+export * from './claude/plans-data.js';

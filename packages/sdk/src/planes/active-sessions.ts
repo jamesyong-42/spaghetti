@@ -8,7 +8,7 @@
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-import type { ActiveSessionFile } from '../types/toplevel-files-data.js';
+import type { ActiveSessionFile } from '../types/claude/toplevel-files-data.js';
 
 /**
  * True if the OS still has a process with this pid (signal 0 probe).

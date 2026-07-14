@@ -9,9 +9,9 @@
 import type { RuntimeBridge } from '../planes/runtime-bridge.js';
 import type { RuntimeEvent } from '../events/runtime-event.js';
 import type { Dispose } from '../live/change-events.js';
-import type { HookEvent } from '../types/hook-events.js';
-import type { SessionInfo } from '../types/channel-messages.js';
-import type { ActiveSessionFile } from '../types/toplevel-files-data.js';
+import type { HookEvent } from '../types/spaghetti/hook-events.js';
+import type { SessionInfo } from '../types/spaghetti/channel-messages.js';
+import type { ActiveSessionFile } from '../types/claude/toplevel-files-data.js';
 
 /**
  * Public runtime surface for hooks + channel session discovery +

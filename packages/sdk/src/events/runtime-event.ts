@@ -9,8 +9,8 @@
  * See `docs/THREE-PLANE-INGEST-ARCHITECTURE.md` §6 and §9.
  */
 
-import type { HookEvent } from '../types/hook-events.js';
-import type { SessionInfo } from '../types/channel-messages.js';
+import type { HookEvent } from '../types/spaghetti/hook-events.js';
+import type { SessionInfo } from '../types/spaghetti/channel-messages.js';
 
 /** Runtime event stream — hooks + channel session liveness today. */
 export type RuntimeEvent =

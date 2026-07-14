@@ -21,7 +21,7 @@ import {
   type ClientPermissionVerdict,
   type ClientPing,
   type SessionInfo,
-} from '../types/channel-messages.js';
+} from '../types/spaghetti/channel-messages.js';
 
 // ─── Types ───────────────────────────────────────────────────────────────
 

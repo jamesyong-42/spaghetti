@@ -1,16 +1,2 @@
-/**
- * TypeScript interfaces for ~/.claude/ide/
- */
-
-export interface IdeLockFile {
-  workspaceFolders: string[];
-  pid: number;
-  ideName: string;
-  transport: string;
-  runningInWindows: boolean;
-  authToken: string;
-}
-
-export interface IdeDirectory {
-  lockFiles: IdeLockFile[];
-}
+/** @deprecated Import from `types/claude/ide-data.js` or `types/claude`. */
+export * from './claude/ide-data.js';

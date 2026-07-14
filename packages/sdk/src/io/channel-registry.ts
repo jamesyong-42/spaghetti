@@ -9,7 +9,7 @@
 
 import { watch, existsSync, mkdirSync, readdirSync, readFileSync, unlinkSync, type FSWatcher } from 'node:fs';
 import { join } from 'node:path';
-import { getChannelSessionsDir, type SessionInfo } from '../types/channel-messages.js';
+import { getChannelSessionsDir, type SessionInfo } from '../types/spaghetti/channel-messages.js';
 
 // ─── Types ───────────────────────────────────────────────────────────────
 
