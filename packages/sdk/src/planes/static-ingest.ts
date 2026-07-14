@@ -9,7 +9,7 @@
  */
 
 import type { FileService } from '../io/file-service.js';
-import type { ClaudeCodeParser } from '../parser/claude-code-parser.js';
+import type { ClaudeCodeParser } from '../sources/claude-code/parser/claude-code-parser.js';
 import type { AgentDataServiceOptions } from '../data/agent-data-service.js';
 import type { AgentSource } from '../sources/types.js';
 import type { DurableStore } from '../store/durable-store.js';

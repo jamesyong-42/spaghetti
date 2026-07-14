@@ -18,10 +18,10 @@ import os from 'node:os';
 import path from 'node:path';
 import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from 'node:fs';
 
-import { createFileService } from '../../io/file-service.js';
+import { createFileService } from '../../../../io/file-service.js';
 import { createConfigParser } from '../config-parser.js';
 import type { ConfigParser } from '../config-parser.js';
-import type { TeamConfig, InboxMessage } from '../../types/index.js';
+import type { TeamConfig, InboxMessage } from '../../../../types/index.js';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // FIXTURE HELPERS

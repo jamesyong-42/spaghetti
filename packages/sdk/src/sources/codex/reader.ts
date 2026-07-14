@@ -28,7 +28,7 @@
  */
 
 import type { FileService } from '../../io/file-service.js';
-import type { ProjectParseSink } from '../../parser/parse-sink.js';
+import type { ProjectParseSink } from '../../data/parse-sink.js';
 import type { SessionIndexEntry, SessionsIndex } from '../../types/index.js';
 
 const ROLLOUT_FILE = /^rollout-.*\.jsonl$/;

@@ -6,7 +6,7 @@
  */
 
 import type { SqliteService, PreparedStatement } from '../io/index.js';
-import type { ProjectParseSink } from '../parser/parse-sink.js';
+import type { ProjectParseSink } from './parse-sink.js';
 import type {
   SessionsIndex,
   SessionIndexEntry,

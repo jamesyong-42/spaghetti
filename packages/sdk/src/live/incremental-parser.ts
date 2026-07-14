@@ -55,7 +55,7 @@ import {
   parseTodoFilename,
   parseFileHistoryFilename,
   parsePlanFilename,
-} from '../parser/filename-conventions.js';
+} from '../sources/claude-code/parser/filename-conventions.js';
 import type { Checkpoint } from './checkpoints.js';
 
 // ═══════════════════════════════════════════════════════════════════════════

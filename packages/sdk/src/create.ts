@@ -9,7 +9,7 @@ import { createFileService } from './io/file-service.js';
 import { createSqliteService } from './io/sqlite-service.js';
 import { createConsoleErrorSink, type ErrorSink } from './io/error-sink.js';
 import { createSpaghettiAppService } from './app-service.js';
-import { createClaudeCodeParser } from './parser/claude-code-parser.js';
+import { createClaudeCodeParser } from './sources/claude-code/parser/index.js';
 import type { ClaudeCodeAgentDataService, LifecycleOwner } from './data/agent-data-service.js';
 import { SpaghettiDataService } from './data/multi-source-service.js';
 import { createIngestService } from './data/ingest-service.js';

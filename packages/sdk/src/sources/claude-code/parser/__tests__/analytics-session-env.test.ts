@@ -8,7 +8,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from 'node:fs';
 
-import { createFileService } from '../../io/file-service.js';
+import { createFileService } from '../../../../io/file-service.js';
 import { createAnalyticsParser } from '../analytics-parser.js';
 import type { AnalyticsParser } from '../analytics-parser.js';
 

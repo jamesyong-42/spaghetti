@@ -11,9 +11,9 @@
 
 import { parentPort } from 'node:worker_threads';
 import { createFileService } from '../io/file-service.js';
-import { createProjectParser } from '../parser/project-parser.js';
+import { createProjectParser } from '../sources/claude-code/parser/project-parser.js';
 import type { MainToWorkerMessage, WorkerMessageBatch } from './worker-types.js';
-import type { ProjectParseSink } from '../parser/parse-sink.js';
+import type { ProjectParseSink } from '../data/parse-sink.js';
 
 if (!parentPort) {
   throw new Error('parse-worker must be run as a worker thread');

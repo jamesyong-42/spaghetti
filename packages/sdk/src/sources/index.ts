@@ -9,7 +9,11 @@ export {
   defaultSpaghettiStateDir,
   buildClaudeCodePaths,
   ClaudeCodeLifecycleOwner,
+  createClaudeCodeParser,
+  createProjectParser,
   type ClaudeCodeSourceOptions,
+  type ClaudeCodeParser,
+  type ClaudeCodeParserOptions,
 } from './claude-code/index.js';
 export {
   createCodexSource,

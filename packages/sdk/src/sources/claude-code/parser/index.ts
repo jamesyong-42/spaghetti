@@ -1,8 +1,7 @@
 /**
- * parser/ — backward-compat re-export barrel.
+ * Claude Code on-disk parsers (product-specific).
  *
- * Claude Code parsers live under `sources/claude-code/parser/`.
- * Shared ingest sink: `data/parse-sink.ts`.
+ * Shared write contract: {@link ProjectParseSink} in `data/parse-sink.ts`.
  */
 
 export {
@@ -10,18 +9,25 @@ export {
   type ClaudeCodeParser,
   ClaudeCodeParserImpl,
   createClaudeCodeParser,
+} from './claude-code-parser.js';
+
+export {
   type ProjectParserOptions,
   type ProjectParser,
   ProjectParserImpl,
   createProjectParser,
-  type ConfigParserOptions,
-  type ConfigParser,
-  ConfigParserImpl,
-  createConfigParser,
+} from './project-parser.js';
+
+export { type ConfigParserOptions, type ConfigParser, ConfigParserImpl, createConfigParser } from './config-parser.js';
+
+export {
   type AnalyticsParserOptions,
   type AnalyticsParser,
   AnalyticsParserImpl,
   createAnalyticsParser,
+} from './analytics-parser.js';
+
+export {
   type ParsedSubagentFilename,
   type ParsedTodoFilename,
   type ParsedFileHistoryFilename,
@@ -31,6 +37,4 @@ export {
   parseTodoFilename,
   parseFileHistoryFilename,
   parsePlanFilename,
-} from '../sources/claude-code/parser/index.js';
-
-export { type ProjectParseSink } from '../data/parse-sink.js';
+} from './filename-conventions.js';

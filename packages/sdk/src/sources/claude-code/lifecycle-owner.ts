@@ -51,7 +51,7 @@ import type {
   ClaudeCodeAgentDataService,
   LifecycleOwner,
 } from '../../data/lifecycle-owner.js';
-import type { ClaudeCodeParser } from '../../parser/claude-code-parser.js';
+import type { ClaudeCodeParser } from './parser/claude-code-parser.js';
 import type { FileService } from '../../io/index.js';
 import type { LiveUpdates } from '../../live/live-updates.js';
 import type { LiveWatch } from '../../live/live-watch.js';

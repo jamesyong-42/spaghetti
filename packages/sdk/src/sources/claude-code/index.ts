@@ -9,6 +9,17 @@ import { buildClaudeCodePaths, defaultClaudeDir, defaultSpaghettiStateDir } from
 
 export { buildClaudeCodePaths, defaultClaudeDir, defaultSpaghettiStateDir } from './paths.js';
 export { ClaudeCodeLifecycleOwner } from './lifecycle-owner.js';
+export {
+  createClaudeCodeParser,
+  createProjectParser,
+  createConfigParser,
+  createAnalyticsParser,
+  type ClaudeCodeParser,
+  type ClaudeCodeParserOptions,
+  type ProjectParser,
+  type ConfigParser,
+  type AnalyticsParser,
+} from './parser/index.js';
 
 export interface ClaudeCodeSourceOptions {
   /** Override agent data root (default `~/.claude`). */
