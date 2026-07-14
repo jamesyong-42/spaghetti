@@ -1,0 +1,305 @@
+{
+  "schemaVersion": 1,
+  "agentId": "codex",
+  "updated": "2026-07-13",
+  "rootDefault": "~/.codex",
+  "description": "Honest coverage claim for OpenAI Codex CLI. v1 is a thin multi-agent slice: projects/sessions/chat messages/search/tokens/live rollouts. Most rollout record kinds and side artifacts are deliberately not productized yet — but they must stay documented.",
+  "engines": {
+    "ts": "packages/sdk sources/codex + CodexLifecycleOwner (only engine today)",
+    "rs": "not implemented for Codex"
+  },
+  "surfaces": [
+    {
+      "id": "rollout.file",
+      "status": "ingested",
+      "match": { "bucket": "rollout.file" },
+      "engines": { "ts": true, "rs": false },
+      "product": ["projects", "sessions"],
+      "notes": "sessions/**/rollout-*.jsonl discovered by CodexReader."
+    },
+    {
+      "id": "rollout.record_type.response_item/message",
+      "status": "ingested",
+      "match": { "recordType": "response_item/message" },
+      "engines": { "ts": true, "rs": false },
+      "product": ["messages", "search", "fts"],
+      "notes": "Only chat turns written to messages (role→msgType, content text flatten)."
+    },
+    {
+      "id": "rollout.record_type.event_msg/token_count",
+      "status": "partial",
+      "match": { "recordType": "event_msg/token_count" },
+      "engines": { "ts": true, "rs": false },
+      "product": ["tokens"],
+      "notes": "Not stored as rows; last_token_usage attributed onto prior assistant; else tiktoken estimate."
+    },
+    {
+      "id": "rollout.record_type.session_meta",
+      "status": "partial",
+      "match": { "recordType": "session_meta" },
+      "engines": { "ts": true, "rs": false },
+      "product": ["projects", "sessions"],
+      "notes": "Peeked for cwd + session id; not stored as a message row."
+    },
+    {
+      "id": "rollout.record_type.response_item/function_call",
+      "status": "ignored",
+      "match": { "recordType": "response_item/function_call" },
+      "engines": { "ts": false, "rs": false },
+      "notes": "Largest volume class on real installs. extract()→null. Candidate for tool timeline."
+    },
+    {
+      "id": "rollout.record_type.response_item/function_call_output",
+      "status": "ignored",
+      "match": { "recordType": "response_item/function_call_output" },
+      "engines": { "ts": false, "rs": false },
+      "notes": "Paired with function_call via call_id; not stored."
+    },
+    {
+      "id": "rollout.record_type.response_item/custom_tool_call",
+      "status": "ignored",
+      "match": { "recordType": "response_item/custom_tool_call" },
+      "engines": { "ts": false, "rs": false }
+    },
+    {
+      "id": "rollout.record_type.response_item/custom_tool_call_output",
+      "status": "ignored",
+      "match": { "recordType": "response_item/custom_tool_call_output" },
+      "engines": { "ts": false, "rs": false }
+    },
+    {
+      "id": "rollout.record_type.response_item/reasoning",
+      "status": "ignored",
+      "match": { "recordType": "response_item/reasoning" },
+      "engines": { "ts": false, "rs": false },
+      "notes": "Summary legible; encrypted_content opaque. Not indexed."
+    },
+    {
+      "id": "rollout.record_type.response_item/web_search_call",
+      "status": "ignored",
+      "match": { "recordType": "response_item/web_search_call" },
+      "engines": { "ts": false, "rs": false }
+    },
+    {
+      "id": "rollout.record_type.response_item/tool_search_call",
+      "status": "ignored",
+      "match": { "recordType": "response_item/tool_search_call" },
+      "engines": { "ts": false, "rs": false },
+      "notes": "Rare tool-catalog search items; same treatment as other non-message response_items."
+    },
+    {
+      "id": "rollout.record_type.response_item/tool_search_output",
+      "status": "ignored",
+      "match": { "recordType": "response_item/tool_search_output" },
+      "engines": { "ts": false, "rs": false }
+    },
+    {
+      "id": "rollout.record_type.turn_context",
+      "status": "ignored",
+      "match": { "recordType": "turn_context" },
+      "engines": { "ts": false, "rs": false }
+    },
+    {
+      "id": "rollout.record_type.compacted",
+      "status": "ignored",
+      "match": { "recordType": "compacted" },
+      "engines": { "ts": false, "rs": false }
+    },
+    {
+      "id": "rollout.record_type.world_state",
+      "status": "ignored",
+      "match": { "recordType": "world_state" },
+      "engines": { "ts": false, "rs": false }
+    },
+    {
+      "id": "rollout.record_type.event_msg/*",
+      "status": "ignored",
+      "match": { "recordTypePrefix": "event_msg/" },
+      "engines": { "ts": false, "rs": false },
+      "notes": "UI/telemetry projection stream (except token_count partial). Prefer response_item as canonical. Prefix match covers agent_message, exec_command_*, patch_*, etc."
+    },
+    {
+      "id": "toplevel.sessions",
+      "status": "ingested",
+      "match": { "toplevel": "sessions" },
+      "engines": { "ts": true, "rs": false },
+      "product": ["projects", "sessions", "messages"]
+    },
+    {
+      "id": "toplevel.config.toml",
+      "status": "ignored",
+      "match": { "toplevel": "config.toml" },
+      "engines": { "ts": false, "rs": false },
+      "notes": "Path mapped as settingsFile only; not parsed into config tables."
+    },
+    {
+      "id": "toplevel.history.jsonl",
+      "status": "ignored",
+      "match": { "toplevel": "history.jsonl" },
+      "engines": { "ts": false, "rs": false },
+      "notes": "Cross-session prompt log; not the transcript SoT."
+    },
+    {
+      "id": "toplevel.auth.json",
+      "status": "out_of_scope",
+      "match": { "toplevel": "auth.json" },
+      "engines": { "ts": false, "rs": false },
+      "notes": "Secrets — must-not-parse."
+    },
+    {
+      "id": "toplevel.memories",
+      "status": "ignored",
+      "match": { "toplevel": "memories" },
+      "engines": { "ts": false, "rs": false }
+    },
+    {
+      "id": "toplevel.shell_snapshots",
+      "status": "ignored",
+      "match": { "toplevel": "shell_snapshots" },
+      "engines": { "ts": false, "rs": false }
+    },
+    {
+      "id": "toplevel.skills",
+      "status": "ignored",
+      "match": { "toplevel": "skills" },
+      "engines": { "ts": false, "rs": false }
+    },
+    {
+      "id": "toplevel.plugins",
+      "status": "ignored",
+      "match": { "toplevel": "plugins" },
+      "engines": { "ts": false, "rs": false }
+    },
+    {
+      "id": "toplevel.rules",
+      "status": "ignored",
+      "match": { "toplevel": "rules" },
+      "engines": { "ts": false, "rs": false }
+    },
+    {
+      "id": "toplevel.state_sqlite",
+      "status": "ignored",
+      "match": { "toplevelGlob": "state_*.sqlite" },
+      "engines": { "ts": false, "rs": false },
+      "notes": "Derived index — not transcript SoT (RFC 006 survey)."
+    },
+    {
+      "id": "toplevel.logs_sqlite",
+      "status": "ignored",
+      "match": { "toplevelGlob": "logs_*.sqlite" },
+      "engines": { "ts": false, "rs": false },
+      "notes": "Operational logs DB; not product history."
+    },
+    {
+      "id": "toplevel.goals_sqlite",
+      "status": "ignored",
+      "match": { "toplevelGlob": "goals_*.sqlite" },
+      "engines": { "ts": false, "rs": false }
+    },
+    {
+      "id": "toplevel.memories_sqlite",
+      "status": "ignored",
+      "match": { "toplevelGlob": "memories_*.sqlite" },
+      "engines": { "ts": false, "rs": false }
+    },
+    {
+      "id": "toplevel.cache",
+      "status": "ignored",
+      "match": { "toplevel": "cache" },
+      "engines": { "ts": false, "rs": false }
+    },
+    {
+      "id": "toplevel.log",
+      "status": "ignored",
+      "match": { "toplevel": "log" },
+      "engines": { "ts": false, "rs": false }
+    },
+    {
+      "id": "toplevel.tmp",
+      "status": "out_of_scope",
+      "match": { "toplevel": "tmp" },
+      "engines": { "ts": false, "rs": false }
+    },
+    {
+      "id": "toplevel..tmp",
+      "status": "out_of_scope",
+      "match": { "toplevel": ".tmp" },
+      "engines": { "ts": false, "rs": false }
+    },
+    {
+      "id": "toplevel.sqlite",
+      "status": "ignored",
+      "match": { "toplevel": "sqlite" },
+      "engines": { "ts": false, "rs": false }
+    },
+    {
+      "id": "toplevel.models_cache.json",
+      "status": "ignored",
+      "match": { "toplevel": "models_cache.json" },
+      "engines": { "ts": false, "rs": false }
+    },
+    {
+      "id": "toplevel.version.json",
+      "status": "ignored",
+      "match": { "toplevel": "version.json" },
+      "engines": { "ts": false, "rs": false }
+    },
+    {
+      "id": "toplevel.installation_id",
+      "status": "out_of_scope",
+      "match": { "toplevel": "installation_id" },
+      "engines": { "ts": false, "rs": false }
+    },
+    {
+      "id": "toplevel.computer-use",
+      "status": "ignored",
+      "match": { "toplevel": "computer-use" },
+      "engines": { "ts": false, "rs": false }
+    },
+    {
+      "id": "toplevel.app-server-control",
+      "status": "ignored",
+      "match": { "toplevel": "app-server-control" },
+      "engines": { "ts": false, "rs": false }
+    },
+    {
+      "id": "toplevel.vendor_imports",
+      "status": "ignored",
+      "match": { "toplevel": "vendor_imports" },
+      "engines": { "ts": false, "rs": false }
+    },
+    {
+      "id": "toplevel..codex-global-state.json",
+      "status": "ignored",
+      "match": { "toplevel": ".codex-global-state.json" },
+      "engines": { "ts": false, "rs": false }
+    },
+    {
+      "id": "toplevel..codex-global-state.json.bak",
+      "status": "out_of_scope",
+      "match": { "toplevel": ".codex-global-state.json.bak" },
+      "engines": { "ts": false, "rs": false }
+    },
+    {
+      "id": "toplevel..personality_migration",
+      "status": "out_of_scope",
+      "match": { "toplevel": ".personality_migration" },
+      "engines": { "ts": false, "rs": false }
+    },
+    {
+      "id": "toplevel..idea",
+      "status": "out_of_scope",
+      "match": { "toplevel": ".idea" },
+      "engines": { "ts": false, "rs": false },
+      "notes": "IDE private."
+    }
+  ],
+  "policy": {
+    "undocumentedBucket": "fail",
+    "zeroCountUndocumented": "ignore",
+    "requireClaimForToplevelWithBytes": true,
+    "minBytesForToplevelClaim": 1,
+    "requireClaimForRecordTypesWithCount": true,
+    "minCountForRecordTypeClaim": 1
+  }
+}

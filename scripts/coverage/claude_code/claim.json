@@ -1,0 +1,301 @@
+{
+  "schemaVersion": 1,
+  "agentId": "claude-code",
+  "updated": "2026-07-13",
+  "rootDefault": "~/.claude",
+  "description": "Honest coverage claim for Claude Code. Status is product intent, not aspirational. Validators fail when ground truth shows buckets with no claim entry.",
+  "engines": {
+    "ts": "packages/sdk TypeScript ingest",
+    "rs": "crates/spaghetti-napi native cold/warm/live batch"
+  },
+  "surfaces": [
+    {
+      "id": "session.jsonl.line",
+      "status": "ingested",
+      "match": { "bucket": "session.jsonl.line" },
+      "engines": { "ts": true, "rs": true },
+      "product": ["messages", "search", "fts", "stats"],
+      "notes": "Every valid JSONL line becomes a messages row (Claude stores a row per line)."
+    },
+    {
+      "id": "session.message_type.*",
+      "status": "ingested",
+      "match": { "bucketPrefix": "session.message_type" },
+      "engines": { "ts": true, "rs": true },
+      "product": ["messages"],
+      "notes": "All observed `type` values stored in messages.msg_type + raw data. Unknown types still stored; FTS may be empty."
+    },
+    {
+      "id": "project.memory",
+      "status": "ingested",
+      "match": { "bucket": "project.memory" },
+      "engines": { "ts": true, "rs": true },
+      "product": ["memory"],
+      "notes": "projects/<slug>/memory/MEMORY.md"
+    },
+    {
+      "id": "project.sessions_index",
+      "status": "ingested",
+      "match": { "bucket": "project.sessions_index" },
+      "engines": { "ts": true, "rs": true },
+      "product": ["sessions", "projects"],
+      "notes": "sessions-index.json; discovery also finds UUID jsonl not in index."
+    },
+    {
+      "id": "subagent.jsonl",
+      "status": "ingested",
+      "match": { "bucket": "subagent.jsonl" },
+      "engines": { "ts": true, "rs": true },
+      "product": ["subagents"],
+      "notes": "agent-*.jsonl under session subagents/; workflow nesting supported."
+    },
+    {
+      "id": "tool_result.file",
+      "status": "ingested",
+      "match": { "bucket": "tool_result.file" },
+      "engines": { "ts": true, "rs": true },
+      "product": ["tool_results"],
+      "notes": "tool-results/*.txt sidecars."
+    },
+    {
+      "id": "workflow.file",
+      "status": "ingested",
+      "match": { "bucket": "workflow.file" },
+      "engines": { "ts": true, "rs": true },
+      "product": ["workflows"],
+      "notes": "workflow run records under subagents/workflows/."
+    },
+    {
+      "id": "secondary.todos",
+      "status": "ingested",
+      "match": { "bucket": "secondary.todos" },
+      "engines": { "ts": true, "rs": true },
+      "product": ["todos"]
+    },
+    {
+      "id": "secondary.plans",
+      "status": "ingested",
+      "match": { "bucket": "secondary.plans" },
+      "engines": { "ts": true, "rs": true },
+      "product": ["plans"]
+    },
+    {
+      "id": "secondary.tasks",
+      "status": "ingested",
+      "match": { "bucket": "secondary.tasks" },
+      "engines": { "ts": true, "rs": true },
+      "product": ["tasks"]
+    },
+    {
+      "id": "secondary.file-history",
+      "status": "ingested",
+      "match": { "bucket": "secondary.file-history" },
+      "engines": { "ts": true, "rs": true },
+      "product": ["file_history"]
+    },
+    {
+      "id": "secondary.teams",
+      "status": "partial",
+      "match": { "bucket": "secondary.teams" },
+      "engines": { "ts": true, "rs": false },
+      "product": ["teams"],
+      "notes": "TS cold parse into config domain; not SQLite/FTS; no live watch; RS none."
+    },
+    {
+      "id": "secondary.sessions_pid",
+      "status": "partial",
+      "match": { "bucket": "secondary.sessions_pid" },
+      "engines": { "ts": true, "rs": false },
+      "product": ["runtime.active_sessions"],
+      "notes": "Active PID registry via api.runtime / listActiveSessions; not durable index."
+    },
+    {
+      "id": "secondary.plugins",
+      "status": "partial",
+      "match": { "bucket": "secondary.plugins" },
+      "engines": { "ts": true, "rs": false },
+      "product": ["config"],
+      "notes": "Plugin config readers exist; not full plugin code/body ingest."
+    },
+    {
+      "id": "toplevel.settings.json",
+      "status": "ingested",
+      "match": { "toplevel": "settings.json" },
+      "engines": { "ts": true, "rs": false },
+      "product": ["settings"],
+      "notes": "Config domain TS."
+    },
+    {
+      "id": "toplevel.settings.local.json",
+      "status": "ingested",
+      "match": { "toplevel": "settings.local.json" },
+      "engines": { "ts": true, "rs": false },
+      "product": ["settings"],
+      "notes": "Promoted into config readers (2026-07)."
+    },
+    {
+      "id": "toplevel.backups",
+      "status": "ignored",
+      "match": { "toplevel": "backups" },
+      "engines": { "ts": false, "rs": false },
+      "notes": "Types exist; no parser wired (PARSER-UNPARSED-DATA)."
+    },
+    {
+      "id": "toplevel.hooks",
+      "status": "ignored",
+      "match": { "toplevel": "hooks" },
+      "engines": { "ts": false, "rs": false },
+      "notes": "Hook scripts on disk not loaded; hook *events* via Spaghetti plugin JSONL."
+    },
+    {
+      "id": "toplevel.telemetry",
+      "status": "ignored",
+      "match": { "toplevel": "telemetry" },
+      "engines": { "ts": false, "rs": false },
+      "notes": "High volume; hard-ignored on live path."
+    },
+    {
+      "id": "toplevel.debug",
+      "status": "ignored",
+      "match": { "toplevel": "debug" },
+      "engines": { "ts": false, "rs": false }
+    },
+    {
+      "id": "toplevel.paste-cache",
+      "status": "ignored",
+      "match": { "toplevel": "paste-cache" },
+      "engines": { "ts": false, "rs": false }
+    },
+    {
+      "id": "toplevel.session-env",
+      "status": "partial",
+      "match": { "toplevel": "session-env" },
+      "engines": { "ts": true, "rs": false },
+      "notes": "Script listing / types refreshed; not full content index."
+    },
+    {
+      "id": "toplevel.credentials",
+      "status": "out_of_scope",
+      "match": { "toplevel": ".credentials.json" },
+      "engines": { "ts": false, "rs": false },
+      "notes": "Must-not-parse secrets."
+    },
+    {
+      "id": "toplevel.statsig",
+      "status": "partial",
+      "match": { "toplevel": "statsig" },
+      "engines": { "ts": true, "rs": false },
+      "notes": "Types exist; limited readers."
+    },
+    {
+      "id": "toplevel.shell-snapshots",
+      "status": "ignored",
+      "match": { "toplevel": "shell-snapshots" },
+      "engines": { "ts": false, "rs": false }
+    },
+    {
+      "id": "toplevel.cache",
+      "status": "ignored",
+      "match": { "toplevel": "cache" },
+      "engines": { "ts": false, "rs": false }
+    },
+    {
+      "id": "toplevel.ide",
+      "status": "ignored",
+      "match": { "toplevel": "ide" },
+      "engines": { "ts": false, "rs": false }
+    },
+    {
+      "id": "toplevel.history.jsonl",
+      "status": "ignored",
+      "match": { "toplevel": "history.jsonl" },
+      "engines": { "ts": false, "rs": false },
+      "notes": "If present; not the session transcript source of truth."
+    },
+    {
+      "id": "toplevel.CLAUDE.md",
+      "status": "ignored",
+      "match": { "toplevel": "CLAUDE.md" },
+      "engines": { "ts": false, "rs": false },
+      "notes": "Root global instructions; per-project MEMORY.md is ingested."
+    },
+    {
+      "id": "toplevel.projects",
+      "status": "ingested",
+      "match": { "toplevel": "projects" },
+      "engines": { "ts": true, "rs": true },
+      "product": ["projects"],
+      "notes": "Primary corpus root."
+    },
+    {
+      "id": "toplevel.mcp-needs-auth-cache.json",
+      "status": "partial",
+      "match": { "toplevel": "mcp-needs-auth-cache.json" },
+      "engines": { "ts": true, "rs": false },
+      "notes": "Reader wired (2026-07 audit LOW); not a product tab."
+    },
+    {
+      "id": "toplevel.stats-cache.json",
+      "status": "ignored",
+      "match": { "toplevel": "stats-cache.json" },
+      "engines": { "ts": false, "rs": false },
+      "notes": "Claude Code local cache; not Spaghetti index input."
+    },
+    {
+      "id": "toplevel.statusline-command.sh",
+      "status": "ignored",
+      "match": { "toplevel": "statusline-command.sh" },
+      "engines": { "ts": false, "rs": false }
+    },
+    {
+      "id": "toplevel..last-cleanup",
+      "status": "out_of_scope",
+      "match": { "toplevel": ".last-cleanup" },
+      "engines": { "ts": false, "rs": false }
+    },
+    {
+      "id": "toplevel..last-update-result.json",
+      "status": "out_of_scope",
+      "match": { "toplevel": ".last-update-result.json" },
+      "engines": { "ts": false, "rs": false }
+    },
+    {
+      "id": "toplevel..spaghetti-live-state.json",
+      "status": "out_of_scope",
+      "match": { "toplevel": ".spaghetti-live-state.json" },
+      "engines": { "ts": false, "rs": false },
+      "notes": "Spaghetti-owned helper state if present under .claude; not agent corpus."
+    },
+    {
+      "id": "toplevel..DS_Store",
+      "status": "out_of_scope",
+      "match": { "toplevel": ".DS_Store" },
+      "engines": { "ts": false, "rs": false }
+    },
+    {
+      "id": "toplevel..idea",
+      "status": "out_of_scope",
+      "match": { "toplevel": ".idea" },
+      "engines": { "ts": false, "rs": false }
+    },
+    {
+      "id": "toplevel.vercel-plugin-device-id",
+      "status": "out_of_scope",
+      "match": { "toplevel": "vercel-plugin-device-id" },
+      "engines": { "ts": false, "rs": false },
+      "notes": "Few-byte Vercel plugin ids; see PARSER-UNPARSED-DATA."
+    },
+    {
+      "id": "toplevel.vercel-plugin-telemetry-preference",
+      "status": "out_of_scope",
+      "match": { "toplevel": "vercel-plugin-telemetry-preference" },
+      "engines": { "ts": false, "rs": false }
+    }
+  ],
+  "policy": {
+    "undocumentedBucket": "fail",
+    "zeroCountUndocumented": "ignore",
+    "requireClaimForToplevelWithBytes": true,
+    "minBytesForToplevelClaim": 1
+  }
+}

@@ -4,6 +4,14 @@ Ground Truth Measurement of ~/.claude
 
 Exhaustive audit of ALL data in ~/.claude/projects/ to establish
 absolute correctness baselines for validating spaghetti CLI output.
+
+DEPRECATED for coverage honesty work — use the multi-agent harness:
+
+  python3 scripts/coverage/run_scan.py claude-code
+  python3 scripts/coverage/validate_claim.py claude-code
+
+See scripts/coverage/README.md and docs/coverage/.
+This script remains for ad-hoc human-readable project tables.
 """
 
 import json

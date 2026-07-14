@@ -12,3 +12,8 @@ out/
 # Rust
 target/
 *.node
+
+# Coverage harness ground-truth snapshots (machine-local)
+scripts/coverage/out/
+__pycache__/
+*.pyc
