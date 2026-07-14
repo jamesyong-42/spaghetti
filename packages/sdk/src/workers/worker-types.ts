@@ -11,7 +11,7 @@
 
 export interface WorkerParseRequest {
   type: 'parse-project';
-  claudeDir: string;
+  rootDir: string;
   slug: string;
 }
 

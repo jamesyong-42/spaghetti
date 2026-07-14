@@ -15,6 +15,9 @@ import type { ProjectParseSink } from '../../../data/parse-sink.js';
 // ═══════════════════════════════════════════════════════════════════════════════
 
 export interface ClaudeCodeParserOptions {
+  /** Claude Code data root (e.g. `~/.claude`). Prefer this over {@link claudeDir}. */
+  rootDir?: string;
+  /** @deprecated Use {@link rootDir}. */
   claudeDir?: string;
   skipProjects?: boolean;
   skipSessionMessages?: boolean;
@@ -33,7 +36,7 @@ export interface ClaudeCodeParser {
   parseSync(options?: ClaudeCodeParserOptions): ClaudeCodeAgentData;
   parseStreaming(sink: ProjectParseSink, options?: ClaudeCodeParserOptions): void;
   /** Parse a single project in streaming mode */
-  parseProjectStreaming(claudeDir: string, slug: string, sink: ProjectParseSink): void;
+  parseProjectStreaming(rootDir: string, slug: string, sink: ProjectParseSink): void;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -56,43 +59,43 @@ export class ClaudeCodeParserImpl implements ClaudeCodeParser {
   }
 
   parseSync(options?: ClaudeCodeParserOptions): ClaudeCodeAgentData {
-    const claudeDir = options?.claudeDir ?? path.join(os.homedir(), '.claude');
+    const rootDir = options?.rootDir ?? options?.claudeDir ?? path.join(os.homedir(), '.claude');
 
     return {
       projects: options?.skipProjects
         ? []
-        : this.projectParser.parseAllProjects(claudeDir, {
+        : this.projectParser.parseAllProjects(rootDir, {
             skipSessionMessages: options?.skipSessionMessages,
           }),
       config: options?.skipConfig
         ? this.configParser.empty()
-        : this.configParser.parseConfig(claudeDir, {
+        : this.configParser.parseConfig(rootDir, {
             allShellSnapshots: options?.allShellSnapshots,
           }),
       analytics: options?.skipAnalytics
         ? this.analyticsParser.empty()
-        : this.analyticsParser.parseAnalytics(claudeDir, {
+        : this.analyticsParser.parseAnalytics(rootDir, {
             allDebugLogs: options?.allDebugLogs,
           }),
     };
   }
 
   parseStreaming(sink: ProjectParseSink, options?: ClaudeCodeParserOptions): void {
-    const claudeDir = options?.claudeDir ?? path.join(os.homedir(), '.claude');
+    const rootDir = options?.rootDir ?? options?.claudeDir ?? path.join(os.homedir(), '.claude');
 
     if (!options?.skipProjects) {
       const parserOptions: ProjectParserOptions = {
         skipSessionMessages: options?.skipSessionMessages,
       };
-      this.projectParser.parseAllProjectsStreaming(claudeDir, sink, parserOptions);
+      this.projectParser.parseAllProjectsStreaming(rootDir, sink, parserOptions);
     }
 
     // Config and analytics still use sync parsers (they're small data)
     // — consumers that need them can call parseSync() separately.
   }
 
-  parseProjectStreaming(claudeDir: string, slug: string, sink: ProjectParseSink): void {
-    this.projectParser.parseProjectStreaming(claudeDir, slug, sink);
+  parseProjectStreaming(rootDir: string, slug: string, sink: ProjectParseSink): void {
+    this.projectParser.parseProjectStreaming(rootDir, slug, sink);
   }
 }
 

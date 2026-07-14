@@ -44,12 +44,12 @@ export interface ProjectParserOptions {
 // ═══════════════════════════════════════════════════════════════════════════════
 
 export interface ProjectParser {
-  parseAllProjects(claudeDir: string, options?: ProjectParserOptions): Project[];
-  parseAllProjectsStreaming(claudeDir: string, sink: ProjectParseSink, options?: ProjectParserOptions): void;
+  parseAllProjects(rootDir: string, options?: ProjectParserOptions): Project[];
+  parseAllProjectsStreaming(rootDir: string, sink: ProjectParseSink, options?: ProjectParserOptions): void;
   /** Parse a single project in streaming mode, sending data to the sink as it's discovered. */
-  parseProjectStreaming(claudeDir: string, slug: string, sink: ProjectParseSink, options?: ProjectParserOptions): void;
-  parseProject(claudeDir: string, slug: string, options?: ProjectParserOptions): Project | null;
-  parseSession(claudeDir: string, slug: string, sessionId: string): Session | null;
+  parseProjectStreaming(rootDir: string, slug: string, sink: ProjectParseSink, options?: ProjectParserOptions): void;
+  parseProject(rootDir: string, slug: string, options?: ProjectParserOptions): Project | null;
+  parseSession(rootDir: string, slug: string, sessionId: string): Session | null;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -58,9 +58,9 @@ export interface ProjectParser {
 
 export class ProjectParserImpl implements ProjectParser {
   // Cached plan index to avoid re-scanning plan files for every project.
-  // Keyed by claudeDir so it auto-invalidates if the directory changes.
+  // Keyed by rootDir so it auto-invalidates if the directory changes.
   private cachedPlanIndex: Map<string, PlanFile> | null = null;
-  private cachedPlanIndexClaudeDir: string | null = null;
+  private cachedPlanIndexRootDir: string | null = null;
 
   constructor(private fileService: FileService) {}
 
@@ -68,19 +68,19 @@ export class ProjectParserImpl implements ProjectParser {
    * Get or build the plan index, caching it for the lifetime of this parser
    * instance (i.e. for one full cold/warm start cycle).
    */
-  private getPlanIndex(claudeDir: string): Map<string, PlanFile> {
-    if (this.cachedPlanIndex && this.cachedPlanIndexClaudeDir === claudeDir) {
+  private getPlanIndex(rootDir: string): Map<string, PlanFile> {
+    if (this.cachedPlanIndex && this.cachedPlanIndexRootDir === rootDir) {
       return this.cachedPlanIndex;
     }
-    this.cachedPlanIndex = this.buildPlanIndex(claudeDir);
-    this.cachedPlanIndexClaudeDir = claudeDir;
+    this.cachedPlanIndex = this.buildPlanIndex(rootDir);
+    this.cachedPlanIndexRootDir = rootDir;
     return this.cachedPlanIndex;
   }
 
-  parseAllProjects(claudeDir: string, options?: ProjectParserOptions): Project[] {
-    const projectsDir = path.join(claudeDir, 'projects');
+  parseAllProjects(rootDir: string, options?: ProjectParserOptions): Project[] {
+    const projectsDir = path.join(rootDir, 'projects');
     const projects: Project[] = [];
-    const planIndex = this.getPlanIndex(claudeDir);
+    const planIndex = this.getPlanIndex(rootDir);
 
     try {
       const projectPaths = this.fileService.scanDirectorySync(projectsDir, {
@@ -90,7 +90,7 @@ export class ProjectParserImpl implements ProjectParser {
       for (const projectPath of projectPaths) {
         try {
           const slug = path.basename(projectPath);
-          const project = this.parseProjectInternal(claudeDir, slug, options, planIndex);
+          const project = this.parseProjectInternal(rootDir, slug, options, planIndex);
           if (project) projects.push(project);
         } catch {
           // skip bad project
@@ -103,9 +103,9 @@ export class ProjectParserImpl implements ProjectParser {
     return projects;
   }
 
-  parseAllProjectsStreaming(claudeDir: string, sink: ProjectParseSink, options?: ProjectParserOptions): void {
-    const projectsDir = path.join(claudeDir, 'projects');
-    const planIndex = this.getPlanIndex(claudeDir);
+  parseAllProjectsStreaming(rootDir: string, sink: ProjectParseSink, options?: ProjectParserOptions): void {
+    const projectsDir = path.join(rootDir, 'projects');
+    const planIndex = this.getPlanIndex(rootDir);
 
     // Emit all plans first
     for (const [planSlug, plan] of planIndex) {
@@ -120,7 +120,7 @@ export class ProjectParserImpl implements ProjectParser {
       for (const projectPath of projectPaths) {
         try {
           const slug = path.basename(projectPath);
-          this.parseProjectStreamingInternal(claudeDir, slug, sink, options, planIndex);
+          this.parseProjectStreamingInternal(rootDir, slug, sink, options, planIndex);
         } catch {
           // skip bad project
         }
@@ -130,25 +130,25 @@ export class ProjectParserImpl implements ProjectParser {
     }
   }
 
-  parseProjectStreaming(claudeDir: string, slug: string, sink: ProjectParseSink, options?: ProjectParserOptions): void {
-    const planIndex = this.getPlanIndex(claudeDir);
+  parseProjectStreaming(rootDir: string, slug: string, sink: ProjectParseSink, options?: ProjectParserOptions): void {
+    const planIndex = this.getPlanIndex(rootDir);
 
     // Emit all plans first (same as parseAllProjectsStreaming)
     for (const [planSlug, plan] of planIndex) {
       sink.onPlan(planSlug, plan);
     }
 
-    this.parseProjectStreamingInternal(claudeDir, slug, sink, options, planIndex);
+    this.parseProjectStreamingInternal(rootDir, slug, sink, options, planIndex);
   }
 
   private parseProjectStreamingInternal(
-    claudeDir: string,
+    rootDir: string,
     slug: string,
     sink: ProjectParseSink,
     options: ProjectParserOptions | undefined,
     _planIndex: Map<string, PlanFile>,
   ): void {
-    const projectDir = path.join(claudeDir, 'projects', slug);
+    const projectDir = path.join(rootDir, 'projects', slug);
     const sessionsIndex = this.parseSessionsIndex(projectDir);
     const originalPath = sessionsIndex.originalPath ?? this.slugToPath(slug);
     const skipMessages = options?.skipSessionMessages ?? false;
@@ -219,19 +219,19 @@ export class ProjectParserImpl implements ProjectParser {
         }
 
         // File history (always parsed, not gated by skipMessages)
-        const fileHistory = this.parseFileHistory(claudeDir, sessionId);
+        const fileHistory = this.parseFileHistory(rootDir, sessionId);
         if (fileHistory) {
           sink.onFileHistory(sessionId, fileHistory);
         }
 
         // Todos
-        const todos = this.parseTodos(claudeDir, sessionId);
+        const todos = this.parseTodos(rootDir, sessionId);
         for (const todo of todos) {
           sink.onTodo(sessionId, todo);
         }
 
         // Task
-        const task = this.parseTask(claudeDir, sessionId);
+        const task = this.parseTask(rootDir, sessionId);
         if (task) {
           sink.onTask(sessionId, task);
         }
@@ -243,25 +243,25 @@ export class ProjectParserImpl implements ProjectParser {
     sink.onProjectComplete(slug);
   }
 
-  parseProject(claudeDir: string, slug: string, options?: ProjectParserOptions): Project | null {
-    const planIndex = this.getPlanIndex(claudeDir);
-    return this.parseProjectInternal(claudeDir, slug, options, planIndex);
+  parseProject(rootDir: string, slug: string, options?: ProjectParserOptions): Project | null {
+    const planIndex = this.getPlanIndex(rootDir);
+    return this.parseProjectInternal(rootDir, slug, options, planIndex);
   }
 
   private parseProjectInternal(
-    claudeDir: string,
+    rootDir: string,
     slug: string,
     options: ProjectParserOptions | undefined,
     planIndex: Map<string, PlanFile>,
   ): Project | null {
-    const projectDir = path.join(claudeDir, 'projects', slug);
+    const projectDir = path.join(rootDir, 'projects', slug);
     const sessionsIndex = this.parseSessionsIndex(projectDir);
     const originalPath = sessionsIndex.originalPath ?? this.slugToPath(slug);
 
     const sessions: Session[] = [];
     for (const entry of sessionsIndex.entries) {
       try {
-        const session = this.buildSession(claudeDir, projectDir, slug, entry, options, planIndex);
+        const session = this.buildSession(rootDir, projectDir, slug, entry, options, planIndex);
         sessions.push(session);
       } catch {
         // skip bad session
@@ -273,22 +273,22 @@ export class ProjectParserImpl implements ProjectParser {
     return { slug, originalPath, sessionsIndex, sessions, memory };
   }
 
-  parseSession(claudeDir: string, slug: string, sessionId: string): Session | null {
-    const projectDir = path.join(claudeDir, 'projects', slug);
+  parseSession(rootDir: string, slug: string, sessionId: string): Session | null {
+    const projectDir = path.join(rootDir, 'projects', slug);
     const sessionsIndex = this.parseSessionsIndex(projectDir);
     const entry = sessionsIndex.entries.find((e) => e.sessionId === sessionId);
     if (!entry) return null;
 
-    const planIndex = this.getPlanIndex(claudeDir);
+    const planIndex = this.getPlanIndex(rootDir);
     try {
-      return this.buildSession(claudeDir, projectDir, slug, entry, undefined, planIndex);
+      return this.buildSession(rootDir, projectDir, slug, entry, undefined, planIndex);
     } catch {
       return null;
     }
   }
 
   private buildSession(
-    claudeDir: string,
+    rootDir: string,
     projectDir: string,
     slug: string,
     entry: SessionIndexEntry,
@@ -312,9 +312,9 @@ export class ProjectParserImpl implements ProjectParser {
       subagents: skipMessages ? [] : this.parseSubagents(projectDir, sessionId),
       workflows: skipMessages ? [] : this.parseWorkflows(projectDir, sessionId),
       toolResults: skipMessages ? [] : this.parseToolResults(projectDir, sessionId),
-      fileHistory: this.parseFileHistory(claudeDir, sessionId),
-      todos: this.parseTodos(claudeDir, sessionId),
-      task: this.parseTask(claudeDir, sessionId),
+      fileHistory: this.parseFileHistory(rootDir, sessionId),
+      todos: this.parseTodos(rootDir, sessionId),
+      task: this.parseTask(rootDir, sessionId),
       plan: planSlug ? (planIndex.get(planSlug) ?? null) : null,
     };
   }
@@ -613,8 +613,8 @@ export class ProjectParserImpl implements ProjectParser {
     }
   }
 
-  private parseFileHistory(claudeDir: string, sessionId: string): FileHistorySession | null {
-    const historyDir = path.join(claudeDir, 'file-history', sessionId);
+  private parseFileHistory(rootDir: string, sessionId: string): FileHistorySession | null {
+    const historyDir = path.join(rootDir, 'file-history', sessionId);
 
     try {
       const filePaths = this.fileService.scanDirectorySync(historyDir);
@@ -648,8 +648,8 @@ export class ProjectParserImpl implements ProjectParser {
     }
   }
 
-  private parseTodos(claudeDir: string, sessionId: string): TodoFile[] {
-    const todosDir = path.join(claudeDir, 'todos');
+  private parseTodos(rootDir: string, sessionId: string): TodoFile[] {
+    const todosDir = path.join(rootDir, 'todos');
     const todoFiles: TodoFile[] = [];
 
     try {
@@ -681,8 +681,8 @@ export class ProjectParserImpl implements ProjectParser {
     return todoFiles;
   }
 
-  private parseTask(claudeDir: string, sessionId: string): TaskEntry | null {
-    const taskDir = path.join(claudeDir, 'tasks', sessionId);
+  private parseTask(rootDir: string, sessionId: string): TaskEntry | null {
+    const taskDir = path.join(rootDir, 'tasks', sessionId);
 
     try {
       const lockExists = this.fileService.exists(path.join(taskDir, '.lock'));
@@ -706,9 +706,9 @@ export class ProjectParserImpl implements ProjectParser {
     }
   }
 
-  private buildPlanIndex(claudeDir: string): Map<string, PlanFile> {
+  private buildPlanIndex(rootDir: string): Map<string, PlanFile> {
     const index = new Map<string, PlanFile>();
-    const plansDir = path.join(claudeDir, 'plans');
+    const plansDir = path.join(rootDir, 'plans');
 
     try {
       const filePaths = this.fileService.scanDirectorySync(plansDir, { pattern: '*.md' });

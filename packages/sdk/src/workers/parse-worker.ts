@@ -32,7 +32,7 @@ port.on('message', (msg: MainToWorkerMessage) => {
 
   if (msg.type === 'parse-project') {
     const startTime = Date.now();
-    const { claudeDir, slug } = msg;
+    const { rootDir, slug } = msg;
 
     try {
       // ── Message batching state ──────────────────────────────────────
@@ -193,7 +193,7 @@ port.on('message', (msg: MainToWorkerMessage) => {
       };
 
       // Parse just this one project using the single-project streaming method
-      parser.parseProjectStreaming(claudeDir, slug, sink);
+      parser.parseProjectStreaming(rootDir, slug, sink);
     } catch (err) {
       port.postMessage({
         type: 'worker-error',

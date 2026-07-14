@@ -459,10 +459,10 @@ var ProjectParserImpl = class {
   constructor(fileService2) {
     this.fileService = fileService2;
   }
-  parseAllProjects(claudeDir, options) {
-    const projectsDir = path.join(claudeDir, "projects");
+  parseAllProjects(rootDir, options) {
+    const projectsDir = path.join(rootDir, "projects");
     const projects = [];
-    const planIndex = this.buildPlanIndex(claudeDir);
+    const planIndex = this.buildPlanIndex(rootDir);
     try {
       const projectPaths = this.fileService.scanDirectorySync(projectsDir, {
         includeDirectories: true
@@ -470,7 +470,7 @@ var ProjectParserImpl = class {
       for (const projectPath of projectPaths) {
         try {
           const slug = path.basename(projectPath);
-          const project = this.parseProjectInternal(claudeDir, slug, options, planIndex);
+          const project = this.parseProjectInternal(rootDir, slug, options, planIndex);
           if (project) projects.push(project);
         } catch {
         }
@@ -479,9 +479,9 @@ var ProjectParserImpl = class {
     }
     return projects;
   }
-  parseAllProjectsStreaming(claudeDir, sink, options) {
-    const projectsDir = path.join(claudeDir, "projects");
-    const planIndex = this.buildPlanIndex(claudeDir);
+  parseAllProjectsStreaming(rootDir, sink, options) {
+    const projectsDir = path.join(rootDir, "projects");
+    const planIndex = this.buildPlanIndex(rootDir);
     for (const [planSlug, plan] of planIndex) {
       sink.onPlan(planSlug, plan);
     }
@@ -492,22 +492,22 @@ var ProjectParserImpl = class {
       for (const projectPath of projectPaths) {
         try {
           const slug = path.basename(projectPath);
-          this.parseProjectStreamingInternal(claudeDir, slug, sink, options, planIndex);
+          this.parseProjectStreamingInternal(rootDir, slug, sink, options, planIndex);
         } catch {
         }
       }
     } catch {
     }
   }
-  parseProjectStreaming(claudeDir, slug, sink, options) {
-    const planIndex = this.buildPlanIndex(claudeDir);
+  parseProjectStreaming(rootDir, slug, sink, options) {
+    const planIndex = this.buildPlanIndex(rootDir);
     for (const [planSlug, plan] of planIndex) {
       sink.onPlan(planSlug, plan);
     }
-    this.parseProjectStreamingInternal(claudeDir, slug, sink, options, planIndex);
+    this.parseProjectStreamingInternal(rootDir, slug, sink, options, planIndex);
   }
-  parseProjectStreamingInternal(claudeDir, slug, sink, options, planIndex) {
-    const projectDir = path.join(claudeDir, "projects", slug);
+  parseProjectStreamingInternal(rootDir, slug, sink, options, planIndex) {
+    const projectDir = path.join(rootDir, "projects", slug);
     const sessionsIndex = this.parseSessionsIndex(projectDir);
     const originalPath = sessionsIndex.originalPath ?? this.slugToPath(slug);
     const skipMessages = options?.skipSessionMessages ?? false;
@@ -549,15 +549,15 @@ var ProjectParserImpl = class {
         } else {
           sink.onSessionComplete(slug, sessionId, 0, 0);
         }
-        const fileHistory = this.parseFileHistory(claudeDir, sessionId);
+        const fileHistory = this.parseFileHistory(rootDir, sessionId);
         if (fileHistory) {
           sink.onFileHistory(sessionId, fileHistory);
         }
-        const todos = this.parseTodos(claudeDir, sessionId);
+        const todos = this.parseTodos(rootDir, sessionId);
         for (const todo of todos) {
           sink.onTodo(sessionId, todo);
         }
-        const task = this.parseTask(claudeDir, sessionId);
+        const task = this.parseTask(rootDir, sessionId);
         if (task) {
           sink.onTask(sessionId, task);
         }
@@ -566,18 +566,18 @@ var ProjectParserImpl = class {
     }
     sink.onProjectComplete(slug);
   }
-  parseProject(claudeDir, slug, options) {
-    const planIndex = this.buildPlanIndex(claudeDir);
-    return this.parseProjectInternal(claudeDir, slug, options, planIndex);
+  parseProject(rootDir, slug, options) {
+    const planIndex = this.buildPlanIndex(rootDir);
+    return this.parseProjectInternal(rootDir, slug, options, planIndex);
   }
-  parseProjectInternal(claudeDir, slug, options, planIndex) {
-    const projectDir = path.join(claudeDir, "projects", slug);
+  parseProjectInternal(rootDir, slug, options, planIndex) {
+    const projectDir = path.join(rootDir, "projects", slug);
     const sessionsIndex = this.parseSessionsIndex(projectDir);
     const originalPath = sessionsIndex.originalPath ?? this.slugToPath(slug);
     const sessions = [];
     for (const entry of sessionsIndex.entries) {
       try {
-        const session = this.buildSession(claudeDir, projectDir, slug, entry, options, planIndex);
+        const session = this.buildSession(rootDir, projectDir, slug, entry, options, planIndex);
         sessions.push(session);
       } catch {
       }
@@ -585,19 +585,19 @@ var ProjectParserImpl = class {
     const memory = this.parseProjectMemory(slug, projectDir);
     return { slug, originalPath, sessionsIndex, sessions, memory };
   }
-  parseSession(claudeDir, slug, sessionId) {
-    const projectDir = path.join(claudeDir, "projects", slug);
+  parseSession(rootDir, slug, sessionId) {
+    const projectDir = path.join(rootDir, "projects", slug);
     const sessionsIndex = this.parseSessionsIndex(projectDir);
     const entry = sessionsIndex.entries.find((e) => e.sessionId === sessionId);
     if (!entry) return null;
-    const planIndex = this.buildPlanIndex(claudeDir);
+    const planIndex = this.buildPlanIndex(rootDir);
     try {
-      return this.buildSession(claudeDir, projectDir, slug, entry, void 0, planIndex);
+      return this.buildSession(rootDir, projectDir, slug, entry, void 0, planIndex);
     } catch {
       return null;
     }
   }
-  buildSession(claudeDir, projectDir, slug, entry, options, planIndex) {
+  buildSession(rootDir, projectDir, slug, entry, options, planIndex) {
     const sessionId = entry.sessionId;
     const skipMessages = options?.skipSessionMessages ?? false;
     const messages = skipMessages ? [] : this.parseSessionMessages(projectDir, sessionId, entry.fullPath);
@@ -608,9 +608,9 @@ var ProjectParserImpl = class {
       messages,
       subagents: skipMessages ? [] : this.parseSubagents(projectDir, sessionId),
       toolResults: skipMessages ? [] : this.parseToolResults(projectDir, sessionId),
-      fileHistory: this.parseFileHistory(claudeDir, sessionId),
-      todos: this.parseTodos(claudeDir, sessionId),
-      task: this.parseTask(claudeDir, sessionId),
+      fileHistory: this.parseFileHistory(rootDir, sessionId),
+      todos: this.parseTodos(rootDir, sessionId),
+      task: this.parseTask(rootDir, sessionId),
       plan: planSlug ? planIndex.get(planSlug) ?? null : null
     };
   }
@@ -771,8 +771,8 @@ var ProjectParserImpl = class {
       return null;
     }
   }
-  parseFileHistory(claudeDir, sessionId) {
-    const historyDir = path.join(claudeDir, "file-history", sessionId);
+  parseFileHistory(rootDir, sessionId) {
+    const historyDir = path.join(rootDir, "file-history", sessionId);
     try {
       const filePaths = this.fileService.scanDirectorySync(historyDir);
       if (filePaths.length === 0) return null;
@@ -799,8 +799,8 @@ var ProjectParserImpl = class {
       return null;
     }
   }
-  parseTodos(claudeDir, sessionId) {
-    const todosDir = path.join(claudeDir, "todos");
+  parseTodos(rootDir, sessionId) {
+    const todosDir = path.join(rootDir, "todos");
     const todoFiles = [];
     try {
       const filePaths = this.fileService.scanDirectorySync(todosDir, {
@@ -824,8 +824,8 @@ var ProjectParserImpl = class {
     }
     return todoFiles;
   }
-  parseTask(claudeDir, sessionId) {
-    const taskDir = path.join(claudeDir, "tasks", sessionId);
+  parseTask(rootDir, sessionId) {
+    const taskDir = path.join(rootDir, "tasks", sessionId);
     try {
       const lockExists = this.fileService.exists(path.join(taskDir, ".lock"));
       if (!lockExists) return null;
@@ -843,9 +843,9 @@ var ProjectParserImpl = class {
       return null;
     }
   }
-  buildPlanIndex(claudeDir) {
+  buildPlanIndex(rootDir) {
     const index = /* @__PURE__ */ new Map();
-    const plansDir = path.join(claudeDir, "plans");
+    const plansDir = path.join(rootDir, "plans");
     try {
       const filePaths = this.fileService.scanDirectorySync(plansDir, { pattern: "*.md" });
       for (const filePath of filePaths) {
@@ -933,7 +933,7 @@ port.on("message", (msg) => {
   }
   if (msg.type === "parse-project") {
     const startTime = Date.now();
-    const { claudeDir, slug } = msg;
+    const { rootDir, slug } = msg;
     try {
       let messageBatch = [];
       let batchStartIndex = 0;
@@ -1060,7 +1060,7 @@ port.on("message", (msg) => {
           });
         }
       };
-      parser.parseProjectStreaming(claudeDir, slug, sink);
+      parser.parseProjectStreaming(rootDir, slug, sink);
     } catch (err) {
       port.postMessage({
         type: "worker-error",

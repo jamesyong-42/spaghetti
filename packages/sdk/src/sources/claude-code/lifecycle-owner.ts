@@ -92,7 +92,7 @@ export class ClaudeCodeLifecycleOwner extends EventEmitter implements AgentDataS
 
   private ready = false;
   private dbPath: string;
-  private claudeDir: string;
+  private rootDir: string;
   /**
    * Engine selected for this service instance — explicit option if the
    * caller provided one, otherwise the resolution chain in
@@ -121,7 +121,7 @@ export class ClaudeCodeLifecycleOwner extends EventEmitter implements AgentDataS
     this.liveUpdates = liveUpdates;
     this.engine = this.options.engine ?? resolveEngine();
     this.dbPath = this.options.dbPath ?? getDefaultDbPath(this.engine);
-    this.claudeDir = this.options.rootDir ?? this.options.claudeDir ?? path.join(os.homedir(), '.claude');
+    this.rootDir = this.options.rootDir ?? this.options.claudeDir ?? path.join(os.homedir(), '.claude');
   }
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -187,7 +187,7 @@ export class ClaudeCodeLifecycleOwner extends EventEmitter implements AgentDataS
 
     this.emitProgress('parsing', 'Parsing config and analytics...');
     const fullData = this.parser.parseSync({
-      claudeDir: this.claudeDir,
+      rootDir: this.rootDir,
       skipProjects: true,
       skipSessionMessages: true,
     });
@@ -246,7 +246,7 @@ export class ClaudeCodeLifecycleOwner extends EventEmitter implements AgentDataS
 
     await native.ingest(
       {
-        agentDir: this.claudeDir,
+        agentDir: this.rootDir,
         dbPath: this.dbPath,
         mode: 'warm',
         sourceId: 'claude-code',
@@ -372,7 +372,7 @@ export class ClaudeCodeLifecycleOwner extends EventEmitter implements AgentDataS
     try {
       for (let i = 0; i < slugs.length; i++) {
         const slug = slugs[i];
-        this.parser.parseProjectStreaming(this.claudeDir, slug, this.ingestService);
+        this.parser.parseProjectStreaming(this.rootDir, slug, this.ingestService);
         this.ingestService.onProjectComplete(slug);
         this.emitProgress('parsing', `Parsed ${slug}`, i + 1, totalProjects);
 
@@ -398,7 +398,7 @@ export class ClaudeCodeLifecycleOwner extends EventEmitter implements AgentDataS
     this.ingestService.beginTransaction();
 
     try {
-      await pool.parseProjects(this.claudeDir, slugs, (msg: WorkerToMainMessage) => {
+      await pool.parseProjects(this.rootDir, slugs, (msg: WorkerToMainMessage) => {
         // Route each message type to the appropriate IngestService method.
         // Workers send pre-serialized JSON strings — we parse them on the main thread
         // and call the existing sink methods to reuse all extraction logic.
@@ -512,7 +512,7 @@ export class ClaudeCodeLifecycleOwner extends EventEmitter implements AgentDataS
    * Discover all project slugs from the claude directory.
    */
   private discoverProjectSlugs(): string[] {
-    const projectsDir = path.join(this.claudeDir, 'projects');
+    const projectsDir = path.join(this.rootDir, 'projects');
     try {
       const projectPaths = this.fileService.scanDirectorySync(projectsDir, {
         directoriesOnly: true,
@@ -568,7 +568,7 @@ export class ClaudeCodeLifecycleOwner extends EventEmitter implements AgentDataS
 
     // Also detect new JSONL files on disk that we don't have fingerprints for
     const newFiles: string[] = [];
-    const projectsDir = path.join(this.claudeDir, 'projects');
+    const projectsDir = path.join(this.rootDir, 'projects');
     try {
       const projectPaths = this.fileService.scanDirectorySync(projectsDir, { directoriesOnly: true });
       for (const projectPath of projectPaths) {
@@ -670,7 +670,7 @@ export class ClaudeCodeLifecycleOwner extends EventEmitter implements AgentDataS
         // never appeared in the UI even though their messages were
         // ingested.
         for (const slug of newProjectSlugs) {
-          this.parser.parseProjectStreaming(this.claudeDir, slug, this.ingestService);
+          this.parser.parseProjectStreaming(this.rootDir, slug, this.ingestService);
           this.ingestService.onProjectComplete(slug);
           processed++;
           this.emitProgress('parsing', `New: ${slug}`, processed, totalFiles);
@@ -709,7 +709,7 @@ export class ClaudeCodeLifecycleOwner extends EventEmitter implements AgentDataS
     try {
       for (let i = 0; i < affectedSlugs.length; i++) {
         const slug = affectedSlugs[i];
-        this.parser.parseProjectStreaming(this.claudeDir, slug, this.ingestService);
+        this.parser.parseProjectStreaming(this.rootDir, slug, this.ingestService);
         this.ingestService.onProjectComplete(slug);
         this.emitProgress('parsing', `Parsed ${slug}`, i + 1, affectedSlugs.length);
 
@@ -732,7 +732,7 @@ export class ClaudeCodeLifecycleOwner extends EventEmitter implements AgentDataS
         (s) => !affected.has(s),
       );
       for (const slug of newProjectSlugs) {
-        this.parser.parseProjectStreaming(this.claudeDir, slug, this.ingestService);
+        this.parser.parseProjectStreaming(this.rootDir, slug, this.ingestService);
         this.ingestService.onProjectComplete(slug);
       }
 
@@ -783,7 +783,7 @@ export class ClaudeCodeLifecycleOwner extends EventEmitter implements AgentDataS
       try {
         for (let i = 0; i < slugs.length; i++) {
           const slug = slugs[i];
-          this.parser.parseProjectStreaming(this.claudeDir, slug, this.ingestService);
+          this.parser.parseProjectStreaming(this.rootDir, slug, this.ingestService);
           this.ingestService.onProjectComplete(slug);
           this.emitProgress('parsing', `Parsed ${slug}`, i + 1, totalProjects);
 
@@ -805,7 +805,7 @@ export class ClaudeCodeLifecycleOwner extends EventEmitter implements AgentDataS
 
   /**
    * Extract project slug and session ID from a JSONL file path.
-   * Path format: <claudeDir>/projects/<slug>/<sessionId>.jsonl
+   * Path format: <rootDir>/projects/<slug>/<sessionId>.jsonl
    */
   private extractProjectInfo(filePath: string): { slug: string; sessionId: string } | null {
     const parts = filePath.split(path.sep);
@@ -892,10 +892,10 @@ export class ClaudeCodeLifecycleOwner extends EventEmitter implements AgentDataS
    */
   private getAffectedProjectSlugs(changedFiles: string[], removedFiles: string[]): string[] {
     const affected = new Set<string>();
-    const projectsDir = path.join(this.claudeDir, 'projects');
+    const projectsDir = path.join(this.rootDir, 'projects');
 
     for (const filePath of [...changedFiles, ...removedFiles]) {
-      // Extract slug from path: <claudeDir>/projects/<slug>/...
+      // Extract slug from path: <rootDir>/projects/<slug>/...
       if (filePath.startsWith(projectsDir)) {
         const relative = filePath.substring(projectsDir.length + 1);
         const slug = relative.split(path.sep)[0];
@@ -919,7 +919,7 @@ export class ClaudeCodeLifecycleOwner extends EventEmitter implements AgentDataS
       for (const summary of summaries) {
         if (summary.sessionCount > 0 && summary.messageCount === 0) {
           // Verify there are actually JSONL files on disk for this project
-          const projectDir = path.join(this.claudeDir, 'projects', summary.slug);
+          const projectDir = path.join(this.rootDir, 'projects', summary.slug);
           try {
             const files = this.fileService.scanDirectorySync(projectDir, { pattern: '*.jsonl' });
             if (files.length > 0) {
@@ -946,7 +946,7 @@ export class ClaudeCodeLifecycleOwner extends EventEmitter implements AgentDataS
    */
   private snapshotSourceStats(): Map<string, SourceStatSnapshot> {
     const snapshot = new Map<string, SourceStatSnapshot>();
-    const projectsDir = path.join(this.claudeDir, 'projects');
+    const projectsDir = path.join(this.rootDir, 'projects');
 
     try {
       const projectPaths = this.fileService.scanDirectorySync(projectsDir, { directoriesOnly: true });
@@ -1146,7 +1146,7 @@ export class ClaudeCodeLifecycleOwner extends EventEmitter implements AgentDataS
     // Fallback: parse config if not cached yet (rare — initialize()
     // populates the cache for normal flows).
     const data = this.parser.parseSync({
-      claudeDir: this.claudeDir,
+      rootDir: this.rootDir,
       skipProjects: true,
       skipAnalytics: true,
     });
@@ -1158,7 +1158,7 @@ export class ClaudeCodeLifecycleOwner extends EventEmitter implements AgentDataS
     if (this.store.hasAnalytics()) return this.store.getAnalytics();
     // Fallback: parse analytics if not cached yet.
     const data = this.parser.parseSync({
-      claudeDir: this.claudeDir,
+      rootDir: this.rootDir,
       skipProjects: true,
       skipConfig: true,
     });
@@ -1274,7 +1274,7 @@ export class ClaudeCodeLifecycleOwner extends EventEmitter implements AgentDataS
     this.ingestService.beginTransaction();
     try {
       this.parser.parseStreaming(this.ingestService, {
-        claudeDir: this.claudeDir,
+        rootDir: this.rootDir,
       });
       this.ingestService.commitTransaction();
     } catch (error) {
@@ -1286,7 +1286,7 @@ export class ClaudeCodeLifecycleOwner extends EventEmitter implements AgentDataS
 
     // Re-parse config & analytics
     const fullData = this.parser.parseSync({
-      claudeDir: this.claudeDir,
+      rootDir: this.rootDir,
       skipProjects: true,
     });
     this.store.setConfig(fullData.config);

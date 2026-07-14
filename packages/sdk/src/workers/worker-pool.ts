@@ -26,12 +26,12 @@ export interface WorkerPool {
   /**
    * Parse multiple projects in parallel using worker threads.
    *
-   * @param claudeDir - Path to the .claude directory
+   * @param rootDir - Path to the .claude directory
    * @param slugs - Project slugs to parse
    * @param onMessage - Callback for each message from any worker (main thread handles SQLite writes)
    * @returns Promise that resolves when ALL projects are complete
    */
-  parseProjects(claudeDir: string, slugs: string[], onMessage: (msg: WorkerToMainMessage) => void): Promise<void>;
+  parseProjects(rootDir: string, slugs: string[], onMessage: (msg: WorkerToMainMessage) => void): Promise<void>;
 
   /** Shut down all workers. */
   shutdown(): void;
@@ -55,11 +55,7 @@ class WorkerPoolImpl implements WorkerPool {
     this.workerScript = options?.workerScript ?? new URL('./parse-worker.js', import.meta.url).pathname;
   }
 
-  async parseProjects(
-    claudeDir: string,
-    slugs: string[],
-    onMessage: (msg: WorkerToMainMessage) => void,
-  ): Promise<void> {
+  async parseProjects(rootDir: string, slugs: string[], onMessage: (msg: WorkerToMainMessage) => void): Promise<void> {
     if (slugs.length === 0) return;
 
     const workerCount = Math.min(this.maxWorkers, slugs.length);
@@ -78,7 +74,7 @@ class WorkerPoolImpl implements WorkerPool {
         if (slug) {
           worker.postMessage({
             type: 'parse-project',
-            claudeDir,
+            rootDir,
             slug,
           } satisfies MainToWorkerMessage);
         }

@@ -139,11 +139,10 @@ export function classifyClaudePath(absPath: string, rootDir: string): RouteResul
 }
 
 /**
- * @deprecated Prefer {@link classifyClaudePath}. Same function; kept for
- * call-sites that still pass a `claudeDir` variable name.
+ * @deprecated Prefer {@link classifyClaudePath}.
  */
-export function classify(absPath: string, claudeDir: string): RouteResult {
-  return classifyClaudePath(absPath, claudeDir);
+export function classify(absPath: string, rootDir: string): RouteResult {
+  return classifyClaudePath(absPath, rootDir);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

@@ -35,25 +35,25 @@ export interface ConfigParserOptions {
 }
 
 export interface ConfigParser {
-  parseConfig(claudeDir: string, options?: ConfigParserOptions): AgentConfig;
+  parseConfig(rootDir: string, options?: ConfigParserOptions): AgentConfig;
   empty(): AgentConfig;
 }
 
 export class ConfigParserImpl implements ConfigParser {
   constructor(private fileService: FileService) {}
 
-  parseConfig(claudeDir: string, options?: ConfigParserOptions): AgentConfig {
+  parseConfig(rootDir: string, options?: ConfigParserOptions): AgentConfig {
     return {
-      settings: this.parseSettings(claudeDir),
-      settingsLocal: this.parseSettingsLocal(claudeDir),
-      plugins: this.parsePlugins(claudeDir),
-      statsig: this.parseStatsig(claudeDir),
-      ide: this.parseIde(claudeDir),
-      shellSnapshots: this.parseShellSnapshots(claudeDir, options?.allShellSnapshots ?? false),
-      cache: this.parseCache(claudeDir),
-      statusLineCommand: this.parseStatusLineCommand(claudeDir),
-      teams: this.parseTeams(claudeDir),
-      mcpNeedsAuth: this.parseMcpNeedsAuth(claudeDir),
+      settings: this.parseSettings(rootDir),
+      settingsLocal: this.parseSettingsLocal(rootDir),
+      plugins: this.parsePlugins(rootDir),
+      statsig: this.parseStatsig(rootDir),
+      ide: this.parseIde(rootDir),
+      shellSnapshots: this.parseShellSnapshots(rootDir, options?.allShellSnapshots ?? false),
+      cache: this.parseCache(rootDir),
+      statusLineCommand: this.parseStatusLineCommand(rootDir),
+      teams: this.parseTeams(rootDir),
+      mcpNeedsAuth: this.parseMcpNeedsAuth(rootDir),
     };
   }
 
@@ -79,31 +79,31 @@ export class ConfigParserImpl implements ConfigParser {
     };
   }
 
-  private parseMcpNeedsAuth(claudeDir: string): McpNeedsAuthCache | null {
+  private parseMcpNeedsAuth(rootDir: string): McpNeedsAuthCache | null {
     try {
-      return this.fileService.readJsonSync<McpNeedsAuthCache>(path.join(claudeDir, 'mcp-needs-auth-cache.json'));
+      return this.fileService.readJsonSync<McpNeedsAuthCache>(path.join(rootDir, 'mcp-needs-auth-cache.json'));
     } catch {
       return null;
     }
   }
 
-  private parseSettingsLocal(claudeDir: string): SettingsFile | null {
+  private parseSettingsLocal(rootDir: string): SettingsFile | null {
     // Same schema as settings.json; overrides it per working directory.
     // Returns null (not an empty settings object) when absent so consumers
     // can tell "no local overrides" from "empty local file".
     try {
-      return this.fileService.readJsonSync<SettingsFile>(path.join(claudeDir, 'settings.local.json'));
+      return this.fileService.readJsonSync<SettingsFile>(path.join(rootDir, 'settings.local.json'));
     } catch {
       return null;
     }
   }
 
-  private parseSettings(claudeDir: string): SettingsFile {
-    return this.readJsonSafe<SettingsFile>(path.join(claudeDir, 'settings.json'), { permissions: { allow: [] } });
+  private parseSettings(rootDir: string): SettingsFile {
+    return this.readJsonSafe<SettingsFile>(path.join(rootDir, 'settings.json'), { permissions: { allow: [] } });
   }
 
-  private parsePlugins(claudeDir: string): PluginsDirectory {
-    const pluginsDir = path.join(claudeDir, 'plugins');
+  private parsePlugins(rootDir: string): PluginsDirectory {
+    const pluginsDir = path.join(rootDir, 'plugins');
 
     const installedPlugins = this.readJsonSafe<InstalledPluginsFile>(path.join(pluginsDir, 'installed_plugins.json'), {
       version: 2,
@@ -202,8 +202,8 @@ export class ConfigParserImpl implements ConfigParser {
     return manifests;
   }
 
-  private parseStatsig(claudeDir: string): StatsigDirectory {
-    const statsigDir = path.join(claudeDir, 'statsig');
+  private parseStatsig(rootDir: string): StatsigDirectory {
+    const statsigDir = path.join(rootDir, 'statsig');
     const result: StatsigDirectory = {};
 
     try {
@@ -235,9 +235,9 @@ export class ConfigParserImpl implements ConfigParser {
     return result;
   }
 
-  private parseIde(claudeDir: string): IdeDirectory {
+  private parseIde(rootDir: string): IdeDirectory {
     try {
-      const ideDir = path.join(claudeDir, 'ide');
+      const ideDir = path.join(rootDir, 'ide');
       const filePaths = this.fileService.scanDirectorySync(ideDir, { pattern: '*.lock' });
 
       const lockFiles: IdeLockFile[] = [];
@@ -252,9 +252,9 @@ export class ConfigParserImpl implements ConfigParser {
     }
   }
 
-  private parseShellSnapshots(claudeDir: string, all: boolean): ShellSnapshotsDirectory {
+  private parseShellSnapshots(rootDir: string, all: boolean): ShellSnapshotsDirectory {
     try {
-      const snapshotsDir = path.join(claudeDir, 'shell-snapshots');
+      const snapshotsDir = path.join(rootDir, 'shell-snapshots');
       const filePaths = this.fileService.scanDirectorySync(snapshotsDir, { pattern: 'snapshot-*.sh' });
 
       if (!all) {
@@ -315,9 +315,9 @@ export class ConfigParserImpl implements ConfigParser {
     }
   }
 
-  private parseTeams(claudeDir: string): TeamDirectory[] {
+  private parseTeams(rootDir: string): TeamDirectory[] {
     const teams: TeamDirectory[] = [];
-    const teamsDir = path.join(claudeDir, 'teams');
+    const teamsDir = path.join(rootDir, 'teams');
 
     try {
       const entryPaths = this.fileService.scanDirectorySync(teamsDir, { includeDirectories: true });
@@ -370,11 +370,11 @@ export class ConfigParserImpl implements ConfigParser {
     return inboxes;
   }
 
-  private parseCache(claudeDir: string): CacheDirectory {
+  private parseCache(rootDir: string): CacheDirectory {
     const result: CacheDirectory = {};
 
     try {
-      const changelogPath = path.join(claudeDir, 'cache', 'changelog.md');
+      const changelogPath = path.join(rootDir, 'cache', 'changelog.md');
       const content = this.fileService.readFileSync(changelogPath);
       const stats = this.fileService.getStats(changelogPath);
       result.changelog = { content, size: stats?.size ?? 0 };
@@ -385,9 +385,9 @@ export class ConfigParserImpl implements ConfigParser {
     return result;
   }
 
-  private parseStatusLineCommand(claudeDir: string): StatusLineCommandFile | null {
+  private parseStatusLineCommand(rootDir: string): StatusLineCommandFile | null {
     try {
-      const filePath = path.join(claudeDir, 'statusline-command.sh');
+      const filePath = path.join(rootDir, 'statusline-command.sh');
       const content = this.fileService.readFileSync(filePath);
       const stats = this.fileService.getStats(filePath);
       return { content, size: stats?.size ?? 0 };

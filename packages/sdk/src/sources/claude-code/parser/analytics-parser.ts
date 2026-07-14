@@ -24,22 +24,22 @@ export interface AnalyticsParserOptions {
 }
 
 export interface AnalyticsParser {
-  parseAnalytics(claudeDir: string, options?: AnalyticsParserOptions): AgentAnalytic;
+  parseAnalytics(rootDir: string, options?: AnalyticsParserOptions): AgentAnalytic;
   empty(): AgentAnalytic;
 }
 
 export class AnalyticsParserImpl implements AnalyticsParser {
   constructor(private fileService: FileService) {}
 
-  parseAnalytics(claudeDir: string, options?: AnalyticsParserOptions): AgentAnalytic {
+  parseAnalytics(rootDir: string, options?: AnalyticsParserOptions): AgentAnalytic {
     return {
-      statsCache: this.parseStatsCache(claudeDir),
-      history: this.parseHistory(claudeDir),
-      telemetry: this.parseTelemetry(claudeDir),
-      debugLogs: this.parseDebugLogs(claudeDir, options?.allDebugLogs ?? false),
-      debugLatest: this.parseDebugLatest(claudeDir),
-      pasteCache: this.parsePasteCache(claudeDir),
-      sessionEnv: this.parseSessionEnv(claudeDir),
+      statsCache: this.parseStatsCache(rootDir),
+      history: this.parseHistory(rootDir),
+      telemetry: this.parseTelemetry(rootDir),
+      debugLogs: this.parseDebugLogs(rootDir, options?.allDebugLogs ?? false),
+      debugLatest: this.parseDebugLatest(rootDir),
+      pasteCache: this.parsePasteCache(rootDir),
+      sessionEnv: this.parseSessionEnv(rootDir),
     };
   }
 
@@ -67,18 +67,18 @@ export class AnalyticsParserImpl implements AnalyticsParser {
     };
   }
 
-  private parseStatsCache(claudeDir: string): StatsCacheFile {
+  private parseStatsCache(rootDir: string): StatsCacheFile {
     try {
-      const filePath = path.join(claudeDir, 'stats-cache.json');
+      const filePath = path.join(rootDir, 'stats-cache.json');
       return this.fileService.readJsonSync<StatsCacheFile>(filePath) ?? this.empty().statsCache;
     } catch {
       return this.empty().statsCache;
     }
   }
 
-  private parseHistory(claudeDir: string): HistoryFile {
+  private parseHistory(rootDir: string): HistoryFile {
     try {
-      const filePath = path.join(claudeDir, 'history.jsonl');
+      const filePath = path.join(rootDir, 'history.jsonl');
       const result = this.fileService.readJsonlSync<HistoryEntry>(filePath);
       return { entries: result.entries };
     } catch {
@@ -86,9 +86,9 @@ export class AnalyticsParserImpl implements AnalyticsParser {
     }
   }
 
-  private parseTelemetry(claudeDir: string): TelemetryDirectory {
+  private parseTelemetry(rootDir: string): TelemetryDirectory {
     try {
-      const telemetryDir = path.join(claudeDir, 'telemetry');
+      const telemetryDir = path.join(rootDir, 'telemetry');
       const filePaths = this.fileService.scanDirectorySync(telemetryDir, {
         pattern: '1p_failed_events.*.json',
       });
@@ -125,12 +125,12 @@ export class AnalyticsParserImpl implements AnalyticsParser {
     };
   }
 
-  private parseDebugLogs(claudeDir: string, all: boolean): DebugLogFile[] {
+  private parseDebugLogs(rootDir: string, all: boolean): DebugLogFile[] {
     try {
-      const debugDir = path.join(claudeDir, 'debug');
+      const debugDir = path.join(rootDir, 'debug');
 
       if (!all) {
-        const latest = this.parseDebugLatest(claudeDir);
+        const latest = this.parseDebugLatest(rootDir);
         if (!latest) return [];
         try {
           const filePath = path.join(debugDir, `${latest.targetSessionId}.txt`);
@@ -204,9 +204,9 @@ export class AnalyticsParserImpl implements AnalyticsParser {
     return entries;
   }
 
-  private parseDebugLatest(claudeDir: string): DebugLatestSymlink | null {
+  private parseDebugLatest(rootDir: string): DebugLatestSymlink | null {
     try {
-      const latestPath = path.join(claudeDir, 'debug', 'latest');
+      const latestPath = path.join(rootDir, 'debug', 'latest');
       const targetPath = fs.readlinkSync(latestPath);
       const targetFileName = path.basename(targetPath);
       const targetSessionId = targetFileName.replace(/\.txt$/, '');
@@ -216,9 +216,9 @@ export class AnalyticsParserImpl implements AnalyticsParser {
     }
   }
 
-  private parsePasteCache(claudeDir: string): PasteCacheDirectory {
+  private parsePasteCache(rootDir: string): PasteCacheDirectory {
     try {
-      const cacheDir = path.join(claudeDir, 'paste-cache');
+      const cacheDir = path.join(rootDir, 'paste-cache');
       const filePaths = this.fileService.scanDirectorySync(cacheDir, { pattern: '*.txt' });
 
       const entries: PasteCacheFile[] = [];
@@ -240,9 +240,9 @@ export class AnalyticsParserImpl implements AnalyticsParser {
     }
   }
 
-  private parseSessionEnv(claudeDir: string): SessionEnvDirectory {
+  private parseSessionEnv(rootDir: string): SessionEnvDirectory {
     try {
-      const envDir = path.join(claudeDir, 'session-env');
+      const envDir = path.join(rootDir, 'session-env');
       // directoriesOnly: each entry is a session dir we then scan for
       // scripts — a stray file (e.g. .DS_Store) would make that per-dir
       // scan throw ENOTDIR.
