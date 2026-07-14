@@ -5,7 +5,7 @@
 import * as os from 'node:os';
 import * as path from 'node:path';
 
-import type { AgentSourcePaths } from '../types.js';
+import type { ClaudeCodePaths } from '../types.js';
 
 /** Default Claude Code data directory: `~/.claude`. */
 export function defaultClaudeDir(): string {
@@ -18,7 +18,7 @@ export function defaultSpaghettiStateDir(): string {
 }
 
 /** Build the full path map for a Claude Code installation. */
-export function buildClaudeCodePaths(rootDir: string, stateDir: string): AgentSourcePaths {
+export function buildClaudeCodePaths(rootDir: string, stateDir: string): ClaudeCodePaths {
   return {
     projectsDir: path.join(rootDir, 'projects'),
     todosDir: path.join(rootDir, 'todos'),

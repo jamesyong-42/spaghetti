@@ -58,6 +58,7 @@ export type {
   AgentSource,
   AgentSourceId,
   AgentSourcePaths,
+  ClaudeCodePaths,
   ExtractedMessage,
   MessageExtractor,
 } from './sources/types.js';

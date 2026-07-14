@@ -2,7 +2,7 @@
  * Claude Code AgentSource factory.
  */
 
-import type { AgentSource } from '../types.js';
+import type { AgentSource, ClaudeCodePaths } from '../types.js';
 import { classifyClaudePath } from './classify.js';
 import { claudeCodeMessageExtractor } from './message-extractor.js';
 import { buildClaudeCodePaths, defaultClaudeDir, defaultSpaghettiStateDir } from './paths.js';
@@ -36,13 +36,19 @@ export interface ClaudeCodeSourceOptions {
   stateDir?: string;
 }
 
+/** Claude Code source with the full product path map. */
+export interface ClaudeCodeAgentSource extends AgentSource {
+  readonly id: 'claude-code';
+  readonly paths: ClaudeCodePaths;
+}
+
 /**
  * Create the Claude Code agent source adapter.
  *
  * Callers that previously passed `claudeDir` into `createSpaghettiService`
  * map to `{ rootDir: claudeDir }`.
  */
-export function createClaudeCodeSource(options?: ClaudeCodeSourceOptions): AgentSource {
+export function createClaudeCodeSource(options?: ClaudeCodeSourceOptions): ClaudeCodeAgentSource {
   const rootDir = options?.rootDir ?? defaultClaudeDir();
   const stateDir = options?.stateDir ?? defaultSpaghettiStateDir();
   return {

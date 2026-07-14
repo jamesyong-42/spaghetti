@@ -6,6 +6,7 @@ export type {
   AgentSource,
   AgentSourceId,
   AgentSourcePaths,
+  ClaudeCodePaths,
   ExtractedMessage,
   MessageExtractor,
   IngestHooks,
@@ -23,6 +24,7 @@ export {
   createProjectParser,
   classifyClaudePath,
   type ClaudeCodeSourceOptions,
+  type ClaudeCodeAgentSource,
   type ClaudeCodeParser,
   type ClaudeCodeParserOptions,
 } from './claude-code/index.js';

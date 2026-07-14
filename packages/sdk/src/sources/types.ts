@@ -100,10 +100,38 @@ export interface IngestHooks {
 }
 
 /**
- * Paths derived from the source roots. Callers should prefer these
- * over assembling `path.join(homedir(), …)` ad hoc.
+ * Shared path bag for every agent source.
+ *
+ * Only fields that are either (a) used across agents, or (b) Spaghetti-owned
+ * state. Claude-specific layout (projects/todos/plans/…) lives on
+ * {@link ClaudeCodePaths} — do not invent dummy dirs for Codex/Grok.
  */
 export interface AgentSourcePaths {
+  /**
+   * Agent session-related directory under the product root.
+   * - Claude Code: active-session PID registry (`~/.claude/sessions`)
+   * - Codex: rollout tree (`~/.codex/sessions`)
+   * - Grok: per-cwd session dirs (`~/.grok/sessions`)
+   */
+  sessionsDir: string;
+  /**
+   * Primary settings/config file for the agent, if any.
+   * Claude: `settings.json`; Codex/Grok: often `config.toml`.
+   */
+  settingsFile?: string;
+  /** Hook events JSONL (Spaghetti state), e.g. `~/.spaghetti/hooks/events.jsonl` */
+  hookEventsFile: string;
+  /** Channel session discovery dir, e.g. `~/.spaghetti/channel/sessions` */
+  channelSessionsDir: string;
+  /** Channel message history dir, e.g. `~/.spaghetti/channel/messages` */
+  channelMessagesDir: string;
+}
+
+/**
+ * Claude Code path layout — extends the shared bag with product subtrees
+ * under `~/.claude`.
+ */
+export interface ClaudeCodePaths extends AgentSourcePaths {
   /** `<rootDir>/projects` */
   projectsDir: string;
   /** `<rootDir>/todos` */
@@ -114,16 +142,8 @@ export interface AgentSourcePaths {
   tasksDir: string;
   /** `<rootDir>/file-history` */
   fileHistoryDir: string;
-  /** `<rootDir>/sessions` — Claude Code active-session PID registry */
-  sessionsDir: string;
-  /** `<rootDir>/settings.json` */
+  /** Required for Claude: `settings.json` at root. */
   settingsFile: string;
-  /** Hook events JSONL (Spaghetti state), e.g. `~/.spaghetti/hooks/events.jsonl` */
-  hookEventsFile: string;
-  /** Channel session discovery dir, e.g. `~/.spaghetti/channel/sessions` */
-  channelSessionsDir: string;
-  /** Channel message history dir, e.g. `~/.spaghetti/channel/messages` */
-  channelMessagesDir: string;
 }
 
 /**
@@ -136,7 +156,7 @@ export interface AgentSource {
   readonly rootDir: string;
   /** Spaghetti-owned state root, e.g. `~/.spaghetti`. */
   readonly stateDir: string;
-  /** Derived absolute paths for common subtrees. */
+  /** Derived absolute paths (shared bag; Claude sources use {@link ClaudeCodePaths}). */
   readonly paths: AgentSourcePaths;
   /**
    * Classify an absolute path under this source's root into a normalized
