@@ -8,11 +8,11 @@
 //!
 //! Populated in RFC 003 commit 1.6.
 
-use crate::types::content::{
+use crate::claude::types::content::{
     AssistantContentBlock, ToolResultContent, UserContentBlock, UserMessageContent,
 };
-use crate::types::session::SystemMessagePayload;
-use crate::types::SessionMessage;
+use crate::claude::types::session::SystemMessagePayload;
+use crate::claude::types::SessionMessage;
 
 /// Maximum number of bytes of extracted text stored per message.
 ///
@@ -160,7 +160,7 @@ pub fn extract_message_text(msg: &SessionMessage) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::SessionMessage;
+    use crate::claude::types::SessionMessage;
 
     // ─── new message types + unknown fallbacks ─────────────────────────────
 

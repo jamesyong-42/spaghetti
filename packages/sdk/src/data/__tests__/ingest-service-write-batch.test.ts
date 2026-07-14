@@ -502,7 +502,7 @@ describe('IngestService.writeBatch (RFC 005 C2.6)', () => {
 //
 // These tests use a mocked `NativeAddon` so they run without the real
 // native binary being present. The Rust side's behaviour is covered
-// by the cargo tests in `crates/spaghetti-napi/src/live_ingest.rs`.
+// by the cargo tests in `crates/spaghetti-napi/src/orchestrate/live_ingest.rs`.
 
 describe('IngestService.writeBatch engine=rs routing (RFC 005 C4.3)', () => {
   let tempDir: string;

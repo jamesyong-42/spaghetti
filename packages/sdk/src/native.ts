@@ -43,7 +43,7 @@ export type NativeProgressCallback = (progress: NativeIngestProgress) => void;
 
 /**
  * One row destined for the live-ingest path. Mirrors
- * `crates/spaghetti-napi/src/live_ingest.rs::LiveRow` — see that
+ * `crates/spaghetti-napi/src/orchestrate/live_ingest.rs::LiveRow` — see that
  * module's category → payload table for the wire format.
  */
 export interface NativeLiveRow {
@@ -61,7 +61,7 @@ export interface NativeLiveRowId {
   /**
    * Stable per-category identifier of the row that landed. Matches the
    * `row_key` computed on the Rust side (see
-   * `crates/spaghetti-napi/src/live_ingest.rs::row_to_event`).
+   * `crates/spaghetti-napi/src/orchestrate/live_ingest.rs::row_to_event`).
    */
   rowKey: string;
 }

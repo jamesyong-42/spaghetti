@@ -23,10 +23,10 @@ use once_cell::sync::Lazy;
 use regex::Regex;
 use serde_json::Value;
 
-use crate::fts_text;
-use crate::jsonl_reader::read_jsonl_streaming;
-use crate::parse_sink::IngestEvent;
-use crate::types::{
+use crate::claude::fts_text;
+use crate::core::jsonl::read_jsonl_streaming;
+use crate::core::event::IngestEvent;
+use crate::claude::types::{
     FileHistorySession, FileHistorySnapshotFile, PersistedToolResult, PlanFile, SessionIndexEntry,
     SessionMessage, SessionsIndex, SubagentMeta, SubagentTranscript, SubagentType, TaskEntry,
     TodoFile, TodoItem, WorkflowRun,
@@ -944,7 +944,7 @@ fn peek_first_user_prompt(path: &Path) -> Option<String> {
     use std::cell::RefCell;
 
     let found: RefCell<Option<String>> = RefCell::new(None);
-    let _ = crate::jsonl_reader::read_jsonl_streaming(path, 0, |line, _, _| {
+    let _ = crate::core::jsonl::read_jsonl_streaming(path, 0, |line, _, _| {
         if found.borrow().is_some() {
             return;
         }

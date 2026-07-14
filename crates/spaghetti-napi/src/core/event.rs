@@ -41,7 +41,7 @@
 //!
 //! Populated in RFC 003 commit 1.5.
 
-use crate::types::{
+use crate::claude::types::{
     FileHistorySession, PersistedToolResult, PlanFile, SessionIndexEntry, SubagentTranscript,
     TaskEntry, TodoFile, WorkflowRun,
 };
@@ -186,7 +186,7 @@ pub enum IngestEvent {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::{
+    use crate::claude::types::{
         FileHistorySession, PersistedToolResult, PlanFile, SessionIndexEntry, SubagentTranscript,
         SubagentType, TaskEntry, TodoFile,
     };

@@ -5,25 +5,30 @@
 //! schema + writer, project parser, FTS text extraction, and the NAPI
 //! `ingest()` entry point.
 //!
-//! During Phase 1 most modules are being ported from the existing
-//! TypeScript implementation in `packages/sdk/src/`. Incomplete modules
-//! are still declared here so the crate compiles at every commit.
+//! # Layout (Phase A structural split)
+//!
+//! - [`core`] — source-agnostic pipeline: JSONL I/O, schema, event bus,
+//!   SQLite writer / bulk FTS.
+//! - [`claude`] — Claude Code–specific types, message FTS extraction,
+//!   project tree walk, on-disk fingerprint discovery.
+//! - [`orchestrate`] — NAPI entrypoints that glue Claude cold/warm ingest
+//!   and live batch writes onto the core writer.
 
 // Dead code is expected until Phase 1 finishes wiring the orchestrator.
 #![allow(dead_code)]
 
 use napi_derive::napi;
 
-pub mod fingerprint;
-pub mod fts_text;
-pub mod ingest;
-pub mod jsonl_reader;
-pub mod live_ingest;
-pub mod parse_sink;
-pub mod project_parser;
-pub mod schema;
-pub mod types;
-pub mod writer;
+pub mod claude;
+pub mod core;
+pub mod orchestrate;
+
+// Re-export NAPI entrypoints at the crate root so existing bindings and
+// docs that name `ingest` / `live_ingest_batch` keep resolving.
+pub use orchestrate::ingest::{ingest, IngestError, IngestOptions, IngestProgress, IngestStats, IngestTask};
+pub use orchestrate::live_ingest::{
+    live_ingest_batch, LiveBatchResult, LiveRow, LiveRowId,
+};
 
 /// Returns the semver of the native addon.
 #[napi]

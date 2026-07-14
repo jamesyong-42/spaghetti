@@ -278,6 +278,6 @@ Checklist when adding parse coverage for a new `.claude/` artifact:
 2. Wire a reader into the correct sub-parser (`project-parser.ts`, `config-parser.ts`, or `analytics-parser.ts`).
 3. If the data is large enough to stream, add a `ProjectParseSink` method and emit from the streaming path. Otherwise return it as part of `AgentConfig` / `AgentAnalytic` / `Project` and load eagerly.
 4. For persistent storage: add a table to `packages/sdk/src/data/schema.ts`, bump `SCHEMA_VERSION`, update `IngestService` with an `onX` method and prepared statement, add `QueryService` accessors.
-5. **Then Rust.** Mirror the type in `crates/spaghetti-napi/src/types/`, add an `IngestEvent` variant in `parse_sink.rs`, emit from `project_parser.rs` (or a new module), and add a writer path in `writer.rs`.
+5. **Then Rust.** Mirror the type in `crates/spaghetti-napi/src/claude/types/`, add an `IngestEvent` variant in `core/event.rs`, emit from `claude/project_parser.rs` (or a new module), and add a writer path in `core/writer.rs`.
 6. Add a fingerprint category in `fingerprint.rs` if the file should participate in warm-start incrementality.
 7. Update `PARSER-UNPARSED-DATA.md` to reflect the newly-closed gap.

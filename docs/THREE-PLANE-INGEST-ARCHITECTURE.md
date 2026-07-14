@@ -176,7 +176,7 @@ RFC 005 is largely built in the SDK:
 
 - `packages/sdk/src/live/*` — watcher, queue, parser, router, `spaghetti-live.ts`
 - `packages/sdk/src/create.ts` — constructs `LiveUpdates` only when `live: true`
-- `crates/spaghetti-napi/src/live_ingest.rs` — native batch writer for live path
+- `crates/spaghetti-napi/src/orchestrate/live_ingest.rs` — native batch writer for live path
 
 **Strengths**
 

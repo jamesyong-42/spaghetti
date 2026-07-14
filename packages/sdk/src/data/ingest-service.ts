@@ -981,7 +981,7 @@ export interface CreateIngestServiceOptions {
  * Serialize a {@link ParsedRow} for the Rust live-ingest entry
  * (`liveIngestBatch`).
  *
- * The wire contract is defined in `crates/spaghetti-napi/src/live_ingest.rs`
+ * The wire contract is defined in `crates/spaghetti-napi/src/orchestrate/live_ingest.rs`
  * — each `category` carries a `payload_json` whose shape matches the
  * corresponding `IngestEvent` variant fields. For `message` we flatten a
  * handful of projections (msgType / uuid / timestamp / token counters /

@@ -90,7 +90,7 @@ Severity uses this scale:
   - `entrypoint: 'cli' | 'web' | 'mobile' | …` — origin of the session.
   - nested `attachment.{hookName, hookEvent, content, stdout, stderr, exitCode, command, durationMs}` — hook-result attachments.
 - **TS status:** `SessionMessage` union (`packages/sdk/src/types/projects.ts`) has fields present but verify they flow through `IngestService.onMessage()` and land in `messages.data`. Nested `attachment` hook fields look incomplete in the current type — double-check.
-- **RS status:** `BaseMessageFields` at `crates/spaghetti-napi/src/types/session.rs:52` includes `is_sidechain`, `parent_uuid`, `entrypoint`. The `attachment` variant lives in the enum but the nested `attachment` payload is stored as raw JSON — not promoted to dedicated columns.
+- **RS status:** `BaseMessageFields` at `crates/spaghetti-napi/src/claude/types/session.rs` includes `is_sidechain`, `parent_uuid`, `entrypoint`. The `attachment` variant lives in the enum but the nested `attachment` payload is stored as raw JSON — not promoted to dedicated columns.
 - **Impact:** Sidechain/subagent tree rendering, hook-result drill-down, and entrypoint filtering can't be implemented reliably against the DB as-is.
 
 ### 2.2 Subagent `.meta.json` sidecar

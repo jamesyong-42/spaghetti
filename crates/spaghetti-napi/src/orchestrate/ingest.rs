@@ -47,10 +47,10 @@ use napi_derive::napi;
 use rayon::prelude::*;
 use rusqlite::{Connection, OpenFlags};
 
-use crate::fingerprint::{self, FingerprintStore, SourceFingerprint};
-use crate::parse_sink::IngestEvent;
-use crate::project_parser::ProjectParser;
-use crate::writer::{Writer, WriterStats};
+use crate::claude::fingerprint::{self, FingerprintStore, SourceFingerprint};
+use crate::core::event::IngestEvent;
+use crate::claude::project_parser::ProjectParser;
+use crate::core::writer::{Writer, WriterStats};
 
 // ═══════════════════════════════════════════════════════════════════════════
 // NAPI-exposed types
@@ -218,10 +218,10 @@ pub enum IngestInternalError {
     Io(#[from] std::io::Error),
 
     #[error("writer error: {0}")]
-    Writer(#[from] crate::writer::WriterError),
+    Writer(#[from] crate::core::writer::WriterError),
 
     #[error("fingerprint error: {0}")]
-    Fingerprint(#[from] crate::fingerprint::FingerprintError),
+    Fingerprint(#[from] crate::claude::fingerprint::FingerprintError),
 
     #[error("sqlite error: {0}")]
     Sqlite(#[from] rusqlite::Error),
@@ -318,7 +318,7 @@ pub(crate) fn run_ingest(
     let writer_handle = std::thread::Builder::new()
         .name("spaghetti-writer".into())
         .spawn(
-            move || -> std::result::Result<WriterStats, crate::writer::WriterError> {
+            move || -> std::result::Result<WriterStats, crate::core::writer::WriterError> {
                 let mut writer = Writer::new(&db_path)?;
                 writer.open_for_bulk_ingest()?;
                 let stats = writer.run(receiver)?;
@@ -335,7 +335,7 @@ pub(crate) fn run_ingest(
     // the writer commits on `ProjectComplete` and rolls back any
     // transaction still open at channel close, so without the marker a
     // plans-only ingest (zero projects) would lose every plan.
-    let plans = crate::project_parser::parse_plans(&resolved.claude_dir);
+    let plans = crate::claude::project_parser::parse_plans(&resolved.claude_dir);
     if !plans.is_empty() {
         const PLANS_TX_SLUG: &str = "<plans>";
         for plan in plans {

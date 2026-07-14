@@ -45,8 +45,8 @@ use crossbeam_channel::Receiver;
 use rusqlite::{params, Connection};
 use thiserror::Error;
 
-use crate::parse_sink::IngestEvent;
-use crate::schema::{self, SchemaError};
+use super::event::IngestEvent;
+use super::schema::{self, SchemaError};
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Errors
@@ -984,7 +984,7 @@ fn now_ms() -> i64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::{SessionIndexEntry, SubagentTranscript, SubagentType};
+    use crate::claude::types::{SessionIndexEntry, SubagentTranscript, SubagentType};
     use crossbeam_channel::unbounded;
     use rusqlite::Connection;
 
@@ -1451,7 +1451,7 @@ mod tests {
     // write_batch_with_tx — RFC 005 Phase 4 C4.1
     // ─────────────────────────────────────────────────────────────────
 
-    use crate::types::{FileHistorySession, PersistedToolResult, PlanFile, TaskEntry, TodoFile};
+    use crate::claude::types::{FileHistorySession, PersistedToolResult, PlanFile, TaskEntry, TodoFile};
 
     fn fresh_conn() -> Connection {
         let conn = Connection::open_in_memory().expect("open in-memory db");
