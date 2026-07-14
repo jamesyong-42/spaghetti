@@ -11,7 +11,7 @@
  *      large enough to bother (default 4 MB); missing WAL sidecar (no
  *      writes since open, or journal_mode ≠ WAL) is a no-op.
  *
- *   2. `INSERT INTO messages_fts(messages_fts) VALUES('merge', N)` —
+ *   2. `INSERT INTO search_fts(search_fts) VALUES('merge', N)` —
  *      incremental FTS5 compaction. `merge` walks at most N segment
  *      pages per call so long runs don't stall the DB; defaults to
  *      200 which lines up with SQLite's documented "small chunk"
@@ -173,7 +173,7 @@ export function createIdleMaintenance(
         deps.sqlite.exec('PRAGMA wal_checkpoint(TRUNCATE)');
       }
 
-      // `messages_fts` is the sole FTS5 virtual table in the schema.
+      // `search_fts` is the sole FTS5 virtual table in schema.ts.
       // `merge` is a no-op when there is nothing to merge, so gating
       // it on WAL size or activity is unnecessary. The two-column
       // `(fts, rank) VALUES('merge', N)` form is the one FTS5 actually
@@ -181,7 +181,7 @@ export function createIdleMaintenance(
       // review flagged the single-column `'merge=N'` string form as
       // "more standard", but it returns SQL logic error on the bundled
       // build (confirmed by the `missing -wal sidecar` test).
-      deps.sqlite.run(`INSERT INTO messages_fts(messages_fts, rank) VALUES('merge', ?)`, ftsMergeChunk);
+      deps.sqlite.run(`INSERT INTO search_fts(search_fts, rank) VALUES('merge', ?)`, ftsMergeChunk);
 
       deps.sqlite.exec('PRAGMA optimize');
     } catch (err) {
