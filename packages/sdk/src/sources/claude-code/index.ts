@@ -3,12 +3,13 @@
  */
 
 import type { AgentSource } from '../types.js';
-import { classify } from '../../live/router.js';
+import { classifyClaudePath } from './classify.js';
 import { claudeCodeMessageExtractor } from './message-extractor.js';
 import { buildClaudeCodePaths, defaultClaudeDir, defaultSpaghettiStateDir } from './paths.js';
 
 export { buildClaudeCodePaths, defaultClaudeDir, defaultSpaghettiStateDir } from './paths.js';
 export { ClaudeCodeLifecycleOwner } from './lifecycle-owner.js';
+export { classifyClaudePath, classify, HARD_IGNORE_SEGMENTS, HARD_IGNORE_SUFFIXES } from './classify.js';
 export {
   createClaudeCodeParser,
   createProjectParser,
@@ -31,9 +32,8 @@ export interface ClaudeCodeSourceOptions {
 /**
  * Create the Claude Code agent source adapter.
  *
- * This is the only AgentSource implementation today. Callers that
- * previously passed `claudeDir` into `createSpaghettiService` map to
- * `{ rootDir: claudeDir }`.
+ * Callers that previously passed `claudeDir` into `createSpaghettiService`
+ * map to `{ rootDir: claudeDir }`.
  */
 export function createClaudeCodeSource(options?: ClaudeCodeSourceOptions): AgentSource {
   const rootDir = options?.rootDir ?? defaultClaudeDir();
@@ -43,13 +43,9 @@ export function createClaudeCodeSource(options?: ClaudeCodeSourceOptions): Agent
     rootDir,
     stateDir,
     paths: buildClaudeCodePaths(rootDir, stateDir),
-    // Claude Code's path→category rules live in live/router.ts (the classifier
-    // engine + this source's ruleset). Binding rootDir here makes classification
-    // a source responsibility: a second AgentSource supplies its own classify.
-    classify: (absPath: string) => classify(absPath, rootDir),
-    // Claude Code's raw-record → stored-projection extraction (RFC 006). Owned
-    // by the source so a second AgentSource supplies its own without the ingest
-    // engines learning its message envelope.
+    // Path→category rules live in ./classify.ts (product layout). The live
+    // plane calls source.classify — never hardcodes Claude's tree.
+    classify: (absPath: string) => classifyClaudePath(absPath, rootDir),
     messages: claudeCodeMessageExtractor,
   };
 }

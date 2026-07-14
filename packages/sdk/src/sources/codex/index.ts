@@ -26,11 +26,11 @@ export { countTextTokens, estimateTokensFromMessageRows, type EstimatedMessageTo
 const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
 
 /**
- * Classify a Codex path. Codex's transcripts are all under
- * `sessions/YYYY/MM/DD/rollout-*.jsonl`, so the only category is `session`;
- * anything else is ignored. (Codex has no subagent/todo/plan taxonomy.)
+ * Classify a Codex path (product-owned; parallel to Claude's classify.ts).
+ * Transcripts live under `sessions/YYYY/MM/DD/rollout-*.jsonl` → `session`;
+ * anything else is ignored.
  */
-function classifyCodex(absPath: string, rootDir: string): RouteResult {
+export function classifyCodexPath(absPath: string, rootDir: string): RouteResult {
   const sessionsDir = path.join(rootDir, 'sessions');
   const base = path.basename(absPath);
   if ((absPath === sessionsDir || absPath.startsWith(sessionsDir + path.sep)) && /^rollout-.*\.jsonl$/.test(base)) {
@@ -56,7 +56,7 @@ export function createCodexSource(options?: CodexSourceOptions): AgentSource {
     rootDir,
     stateDir,
     paths: buildCodexPaths(rootDir, stateDir),
-    classify: (absPath: string) => classifyCodex(absPath, rootDir),
+    classify: (absPath: string) => classifyCodexPath(absPath, rootDir),
     messages: codexMessageExtractor,
   };
 }

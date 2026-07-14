@@ -17,7 +17,7 @@
  *
  * Flow per event:
  *
- *   watcher -> classify(path, claudeDir) -> queue.enqueue(path, reason)
+ *   watcher -> source.classify(path) -> queue.enqueue(path, reason)
  *     -> queue.drain(windowMs, maxRows) -> parseFileDelta(category,...)
  *     -> ingestService.writeBatch(rows) -> store.emit(change)
  *
