@@ -143,10 +143,7 @@ pub enum IngestEvent {
     },
 
     /// Stamp `sessions.tokens_estimated` (Grok session-aggregate / Codex estimate).
-    SessionTokensEstimated {
-        session_id: String,
-        estimated: bool,
-    },
+    SessionTokensEstimated { session_id: String, estimated: bool },
 
     /// End-of-project marker — signals the writer to commit the current
     /// transaction. Maps to `onProjectComplete`.

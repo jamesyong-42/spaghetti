@@ -24,13 +24,13 @@ use regex::Regex;
 use serde_json::Value;
 
 use crate::claude::message_extractor;
-use crate::core::event::IngestEvent;
-use crate::core::jsonl::read_jsonl_streaming;
 use crate::claude::types::{
     FileHistorySession, FileHistorySnapshotFile, PersistedToolResult, PlanFile, SessionIndexEntry,
     SessionMessage, SessionsIndex, SubagentMeta, SubagentTranscript, SubagentType, TaskEntry,
     TodoFile, TodoItem, WorkflowRun,
 };
+use crate::core::event::IngestEvent;
+use crate::core::jsonl::read_jsonl_streaming;
 
 // ─── Regex patterns — copied verbatim from project-parser.ts ────────────────
 

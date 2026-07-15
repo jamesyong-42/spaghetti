@@ -37,7 +37,9 @@ fn extract_text(content: &Value) -> String {
     };
     let mut parts: Vec<&str> = Vec::new();
     for block in arr {
-        let Some(obj) = block.as_object() else { continue };
+        let Some(obj) = block.as_object() else {
+            continue;
+        };
         let ty = obj.get("type").and_then(Value::as_str).unwrap_or("");
         if matches!(ty, "input_text" | "output_text" | "text") {
             if let Some(t) = obj.get("text").and_then(Value::as_str) {
@@ -70,10 +72,7 @@ pub fn project_jsonl_line(line: &str) -> Result<Option<MessageProjection>, serde
         .and_then(Value::as_str)
         .unwrap_or("unknown")
         .to_owned();
-    let text = payload
-        .get("content")
-        .map(extract_text)
-        .unwrap_or_default();
+    let text = payload.get("content").map(extract_text).unwrap_or_default();
     let fts = {
         let t = truncate(&text);
         if t.is_empty() {
@@ -84,10 +83,7 @@ pub fn project_jsonl_line(line: &str) -> Result<Option<MessageProjection>, serde
     };
     Ok(Some(MessageProjection {
         msg_type: role,
-        uuid: payload
-            .get("id")
-            .and_then(Value::as_str)
-            .map(str::to_owned),
+        uuid: payload.get("id").and_then(Value::as_str).map(str::to_owned),
         timestamp: obj
             .get("timestamp")
             .and_then(Value::as_str)

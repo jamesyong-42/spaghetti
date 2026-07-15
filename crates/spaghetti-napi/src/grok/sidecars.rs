@@ -43,7 +43,11 @@ fn parse_events(text: &str) -> Vec<EventLine> {
         let Ok(v) = serde_json::from_str::<Value>(trimmed) else {
             continue;
         };
-        let ty = v.get("type").and_then(Value::as_str).unwrap_or("").to_owned();
+        let ty = v
+            .get("type")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_owned();
         let ts = v.get("ts").and_then(Value::as_str).unwrap_or("").to_owned();
         if ty.is_empty() || ts.is_empty() {
             continue;
@@ -108,11 +112,9 @@ pub fn build_timestamp_map(
 
     let events = parse_events(events_text);
     let mut turns: Vec<&EventLine> = events.iter().filter(|e| e.ty == "turn_started").collect();
-    turns.sort_by(|a, b| {
-        match (a.turn_number, b.turn_number) {
-            (Some(ta), Some(tb)) if ta != tb => ta.cmp(&tb),
-            _ => a.ts.cmp(&b.ts),
-        }
+    turns.sort_by(|a, b| match (a.turn_number, b.turn_number) {
+        (Some(ta), Some(tb)) if ta != tb => ta.cmp(&tb),
+        _ => a.ts.cmp(&b.ts),
     });
     let turn_ends: Vec<&str> = events
         .iter()
@@ -146,11 +148,7 @@ pub fn build_timestamp_map(
     }
 
     for (ti, turn) in turns.iter().enumerate() {
-        let start = clamp_index(
-            turn.conversation_message_count.unwrap_or(0) as i64,
-            0,
-            n,
-        );
+        let start = clamp_index(turn.conversation_message_count.unwrap_or(0) as i64, 0, n);
         let end = if ti + 1 < turns.len() {
             clamp_index(
                 turns[ti + 1].conversation_message_count.unwrap_or(n as u32) as i64,
@@ -252,8 +250,7 @@ pub fn load_sidecars(
     let chat_text = std::fs::read_to_string(chat_history).unwrap_or_default();
     let line_types = collect_line_types(&chat_text);
 
-    let events_text =
-        std::fs::read_to_string(session_dir.join("events.jsonl")).unwrap_or_default();
+    let events_text = std::fs::read_to_string(session_dir.join("events.jsonl")).unwrap_or_default();
     let ts_map = build_timestamp_map(&line_types, &events_text, fallback_created);
 
     let signals = std::fs::read_to_string(session_dir.join("signals.json"))
@@ -300,27 +297,61 @@ mod tests {
         let map = build_timestamp_map(&types, events, Some("2026-04-01T09:00:00.000Z"));
 
         // Pre-turn bootstrap
-        assert_eq!(map.get(&0).map(String::as_str), Some("2026-04-01T09:00:00.000Z"));
-        assert_eq!(map.get(&1).map(String::as_str), Some("2026-04-01T09:00:00.000Z"));
+        assert_eq!(
+            map.get(&0).map(String::as_str),
+            Some("2026-04-01T09:00:00.000Z")
+        );
+        assert_eq!(
+            map.get(&1).map(String::as_str),
+            Some("2026-04-01T09:00:00.000Z")
+        );
         // Turn 0 user
-        assert_eq!(map.get(&2).map(String::as_str), Some("2026-04-01T10:00:00.000Z"));
+        assert_eq!(
+            map.get(&2).map(String::as_str),
+            Some("2026-04-01T10:00:00.000Z")
+        );
         // Both reasonings in loop 0 share loop_started
-        assert_eq!(map.get(&3).map(String::as_str), Some("2026-04-01T10:00:01.000Z"));
-        assert_eq!(map.get(&4).map(String::as_str), Some("2026-04-01T10:00:01.000Z"));
+        assert_eq!(
+            map.get(&3).map(String::as_str),
+            Some("2026-04-01T10:00:01.000Z")
+        );
+        assert_eq!(
+            map.get(&4).map(String::as_str),
+            Some("2026-04-01T10:00:01.000Z")
+        );
         // Assistants get first_token and advance loop
-        assert_eq!(map.get(&5).map(String::as_str), Some("2026-04-01T10:00:02.000Z"));
+        assert_eq!(
+            map.get(&5).map(String::as_str),
+            Some("2026-04-01T10:00:02.000Z")
+        );
         assert!(!map.contains_key(&6)); // tool_result
-        assert_eq!(map.get(&7).map(String::as_str), Some("2026-04-01T10:00:10.000Z"));
-        assert_eq!(map.get(&8).map(String::as_str), Some("2026-04-01T10:00:11.000Z"));
+        assert_eq!(
+            map.get(&7).map(String::as_str),
+            Some("2026-04-01T10:00:10.000Z")
+        );
+        assert_eq!(
+            map.get(&8).map(String::as_str),
+            Some("2026-04-01T10:00:11.000Z")
+        );
         // Turn 1
-        assert_eq!(map.get(&9).map(String::as_str), Some("2026-04-01T11:00:00.000Z"));
-        assert_eq!(map.get(&10).map(String::as_str), Some("2026-04-01T11:00:01.000Z"));
-        assert_eq!(map.get(&11).map(String::as_str), Some("2026-04-01T11:00:02.000Z"));
+        assert_eq!(
+            map.get(&9).map(String::as_str),
+            Some("2026-04-01T11:00:00.000Z")
+        );
+        assert_eq!(
+            map.get(&10).map(String::as_str),
+            Some("2026-04-01T11:00:01.000Z")
+        );
+        assert_eq!(
+            map.get(&11).map(String::as_str),
+            Some("2026-04-01T11:00:02.000Z")
+        );
     }
 
     #[test]
     fn parses_signals_context_tokens() {
-        let s = parse_signals(r#"{"contextTokensUsed":106352,"contextWindowTokens":500000}"#).unwrap();
+        let s =
+            parse_signals(r#"{"contextTokensUsed":106352,"contextWindowTokens":500000}"#).unwrap();
         assert_eq!(s.context_tokens_used, 106352);
     }
 }

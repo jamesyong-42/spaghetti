@@ -28,10 +28,10 @@ pub mod orchestrate;
 
 // Re-export NAPI entrypoints at the crate root so existing bindings and
 // docs that name `ingest` / `live_ingest_batch` keep resolving.
-pub use orchestrate::ingest::{ingest, IngestError, IngestOptions, IngestProgress, IngestStats, IngestTask};
-pub use orchestrate::live_ingest::{
-    live_ingest_batch, LiveBatchResult, LiveRow, LiveRowId,
+pub use orchestrate::ingest::{
+    ingest, IngestError, IngestOptions, IngestProgress, IngestStats, IngestTask,
 };
+pub use orchestrate::live_ingest::{live_ingest_batch, LiveBatchResult, LiveRow, LiveRowId};
 
 /// Returns the semver of the native addon.
 #[napi]

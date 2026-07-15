@@ -27,6 +27,9 @@
  * Expected differences that the harness deliberately normalises away:
  *   - `updated_at` columns: both paths call `Date.now()` at write time and
  *     will always differ → ignored.
+ *   - `file_mtime` / nested `fileMtime`: rounded to whole ms — Node and Rust
+ *     f64 stats of the same path can differ by sub-ms noise (esp. on CI where
+ *     git checkout mtimes are not the fixture generator's pinned utimes).
  *   - `source_files.mtime_ms`: set from fs.statSync and is ignored as per
  *     RFC 003. In addition, the Rust ingest (Phase 1 commit 1.7) does not
  *     write to `source_files` at all — the TS `saveAllFingerprints()`
@@ -525,6 +528,38 @@ function dumpTable(db: Database.Database, spec: TableSpec): Row[] {
   return rows.map((row) => normaliseRow(row, spec));
 }
 
+/**
+ * Normalize fs mtime floats so Node better-sqlite3 and Rust rusqlite agree.
+ * CI checkouts don't preserve fixture utimes pins; Node and Rust can also
+ * differ by ~0.0003 ms in f64 representation of the same stat. Round to
+ * nearest whole millisecond for columns / nested keys named *mtime*.
+ */
+function normaliseMtimeValue(v: unknown): unknown {
+  if (typeof v === 'number' && Number.isFinite(v)) {
+    return Math.round(v);
+  }
+  return v;
+}
+
+function normaliseJsonValue(v: unknown): unknown {
+  if (v && typeof v === 'object') {
+    if (Array.isArray(v)) {
+      return v.map(normaliseJsonValue);
+    }
+    const o = v as Record<string, unknown>;
+    const out: Record<string, unknown> = {};
+    for (const [k, val] of Object.entries(o)) {
+      if (/mtime/i.test(k)) {
+        out[k] = normaliseMtimeValue(val);
+      } else {
+        out[k] = normaliseJsonValue(val);
+      }
+    }
+    return out;
+  }
+  return v;
+}
+
 function normaliseRow(row: Row, spec: TableSpec): Row {
   const out: Row = {};
   const ignore = new Set(spec.ignoreColumns ?? []);
@@ -533,10 +568,12 @@ function normaliseRow(row: Row, spec: TableSpec): Row {
     if (ignore.has(k)) continue;
     if (jsonCols.has(k) && typeof v === 'string' && v.length > 0) {
       try {
-        out[k] = JSON.parse(v);
+        out[k] = normaliseJsonValue(JSON.parse(v));
       } catch {
         out[k] = v;
       }
+    } else if (/mtime/i.test(k)) {
+      out[k] = normaliseMtimeValue(v);
     } else {
       out[k] = v;
     }

@@ -47,12 +47,12 @@ use napi_derive::napi;
 use rusqlite::Connection;
 use std::time::Instant;
 
-use crate::core::event::IngestEvent;
-use crate::core::schema;
 use crate::claude::types::{
     FileHistorySession, PersistedToolResult, PlanFile, SessionsIndex, SubagentTranscript,
     TaskEntry, TodoFile,
 };
+use crate::core::event::IngestEvent;
+use crate::core::schema;
 use crate::core::writer::{write_batch_with_tx, WriteBatchStats, WriterError};
 
 // ═══════════════════════════════════════════════════════════════════════════

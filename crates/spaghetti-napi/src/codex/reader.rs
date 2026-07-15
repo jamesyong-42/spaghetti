@@ -9,8 +9,8 @@ use std::path::{Path, PathBuf};
 use std::time::UNIX_EPOCH;
 
 use crossbeam_channel::{SendError, Sender};
-use regex::Regex;
 use once_cell::sync::Lazy;
+use regex::Regex;
 
 use crate::claude::types::{SessionIndexEntry, SessionsIndex};
 use crate::codex::message_extractor::{self, MessageProjection};
@@ -94,10 +94,8 @@ impl CodexReader {
         stats.projects = by_project.len() as u32;
 
         for (slug, (original_path, sessions)) in by_project {
-            let entries: Vec<SessionIndexEntry> = sessions
-                .iter()
-                .map(|s| session_entry(s))
-                .collect();
+            let entries: Vec<SessionIndexEntry> =
+                sessions.iter().map(|s| session_entry(s)).collect();
             let sessions_index = SessionsIndex {
                 version: 1,
                 original_path: Some(original_path.clone()),
@@ -117,8 +115,7 @@ impl CodexReader {
                     slug: slug.clone(),
                     entry: entries[i].clone(),
                 })?;
-                let (msg_count, last_byte) =
-                    stream_session(&slug, sess, events)?;
+                let (msg_count, last_byte) = stream_session(&slug, sess, events)?;
                 stats.sessions += 1;
                 stats.messages += msg_count;
 
@@ -166,7 +163,9 @@ impl CodexReader {
             let (mtime_ms, size) = file_stats(path);
             match stored.get(&key) {
                 None => return false,
-                Some(fp) if (fp.mtime_ms - mtime_ms).abs() > 0.5 || fp.size != size => return false,
+                Some(fp) if (fp.mtime_ms - mtime_ms).abs() > 0.5 || fp.size != size => {
+                    return false
+                }
                 Some(_) => {}
             }
         }
@@ -485,13 +484,22 @@ mod tests {
                     output_tokens,
                     fts_text,
                     ..
-                } => Some((msg_type.as_str(), *input_tokens, *output_tokens, fts_text.clone())),
+                } => Some((
+                    msg_type.as_str(),
+                    *input_tokens,
+                    *output_tokens,
+                    fts_text.clone(),
+                )),
                 _ => None,
             })
             .collect();
         // user, assistant (0 tokens), assistant re-upsert with tokens
         assert!(msgs.iter().any(|(t, _, _, _)| *t == "user"));
-        assert!(msgs.iter().any(|(t, i, o, _)| *t == "assistant" && *i == 3 && *o == 7));
-        assert!(msgs.iter().any(|(_, _, _, f)| f.as_deref() == Some("hello")));
+        assert!(msgs
+            .iter()
+            .any(|(t, i, o, _)| *t == "assistant" && *i == 3 && *o == 7));
+        assert!(msgs
+            .iter()
+            .any(|(_, _, _, f)| f.as_deref() == Some("hello")));
     }
 }

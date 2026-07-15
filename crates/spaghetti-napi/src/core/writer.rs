@@ -347,7 +347,10 @@ impl Writer {
     }
 
     /// Like [`new`], but bind every core row to `source_id`.
-    pub fn with_source_id(db_path: &Path, source_id: impl Into<String>) -> Result<Self, WriterError> {
+    pub fn with_source_id(
+        db_path: &Path,
+        source_id: impl Into<String>,
+    ) -> Result<Self, WriterError> {
         let conn = Connection::open(db_path)?;
         schema::set_pragmas(&conn)?;
         schema::initialize_schema(&conn)?;
@@ -1075,7 +1078,9 @@ mod tests {
         ];
         write_batch_with_tx(&conn, &events, "codex").expect("batch");
         let sid: String = conn
-            .query_row("SELECT source_id FROM projects WHERE slug = 'p'", [], |r| r.get(0))
+            .query_row("SELECT source_id FROM projects WHERE slug = 'p'", [], |r| {
+                r.get(0)
+            })
             .unwrap();
         assert_eq!(sid, "codex");
         let mid: String = conn
@@ -1083,7 +1088,9 @@ mod tests {
             .unwrap();
         assert_eq!(mid, "codex");
         let sess: String = conn
-            .query_row("SELECT source_id FROM sessions WHERE id = 's1'", [], |r| r.get(0))
+            .query_row("SELECT source_id FROM sessions WHERE id = 's1'", [], |r| {
+                r.get(0)
+            })
             .unwrap();
         assert_eq!(sess, "codex");
     }
@@ -1546,7 +1553,9 @@ mod tests {
     // write_batch_with_tx — RFC 005 Phase 4 C4.1
     // ─────────────────────────────────────────────────────────────────
 
-    use crate::claude::types::{FileHistorySession, PersistedToolResult, PlanFile, TaskEntry, TodoFile};
+    use crate::claude::types::{
+        FileHistorySession, PersistedToolResult, PlanFile, TaskEntry, TodoFile,
+    };
 
     fn fresh_conn() -> Connection {
         let conn = Connection::open_in_memory().expect("open in-memory db");
@@ -1634,7 +1643,8 @@ mod tests {
             },
         ];
 
-        let stats = write_batch_with_tx(&conn, &events, crate::core::DEFAULT_SOURCE_ID).expect("batch");
+        let stats =
+            write_batch_with_tx(&conn, &events, crate::core::DEFAULT_SOURCE_ID).expect("batch");
 
         assert_eq!(stats.messages_written, 2);
         assert_eq!(stats.subagents_written, 1);
@@ -1666,7 +1676,8 @@ mod tests {
     #[test]
     fn write_batch_with_tx_empty_input_is_ok() {
         let conn = fresh_conn();
-        let stats = write_batch_with_tx(&conn, &[], crate::core::DEFAULT_SOURCE_ID).expect("empty batch");
+        let stats =
+            write_batch_with_tx(&conn, &[], crate::core::DEFAULT_SOURCE_ID).expect("empty batch");
         assert_eq!(stats.messages_written, 0);
         assert_eq!(stats.subagents_written, 0);
         assert_eq!(stats.tool_results_written, 0);
@@ -1698,7 +1709,8 @@ mod tests {
             message_event("p1", "s1", 0),
         ];
 
-        let err = write_batch_with_tx(&conn, &events, crate::core::DEFAULT_SOURCE_ID).expect_err("batch must fail");
+        let err = write_batch_with_tx(&conn, &events, crate::core::DEFAULT_SOURCE_ID)
+            .expect_err("batch must fail");
         matches!(err, WriterError::Sqlite(_));
 
         // The Project row must NOT persist — the whole batch rolled back.
@@ -1728,7 +1740,8 @@ mod tests {
             },
             IngestEvent::ClearSourceFiles,
         ];
-        let stats = write_batch_with_tx(&conn, &events, crate::core::DEFAULT_SOURCE_ID).expect("orchestration-only batch");
+        let stats = write_batch_with_tx(&conn, &events, crate::core::DEFAULT_SOURCE_ID)
+            .expect("orchestration-only batch");
         assert_eq!(stats.messages_written, 0);
         assert_eq!(stats.subagents_written, 0);
         assert_eq!(stats.tool_results_written, 0);
@@ -1788,7 +1801,8 @@ mod tests {
 
         // Live path
         let live_conn = fresh_conn();
-        write_batch_with_tx(&live_conn, &events_for_live, crate::core::DEFAULT_SOURCE_ID).expect("live batch");
+        write_batch_with_tx(&live_conn, &events_for_live, crate::core::DEFAULT_SOURCE_ID)
+            .expect("live batch");
 
         // Both DBs should have the same row counts in the core tables.
         for table in &["projects", "sessions", "messages"] {

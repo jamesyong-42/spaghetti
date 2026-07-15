@@ -48,8 +48,8 @@ use rayon::prelude::*;
 use rusqlite::{Connection, OpenFlags};
 
 use crate::claude::fingerprint::{self, FingerprintStore, SourceFingerprint};
-use crate::core::event::IngestEvent;
 use crate::claude::project_parser::ProjectParser;
+use crate::core::event::IngestEvent;
 use crate::core::writer::{Writer, WriterStats};
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -599,9 +599,8 @@ fn run_codex_ingest(
 
     // Scoped fingerprint clear for codex only, then full read.
     let _ = sender.send(IngestEvent::ClearSourceFiles);
-    let read_stats = CodexReader::read_all(&sessions_dir, &sender).map_err(|e| {
-        IngestInternalError::Io(std::io::Error::other(e.to_string()))
-    })?;
+    let read_stats = CodexReader::read_all(&sessions_dir, &sender)
+        .map_err(|e| IngestInternalError::Io(std::io::Error::other(e.to_string())))?;
     drop(sender);
     emit("finalizing", read_stats.projects, read_stats.projects);
 
@@ -685,9 +684,8 @@ fn run_grok_ingest(
 
     // Scoped fingerprint clear for grok only, then full read.
     let _ = sender.send(IngestEvent::ClearSourceFiles);
-    let read_stats = GrokReader::read_all(&sessions_dir, &sender).map_err(|e| {
-        IngestInternalError::Io(std::io::Error::other(e.to_string()))
-    })?;
+    let read_stats = GrokReader::read_all(&sessions_dir, &sender)
+        .map_err(|e| IngestInternalError::Io(std::io::Error::other(e.to_string())))?;
     drop(sender);
     emit("finalizing", read_stats.projects, read_stats.projects);
 
@@ -921,7 +919,11 @@ mod tests {
             .unwrap();
         assert_eq!(sid, "codex");
         let msg_count: i64 = conn
-            .query_row("SELECT COUNT(*) FROM messages WHERE source_id = 'codex'", [], |r| r.get(0))
+            .query_row(
+                "SELECT COUNT(*) FROM messages WHERE source_id = 'codex'",
+                [],
+                |r| r.get(0),
+            )
             .unwrap();
         assert_eq!(msg_count, 2, "function_call must not create a message row");
         let tokens: (i64, i64, i64) = conn
@@ -1011,10 +1013,7 @@ mod tests {
                 .map(|r| r.unwrap())
                 .collect()
         };
-        assert_eq!(
-            types,
-            vec!["system", "user", "assistant", "reasoning"]
-        );
+        assert_eq!(types, vec!["system", "user", "assistant", "reasoning"]);
         // Absolute line indices: tool_result at index 3 is skipped → reasoning at 4
         let reasoning_idx: i64 = conn
             .query_row(
@@ -1025,7 +1024,9 @@ mod tests {
             .unwrap();
         assert_eq!(reasoning_idx, 4);
         let title: String = conn
-            .query_row("SELECT first_prompt FROM sessions LIMIT 1", [], |r| r.get(0))
+            .query_row("SELECT first_prompt FROM sessions LIMIT 1", [], |r| {
+                r.get(0)
+            })
             .unwrap();
         assert_eq!(title, "Grok Demo");
     }
@@ -1080,7 +1081,9 @@ mod tests {
             .unwrap();
         assert_eq!(msg_sid, crate::core::DEFAULT_SOURCE_ID);
         let fp_sid: String = conn
-            .query_row("SELECT source_id FROM source_files LIMIT 1", [], |r| r.get(0))
+            .query_row("SELECT source_id FROM source_files LIMIT 1", [], |r| {
+                r.get(0)
+            })
             .unwrap();
         assert_eq!(fp_sid, crate::core::DEFAULT_SOURCE_ID);
     }

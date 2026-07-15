@@ -190,7 +190,9 @@ impl GrokReader {
             let (mtime_ms, size) = file_stats(path);
             match stored.get(&key) {
                 None => return false,
-                Some(fp) if (fp.mtime_ms - mtime_ms).abs() > 0.5 || fp.size != size => return false,
+                Some(fp) if (fp.mtime_ms - mtime_ms).abs() > 0.5 || fp.size != size => {
+                    return false
+                }
                 Some(_) => {}
             }
         }
@@ -315,22 +317,14 @@ fn read_session_meta(chat_history_file: &Path) -> Option<SessionMeta> {
 }
 
 fn session_entry(s: &SessionFile) -> SessionIndexEntry {
-    let modified = s
-        .meta
-        .updated
-        .clone()
-        .unwrap_or_else(|| {
-            if s.mtime_ms > 0.0 {
-                ms_to_iso(s.mtime_ms)
-            } else {
-                String::new()
-            }
-        });
-    let created = s
-        .meta
-        .created
-        .clone()
-        .unwrap_or_else(|| modified.clone());
+    let modified = s.meta.updated.clone().unwrap_or_else(|| {
+        if s.mtime_ms > 0.0 {
+            ms_to_iso(s.mtime_ms)
+        } else {
+            String::new()
+        }
+    });
+    let created = s.meta.created.clone().unwrap_or_else(|| modified.clone());
     let first_prompt = if s.meta.title.is_empty() {
         "No prompt".into()
     } else {
@@ -500,9 +494,6 @@ mod tests {
     #[test]
     fn percent_decode_url_encoded_cwd() {
         let enc = "%2FUsers%2Fme%2Fproj";
-        assert_eq!(
-            percent_decode(enc).as_deref(),
-            Some("/Users/me/proj")
-        );
+        assert_eq!(percent_decode(enc).as_deref(), Some("/Users/me/proj"));
     }
 }

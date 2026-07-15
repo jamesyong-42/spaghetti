@@ -62,10 +62,7 @@ pub fn project_jsonl_line(line: &str) -> Result<Option<MessageProjection>, serde
         }
         "reasoning" => {
             let text = obj.get("summary").map(collect_text).unwrap_or_default();
-            let uuid = obj
-                .get("id")
-                .and_then(Value::as_str)
-                .map(str::to_owned);
+            let uuid = obj.get("id").and_then(Value::as_str).map(str::to_owned);
             (text, uuid)
         }
         // tool_result / backend_tool_call / unknown
