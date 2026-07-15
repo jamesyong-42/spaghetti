@@ -44,7 +44,8 @@
  *     matches `messages` on both sides and leave it at that.
  *
  * Run examples:
- *   tsx scripts/ingest-diff.ts                              # cold mode, default fixture
+ *   tsx scripts/ingest-diff.ts                              # cold mode, default Claude fixture
+ *   tsx scripts/ingest-diff.ts --source=grok                # Grok RS↔TS cold parity
  *   tsx scripts/ingest-diff.ts --mode=live-batch            # 200 lines, 25-row chunks
  *   tsx scripts/ingest-diff.ts --mode=live-batch --lines=500 --chunk=50
  *
@@ -66,6 +67,9 @@ import {
   createIngestService,
   createSqliteService,
   initializeSchema,
+  createClaudeCodeSource,
+  createCodexSource,
+  createGrokSource,
 } from '../packages/sdk/dist/index.js';
 
 // `@vibecook/spaghetti-sdk-native` is a workspace dep of the SDK — not of
@@ -82,6 +86,7 @@ const { values } = parseArgs({
     'ts-db': { type: 'string' },
     'rust-db': { type: 'string' },
     mode: { type: 'string' },
+    source: { type: 'string' },
     lines: { type: 'string' },
     chunk: { type: 'string' },
   },
@@ -94,8 +99,25 @@ if (mode !== 'cold' && mode !== 'live-batch') {
   process.exit(2);
 }
 
+/** Agent product for cold mode. Live-batch stays Claude-shaped. */
+type ColdSource = 'claude' | 'codex' | 'grok';
+const coldSource: ColdSource = (values.source as ColdSource | undefined) ?? 'claude';
+if (coldSource !== 'claude' && coldSource !== 'codex' && coldSource !== 'grok') {
+  console.error(`unknown --source=${values.source!}; expected 'claude' | 'codex' | 'grok'`);
+  process.exit(2);
+}
+
+/** NAPI `sourceId` stamped on native rows (omit for Claude default). */
+const nativeSourceId: string | undefined =
+  coldSource === 'claude' ? undefined : coldSource === 'codex' ? 'codex' : 'grok';
+
 const repoRoot = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..');
-const defaultFixture = path.join(repoRoot, 'crates/spaghetti-napi/fixtures/small/.claude');
+const defaultFixtureBySource: Record<ColdSource, string> = {
+  claude: path.join(repoRoot, 'crates/spaghetti-napi/fixtures/small/.claude'),
+  codex: path.join(repoRoot, 'crates/spaghetti-napi/fixtures/small-codex/.codex'),
+  grok: path.join(repoRoot, 'crates/spaghetti-napi/fixtures/small-grok/.grok'),
+};
+const defaultFixture = defaultFixtureBySource[coldSource];
 const fixtureRootDir = path.resolve(values.fixture ?? defaultFixture);
 const tsDbPath = path.resolve(values['ts-db'] ?? '/tmp/ingest-diff-ts.db');
 const rustDbPath = path.resolve(values['rust-db'] ?? '/tmp/ingest-diff-rust.db');
@@ -113,7 +135,13 @@ if (!Number.isFinite(liveBatchChunk) || liveBatchChunk <= 0) {
 
 if (mode === 'cold' && !existsSync(fixtureRootDir)) {
   console.error(`fixture not found: ${fixtureRootDir}`);
-  console.error('regenerate with: node scripts/generate-ingest-fixture.mjs --out crates/spaghetti-napi/fixtures/small');
+  if (coldSource === 'grok') {
+    console.error('regenerate with: node scripts/generate-grok-fixture.mjs --out crates/spaghetti-napi/fixtures/small-grok');
+  } else if (coldSource === 'codex') {
+    console.error('Codex fixture not shipped yet — pass --fixture <path-to-.codex>');
+  } else {
+    console.error('regenerate with: node scripts/generate-ingest-fixture.mjs --out crates/spaghetti-napi/fixtures/small');
+  }
   process.exit(2);
 }
 
@@ -137,22 +165,31 @@ for (const p of [tsDbPath, rustDbPath]) {
 // blocks until the DB is closed cleanly, and we need the DB closed before
 // the Rust addon opens its own (separate) file.
 
+function makeAgentSource() {
+  switch (coldSource) {
+    case 'grok':
+      return createGrokSource({ rootDir: fixtureRootDir });
+    case 'codex':
+      return createCodexSource({ rootDir: fixtureRootDir });
+    case 'claude':
+    default:
+      return createClaudeCodeSource({ rootDir: fixtureRootDir });
+  }
+}
+
 async function runTsIngest(): Promise<{ durationMs: number }> {
   const start = Date.now();
 
-  // Phase 4: the SDK defaults to the native ingest path. Force the TS
-  // fallback so this "TS" side of the diff actually exercises the TS
-  // code — otherwise we'd be diffing Rust-vs-Rust.
-  const prior = process.env.SPAG_NATIVE_INGEST;
-  process.env.SPAG_NATIVE_INGEST = '0';
-
-  // Quieten the SDK's progress emitter — it's useful in the CLI but noisy
-  // in CI logs. Consumers can opt in with VERBOSE=1.
+  // Quieten the SDK's progress emitter — useful in the CLI but noisy in CI.
+  // Consumers can opt in with VERBOSE=1.
   const verbose = process.env.VERBOSE === '1';
 
+  // Pin engine=ts so this side of the diff never silently becomes Rust-vs-Rust
+  // (SDK default is rs when the native addon is present).
   const svc = createSpaghettiService({
-    rootDir: fixtureRootDir,
+    source: makeAgentSource(),
     dbPath: tsDbPath,
+    engine: 'ts',
   });
 
   if (verbose) {
@@ -165,10 +202,6 @@ async function runTsIngest(): Promise<{ durationMs: number }> {
 
   await svc.initialize();
   svc.shutdown();
-
-  // Restore the caller's env var so other code paths behave normally.
-  if (prior === undefined) delete process.env.SPAG_NATIVE_INGEST;
-  else process.env.SPAG_NATIVE_INGEST = prior;
 
   return { durationMs: Date.now() - start };
 }
@@ -217,6 +250,8 @@ async function runRustIngest(): Promise<{ durationMs: number; stats: Awaited<Ret
     agentDir: fixtureRootDir,
     dbPath: rustDbPath,
     mode: 'cold',
+    // Claude defaults to source_id='claude-code' inside the addon when omitted.
+    ...(nativeSourceId ? { sourceId: nativeSourceId } : {}),
   });
   return { durationMs: Date.now() - start, stats };
 }
@@ -394,13 +429,16 @@ const TABLE_SPECS: TableSpec[] = [
   {
     name: 'schema_meta',
     orderBy: 'key',
-    // `heal_msg_index_v1` is a TS-engine-local marker (the one-shot
-    // msg_index heal never applies to Rust-built DBs) — exclude it.
-    where: "key <> 'heal_msg_index_v1'",
+    // TS-engine-local / lifecycle markers that native cold ingest never writes:
+    // - heal_msg_index_v1: Claude TS one-shot heal
+    // - *_extract_version: stamped by lifecycle attachShared after native returns
+    where:
+      "key NOT IN ('heal_msg_index_v1', 'grok_extract_version', 'codex_extract_version')",
   },
   {
     name: 'projects',
-    orderBy: 'slug',
+    // Composite PK is (source_id, slug) — order by both for multi-source stability.
+    orderBy: 'source_id, slug',
     jsonColumns: ['sessions_index'],
     ignoreColumns: ['updated_at'],
   },
@@ -601,6 +639,7 @@ function diffTable(tsRows: Row[], rustRows: Row[], spec: TableSpec): Diff[] {
 async function main(): Promise<void> {
   console.log(`mode:    ${mode}`);
   if (mode === 'cold') {
+    console.log(`source:  ${coldSource}${nativeSourceId ? ` (sourceId=${nativeSourceId})` : ''}`);
     console.log(`fixture: ${fixtureRootDir}`);
   } else {
     console.log(`live-batch: ${liveBatchLines} lines, ${liveBatchChunk}-row chunks`);

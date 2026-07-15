@@ -33,6 +33,7 @@
     "test:packages": "pnpm --filter @vibecook/spaghetti-sdk test && pnpm --filter @vibecook/spaghetti test",
     "test:ingest-diff": "tsx scripts/ingest-diff.ts",
     "test:ingest-diff:medium": "tsx scripts/ingest-diff.ts --fixture crates/spaghetti-napi/fixtures/medium/.claude",
+    "test:ingest-diff:grok": "tsx scripts/ingest-diff.ts --source=grok",
     "bench:ingest": "tsx scripts/bench-ingest.ts",
     "test": "pnpm typecheck && pnpm validate && pnpm test:packages",
     "lint": "eslint 'packages/*/src/**/*.{ts,tsx}' 'apps/*/src/**/*.{ts,tsx}'",

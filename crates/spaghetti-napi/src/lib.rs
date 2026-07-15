@@ -11,7 +11,8 @@
 //!   SQLite writer / bulk FTS.
 //! - [`claude`] — Claude Code–specific types, message FTS extraction,
 //!   project tree walk, on-disk fingerprint discovery.
-//! - [`orchestrate`] — NAPI entrypoints that glue Claude cold/warm ingest
+//! - [`codex`] / [`grok`] — additional AgentSource native cold/warm readers.
+//! - [`orchestrate`] — NAPI entrypoints that glue cold/warm ingest
 //!   and live batch writes onto the core writer.
 
 // Dead code is expected until Phase 1 finishes wiring the orchestrator.
@@ -22,6 +23,7 @@ use napi_derive::napi;
 pub mod claude;
 pub mod codex;
 pub mod core;
+pub mod grok;
 pub mod orchestrate;
 
 // Re-export NAPI entrypoints at the crate root so existing bindings and

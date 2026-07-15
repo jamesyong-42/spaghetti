@@ -1,0 +1,4 @@
+{"type":"user","content":[{"type":"text","text":"research token attribution"},{"type":"text","text":"across agents"}]}
+{"type":"backend_tool_call","kind":{"tool_type":"web_search","action":{"type":"search","query":"tokens"}}}
+{"type":"assistant","content":"Here is a summary of token models."}
+{"type":"reasoning","id":"rs_token_1","summary":[{"type":"summary_text","text":"Keep the answer concise."}],"encrypted_content":"yyy"}

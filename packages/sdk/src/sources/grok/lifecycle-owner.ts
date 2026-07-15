@@ -5,19 +5,18 @@
  * `LifecycleOwner` contract: ingests Grok sessions into the SHARED store under
  * `sourceId: 'grok'`.
  *
- * Unlike Codex, Grok has **no native (Rust) ingest path** — the native addon is
- * Claude/Codex-shaped and knows nothing of Grok's directory-per-session layout —
- * so this owner is pure-TypeScript: {@link GrokReader} drives `IngestService`
- * directly in every phase.
+ * ## Multi-source exclusive queue
  *
- * Multi-source three-phase protocol (so peers can still take native rs):
- *   1. `exclusiveIngest` — open → GrokReader.readAll → close (shared handle must
- *      not stay open while a peer wants exclusive native access).
- *   2. `attachShared`    — reopen the shared handle + stamp extract meta.
- *   3. `startLivePipeline`— tail `chat_history.jsonl` via {@link GrokLiveWatch}
- *      (TS writer) for Change events, when `live` was requested.
+ * Participates in the three-phase protocol so **native rs is always used when
+ * available** — even when Claude already warm-started the same cache:
  *
- * Failures are non-fatal (emit `error`, leave the primary source up).
+ * 1. `exclusiveIngest` — `native.ingest({ sourceId: 'grok' })` with the shared
+ *    better-sqlite3 handle **closed** (MEMORY journal is safe).
+ * 2. `attachShared` — open shared handle + stamp extract meta.
+ * 3. `startLivePipeline` — TS live tail for Change events.
+ *
+ * Failures in exclusive/attach are non-fatal (emit `error`, leave primary up).
+ * Live writeBatch stays on TS (native liveIngestBatch is Claude-shaped).
  */
 
 import { EventEmitter } from 'events';
@@ -29,6 +28,8 @@ import type { AgentDataStore } from '../../data/agent-data-store.js';
 import type { IngestService } from '../../data/ingest-service.js';
 import type { LifecycleOwner } from '../../data/lifecycle-owner.js';
 import type { LiveWatch } from '../../live/live-watch.js';
+import { loadNativeAddon } from '../../native.js';
+import { resolveEngine, type IngestEngine } from '../../settings.js';
 import { GrokReader } from './reader.js';
 import { createGrokLiveWatch, type GrokLiveWatch } from './live-watch.js';
 
@@ -44,6 +45,7 @@ export class GrokLifecycleOwner extends EventEmitter implements LifecycleOwner {
   readonly sourceId = 'grok';
   private ready = false;
   private liveWatch: GrokLiveWatch | undefined;
+  private readonly engine: IngestEngine;
 
   constructor(
     private readonly fileService: FileService,
@@ -53,8 +55,10 @@ export class GrokLifecycleOwner extends EventEmitter implements LifecycleOwner {
     private readonly dbPath: string,
     private readonly errorSink: ErrorSink,
     private readonly live: boolean = false,
+    engine?: IngestEngine,
   ) {
     super();
+    this.engine = engine ?? resolveEngine();
   }
 
   /** Solo composition of the three multi-source phases. */
@@ -72,11 +76,23 @@ export class GrokLifecycleOwner extends EventEmitter implements LifecycleOwner {
     }
   }
 
-  /** Phase 1 — exclusive cold/warm (pure TS). Open → read → close. */
+  /**
+   * Phase 1 — exclusive cold/warm. Prefers native rs; leaves shared handle closed.
+   */
   async exclusiveIngest(): Promise<void> {
     this.ready = false;
     this.emit('progress', { phase: 'parsing', message: 'Ingesting Grok sessions…' });
+
+    // Never hold better-sqlite3 open during exclusive native / before peer native.
     this.releaseShared();
+
+    const native = this.engine === 'rs' ? loadNativeAddon() : null;
+    if (native) {
+      await this.initializeWithNative(native);
+      return;
+    }
+
+    // Pure-TS exclusive: open → ingest → close so peers can still take native next.
     this.ingestService.open(this.dbPath);
     try {
       this.readWithTypeScript();
@@ -88,6 +104,8 @@ export class GrokLifecycleOwner extends EventEmitter implements LifecycleOwner {
   /** Phase 2 — reopen shared handle + stamp extract version meta. */
   async attachShared(): Promise<void> {
     this.ingestService.open(this.dbPath);
+    // Native path stamps meta here (after open). TS path may have stamped already;
+    // re-stamp is idempotent.
     this.ingestService.setMeta(GROK_EXTRACT_META_KEY, GROK_EXTRACT_VERSION);
   }
 
@@ -114,6 +132,35 @@ export class GrokLifecycleOwner extends EventEmitter implements LifecycleOwner {
     } catch {
       /* ignore — may already be closed by a peer that shares the handle */
     }
+  }
+
+  /** Native Grok cold/warm (exclusive connection inside the addon). */
+  private async initializeWithNative(native: NonNullable<ReturnType<typeof loadNativeAddon>>): Promise<void> {
+    this.emit('progress', {
+      phase: 'parsing',
+      message: `Running native Grok ingest (${native.nativeVersion()})…`,
+    });
+    await native.ingest(
+      {
+        agentDir: this.source.rootDir,
+        dbPath: this.dbPath,
+        mode: 'warm',
+        sourceId: 'grok',
+      },
+      (progress) => {
+        this.emit('progress', {
+          phase: progress.phase === 'finalizing' ? 'storing' : 'parsing',
+          message:
+            progress.phase === 'scanning'
+              ? 'Scanning Grok sessions…'
+              : progress.phase === 'finalizing'
+                ? 'Finalizing Grok index…'
+                : `Ingesting Grok… ${progress.projectsDone}/${progress.projectsTotal}`,
+          current: progress.projectsDone,
+          total: progress.projectsTotal,
+        });
+      },
+    );
   }
 
   /** Pure-TS GrokReader path. Handle must be open. */

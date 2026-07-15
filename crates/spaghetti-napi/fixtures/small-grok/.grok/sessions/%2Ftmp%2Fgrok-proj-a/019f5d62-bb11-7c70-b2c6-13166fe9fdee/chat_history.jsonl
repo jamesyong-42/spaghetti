@@ -1,0 +1,2 @@
+{"type":"user","content":[{"type":"text","text":"and what about markdown?"}]}
+{"type":"assistant","content":"Markdown is converted to ANSI sequences."}

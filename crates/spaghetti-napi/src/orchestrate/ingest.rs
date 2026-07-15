@@ -295,9 +295,13 @@ pub(crate) fn run_ingest(
     let start = Instant::now();
     let resolved = ResolvedOptions::from(opts)?;
 
-    // Codex has its own reader (RFC 006) — branch before the Claude project walk.
+    // Codex / Grok have their own readers (RFC 006) — branch before the Claude
+    // project walk so we never treat `~/.codex` / `~/.grok` as `projects/*`.
     if resolved.source_id == "codex" {
         return run_codex_ingest(&resolved, on_progress, start);
+    }
+    if resolved.source_id == "grok" {
+        return run_grok_ingest(&resolved, on_progress, start);
     }
 
     // Warm-start fast path: nothing changed since last ingest → return.
@@ -615,6 +619,92 @@ fn run_codex_ingest(
     })
 }
 
+/// Grok cold/warm ingest — `source_id = "grok"`.
+fn run_grok_ingest(
+    resolved: &ResolvedOptions,
+    on_progress: Option<&(dyn Fn(IngestProgress) + Send + Sync)>,
+    start: Instant,
+) -> std::result::Result<IngestStats, IngestInternalError> {
+    use crate::grok::GrokReader;
+
+    let sessions_dir = resolved.root_dir.join("sessions");
+    if !sessions_dir.is_dir() {
+        // No Grok sessions — empty success (additive source).
+        return Ok(IngestStats {
+            duration_ms: u32::try_from(start.elapsed().as_millis()).unwrap_or(u32::MAX),
+            ..IngestStats::default()
+        });
+    }
+
+    // Warm fast-path: fingerprints under sessions/ unchanged.
+    if resolved.mode == Mode::Warm && resolved.db_path.exists() {
+        if let Ok(conn) = Connection::open_with_flags(
+            &resolved.db_path,
+            OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
+        ) {
+            let store = FingerprintStore::new(&conn);
+            if let Ok(stored) = store.load_all() {
+                if !stored.is_empty() && GrokReader::warm_unchanged(&sessions_dir, &stored) {
+                    return Ok(IngestStats {
+                        duration_ms: u32::try_from(start.elapsed().as_millis()).unwrap_or(u32::MAX),
+                        ..IngestStats::default()
+                    });
+                }
+            }
+        }
+    }
+
+    let emit = |phase: &str, done: u32, total: u32| {
+        if let Some(cb) = on_progress {
+            cb(IngestProgress {
+                phase: phase.to_string(),
+                projects_done: done,
+                projects_total: total,
+                elapsed_ms: u32::try_from(start.elapsed().as_millis()).unwrap_or(u32::MAX),
+            });
+        }
+    };
+    emit("scanning", 0, 0);
+
+    let (sender, receiver) = bounded::<IngestEvent>(CHANNEL_CAPACITY_PER_WORKER * 4);
+    let db_path = resolved.db_path.clone();
+    let source_id = resolved.source_id.clone();
+
+    let writer_handle = std::thread::Builder::new()
+        .name("spaghetti-writer-grok".into())
+        .spawn(
+            move || -> std::result::Result<WriterStats, crate::core::writer::WriterError> {
+                let mut writer = Writer::with_source_id(&db_path, source_id)?;
+                writer.open_for_bulk_ingest()?;
+                let stats = writer.run(receiver)?;
+                writer.finish()?;
+                Ok(stats)
+            },
+        )
+        .map_err(IngestInternalError::Io)?;
+
+    // Scoped fingerprint clear for grok only, then full read.
+    let _ = sender.send(IngestEvent::ClearSourceFiles);
+    let read_stats = GrokReader::read_all(&sessions_dir, &sender).map_err(|e| {
+        IngestInternalError::Io(std::io::Error::other(e.to_string()))
+    })?;
+    drop(sender);
+    emit("finalizing", read_stats.projects, read_stats.projects);
+
+    let writer_stats: WriterStats = writer_handle
+        .join()
+        .map_err(|_| IngestInternalError::WriterPanic)??;
+
+    Ok(IngestStats {
+        duration_ms: u32::try_from(start.elapsed().as_millis()).unwrap_or(u32::MAX),
+        projects_processed: writer_stats.projects_processed.max(read_stats.projects),
+        sessions_processed: writer_stats.sessions_processed.max(read_stats.sessions),
+        messages_written: writer_stats.messages_written,
+        subagents_written: 0,
+        errors: vec![],
+    })
+}
+
 /// List immediate subdirectories of `<agent_dir>/projects/`. Each dir
 /// name is a project slug. Non-directory entries (e.g. `.DS_Store`) are
 /// skipped silently.
@@ -842,6 +932,102 @@ mod tests {
             )
             .unwrap();
         assert_eq!(tokens, (11, 4, 1));
+    }
+
+    #[test]
+    fn grok_ingest_writes_messages_with_source_id() {
+        let tmp = TempDir::new().unwrap();
+        let session_id = "019f5d61-da35-7b60-a1b5-02055fd8fcdd";
+        let cwd = "/tmp/grok-demo";
+        let session_dir = tmp
+            .path()
+            .join("sessions")
+            .join("%2Ftmp%2Fgrok-demo")
+            .join(session_id);
+        fs::create_dir_all(&session_dir).unwrap();
+        fs::write(
+            session_dir.join("chat_history.jsonl"),
+            r#"{"type":"system","content":"You are Grok."}
+{"type":"user","content":[{"type":"text","text":"hello grok"}]}
+{"type":"assistant","content":"hi there"}
+{"type":"tool_result","tool_call_id":"c1","content":"a/\nb/"}
+{"type":"reasoning","id":"rs_1","summary":[{"type":"summary_text","text":"thinking"}],"encrypted_content":"x"}
+"#,
+        )
+        .unwrap();
+        fs::write(
+            session_dir.join("summary.json"),
+            format!(
+                r#"{{
+                  "info": {{"id": "{session_id}", "cwd": "{cwd}"}},
+                  "created_at": "2026-07-13T21:28:41.941460Z",
+                  "updated_at": "2026-07-13T23:07:59.611347Z",
+                  "generated_title": "Grok Demo",
+                  "session_summary": "Grok Demo",
+                  "head_branch": "main"
+                }}"#
+            ),
+        )
+        .unwrap();
+
+        let db = tmp.path().join("grok.db");
+        let opts = IngestOptions {
+            agent_dir: tmp.path().to_string_lossy().into(),
+            db_path: db.to_string_lossy().into(),
+            mode: "cold".into(),
+            progress_interval_ms: None,
+            parallelism: None,
+            source_id: Some("grok".into()),
+        };
+        let stats = run_ingest(&opts, None).expect("grok ingest");
+        assert!(stats.projects_processed >= 1);
+        assert!(stats.sessions_processed >= 1);
+        // system + user + assistant + reasoning; tool_result skipped
+        assert!(stats.messages_written >= 4);
+
+        let conn = Connection::open(&db).unwrap();
+        let sid: String = conn
+            .query_row("SELECT source_id FROM projects LIMIT 1", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(sid, "grok");
+        let slug: String = conn
+            .query_row("SELECT slug FROM projects LIMIT 1", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(slug, "-tmp-grok-demo");
+        let msg_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM messages WHERE source_id = 'grok'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(msg_count, 4, "tool_result must not create a message row");
+        let types: Vec<String> = {
+            let mut stmt = conn
+                .prepare("SELECT msg_type FROM messages ORDER BY msg_index")
+                .unwrap();
+            stmt.query_map([], |r| r.get(0))
+                .unwrap()
+                .map(|r| r.unwrap())
+                .collect()
+        };
+        assert_eq!(
+            types,
+            vec!["system", "user", "assistant", "reasoning"]
+        );
+        // Absolute line indices: tool_result at index 3 is skipped → reasoning at 4
+        let reasoning_idx: i64 = conn
+            .query_row(
+                "SELECT msg_index FROM messages WHERE msg_type = 'reasoning'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(reasoning_idx, 4);
+        let title: String = conn
+            .query_row("SELECT first_prompt FROM sessions LIMIT 1", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(title, "Grok Demo");
     }
 
     #[test]

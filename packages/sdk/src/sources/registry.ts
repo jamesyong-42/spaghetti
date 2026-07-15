@@ -84,7 +84,8 @@ const REGISTRY: Record<AgentSourceId, LifecycleOwnerFactory> = {
   },
 
   grok: (deps) => {
-    // Pure-TS reader path; no native Grok ingest.
+    // Live writeBatch stays on TS (native liveIngestBatch is Claude-shaped).
+    // Cold/warm still uses rs via exclusiveIngest when engine is rs.
     const ingest = createIngestService(() => deps.store.sqlite, {
       sourceId: 'grok',
       messages: deps.source.messages,
@@ -98,6 +99,7 @@ const REGISTRY: Record<AgentSourceId, LifecycleOwnerFactory> = {
       deps.dbPath,
       deps.errorSink,
       deps.live,
+      deps.engine,
     );
   },
 };
