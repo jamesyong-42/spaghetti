@@ -197,6 +197,7 @@ interface SearchFtsRow {
   project_slug: string;
   session_id: string;
   msg_index: number;
+  source_id: string;
   snippet: string;
   rank: number;
 }
@@ -244,11 +245,17 @@ class QueryServiceImpl implements QueryService {
   }
 
   getOrphanedMessageProjectSlugs(): string[] {
+    // Join on (slug, source_id): multi-source same-cwd projects share a slug
+    // but not a source. Without source_id, a Grok/Codex project row would hide
+    // Claude orphaned messages (and vice versa). Scoped to claude-code because
+    // only Claude warm-start recovery re-materialises parent project rows.
     const rows = this.db.all<{ project_slug: string }>(
       `SELECT DISTINCT m.project_slug
          FROM messages m
-         LEFT JOIN projects p ON m.project_slug = p.slug
-        WHERE p.slug IS NULL`,
+         LEFT JOIN projects p
+           ON m.project_slug = p.slug AND m.source_id = p.source_id
+        WHERE p.slug IS NULL
+          AND m.source_id = 'claude-code'`,
     );
     return rows.map((r) => r.project_slug);
   }
@@ -583,6 +590,10 @@ class QueryServiceImpl implements QueryService {
       whereParts.push('m.msg_type = ?');
       whereParams.push(query.type);
     }
+    if (query.sourceId) {
+      whereParts.push('m.source_id = ?');
+      whereParams.push(query.sourceId);
+    }
 
     const whereClause = whereParts.length > 0 ? `AND ${whereParts.join(' AND ')}` : '';
 
@@ -599,7 +610,7 @@ class QueryServiceImpl implements QueryService {
 
     // Result query
     const rows = this.db.all<SearchFtsRow>(
-      `SELECT m.project_slug, m.session_id, m.msg_index,
+      `SELECT m.project_slug, m.session_id, m.msg_index, m.source_id,
               snippet(search_fts, 0, '<b>', '</b>', '...', 64) as snippet,
               rank
        FROM search_fts
@@ -621,6 +632,7 @@ class QueryServiceImpl implements QueryService {
         rank: row.rank,
         projectSlug: row.project_slug || undefined,
         sessionId: row.session_id || undefined,
+        sourceId: row.source_id || undefined,
       })),
       total,
       hasMore: offset + rows.length < total,

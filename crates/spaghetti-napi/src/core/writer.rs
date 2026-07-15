@@ -185,7 +185,8 @@ ON CONFLICT(id) DO UPDATE SET
   file_mtime = excluded.file_mtime,
   plan_slug = excluded.plan_slug,
   has_task = excluded.has_task,
-  updated_at = excluded.updated_at
+  updated_at = excluded.updated_at,
+  source_id = excluded.source_id
 "#;
 
 const SQL_INSERT_MESSAGE: &str = r#"
@@ -206,7 +207,8 @@ ON CONFLICT(session_id, msg_index) DO UPDATE SET
   cache_creation_tokens = excluded.cache_creation_tokens,
   cache_read_tokens = excluded.cache_read_tokens,
   text_content = excluded.text_content,
-  byte_offset = excluded.byte_offset
+  byte_offset = excluded.byte_offset,
+  source_id = excluded.source_id
 "#;
 
 const SQL_INSERT_SUBAGENT: &str = r#"
@@ -304,6 +306,11 @@ ON CONFLICT(path) DO UPDATE SET
 /// Scoped clear — multi-source indexes must not wipe another agent's
 /// fingerprints when one source re-ingests (Phase B).
 const SQL_CLEAR_SOURCE_FILES: &str = "DELETE FROM source_files WHERE source_id = ?";
+
+/// Scoped entity wipe for Codex/Grok full re-read (orphans + extract bumps).
+const SQL_CLEAR_SOURCE_MESSAGES: &str = "DELETE FROM messages WHERE source_id = ?";
+const SQL_CLEAR_SOURCE_SESSIONS: &str = "DELETE FROM sessions WHERE source_id = ?";
+const SQL_CLEAR_SOURCE_PROJECTS: &str = "DELETE FROM projects WHERE source_id = ?";
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Writer
@@ -599,6 +606,26 @@ impl Writer {
                 // `<orphan>` slug on the first Fingerprint event.
                 // Scoped to this writer's source so multi-source indexes
                 // keep other agents' fingerprints (Phase B).
+                // Fingerprints only — Claude emits this *after* entity writes.
+                self.conn
+                    .execute(SQL_CLEAR_SOURCE_FILES, params![self.source_id])?;
+            }
+
+            IngestEvent::ClearSourceData => {
+                if self.in_transaction {
+                    self.commit_transaction()?;
+                    self.stats.projects_processed = self.stats.projects_processed.saturating_add(1);
+                    self.current_slug = None;
+                }
+                // Full source-scoped wipe before Codex/Grok full re-read so
+                // deleted-on-disk sessions do not leave permanent orphans.
+                // Order: messages (FTS triggers) → sessions → projects → files.
+                self.conn
+                    .execute(SQL_CLEAR_SOURCE_MESSAGES, params![self.source_id])?;
+                self.conn
+                    .execute(SQL_CLEAR_SOURCE_SESSIONS, params![self.source_id])?;
+                self.conn
+                    .execute(SQL_CLEAR_SOURCE_PROJECTS, params![self.source_id])?;
                 self.conn
                     .execute(SQL_CLEAR_SOURCE_FILES, params![self.source_id])?;
             }
@@ -954,7 +981,8 @@ pub fn dispatch_event(
         IngestEvent::SessionComplete { .. }
         | IngestEvent::ProjectComplete { .. }
         | IngestEvent::WorkerError { .. }
-        | IngestEvent::ClearSourceFiles => {
+        | IngestEvent::ClearSourceFiles
+        | IngestEvent::ClearSourceData => {
             // Intentionally no-op for compatibility with callers that
             // mix orchestration and data events in a single stream
             // (`write_batch_with_tx` accepts any event list; the live

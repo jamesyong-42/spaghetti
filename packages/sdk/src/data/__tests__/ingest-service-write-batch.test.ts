@@ -467,6 +467,76 @@ describe('IngestService.writeBatch (RFC 005 C2.6)', () => {
   // BULK INGEST INTEROP (unchanged from C2.6 scaffold)
   // ─────────────────────────────────────────────────────────────────────────
 
+  test('extractor null (Grok tool_result) skips DB write and change event', async () => {
+    // Source-scoped ingest with an extractor that rejects tool I/O — mirrors
+    // Grok/Codex extract()→null. Must not write rows or emit message.added.
+    const grokIngest = createIngestService(() => sqlite, {
+      sourceId: 'grok',
+      messages: {
+        extract: (raw) => {
+          const t = (raw as { type?: string })?.type;
+          if (t === 'tool_result' || t === 'backend_tool_call') return null;
+          return {
+            msgType: t ?? 'unknown',
+            uuid: null,
+            timestamp: null,
+            tokens: { inputTokens: 0, outputTokens: 0, cacheCreationTokens: 0, cacheReadTokens: 0 },
+            text: '',
+          };
+        },
+      },
+    });
+    grokIngest.open(dbPath);
+
+    const toolRow: ParsedRow = {
+      category: 'message',
+      slug: SLUG,
+      sessionId: SESSION_ID,
+      message: { type: 'tool_result', content: 'noise' } as unknown as SessionMessage,
+      msgIndex: 99,
+      byteOffset: 0,
+    };
+    const userRow: ParsedRow = {
+      category: 'message',
+      slug: SLUG,
+      sessionId: SESSION_ID,
+      message: {
+        type: 'user',
+        uuid: 'u-keep',
+        parentUuid: null,
+        timestamp: '2026-04-20T00:00:02Z',
+        sessionId: SESSION_ID,
+        cwd: '/tmp',
+        version: 'test',
+        gitBranch: 'main',
+        isSidechain: false,
+        userType: 'external',
+        message: { role: 'user', content: 'keep me' },
+      } as unknown as SessionMessage,
+      msgIndex: 100,
+      byteOffset: 10,
+    };
+
+    const result = await grokIngest.writeBatch([toolRow, userRow]);
+    assert.equal(result.changes.length, 1);
+    assert.equal(result.changes[0]?.type, 'session.message.added');
+
+    const skipped = sqlite.get<{ n: number }>(
+      `SELECT COUNT(*) as n FROM messages WHERE session_id = ? AND msg_index = ?`,
+      SESSION_ID,
+      99,
+    );
+    assert.equal(skipped?.n, 0);
+
+    const kept = sqlite.get<{ n: number }>(
+      `SELECT COUNT(*) as n FROM messages WHERE session_id = ? AND msg_index = ?`,
+      SESSION_ID,
+      100,
+    );
+    assert.equal(kept?.n, 1);
+    // Do not close grokIngest — it shares the suite's sqlite handle.
+  });
+
   test('beginBulkIngest + endBulkIngest still work alongside writeBatch', () => {
     assert.doesNotThrow(() => ingest.beginBulkIngest());
     sqlite.run(
@@ -550,6 +620,71 @@ describe('IngestService.writeBatch engine=rs routing (RFC 005 C4.3)', () => {
       /* ignore */
     }
     rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  test('engine=rs native path omits extract-null message rows from liveIngestBatch', async () => {
+    let receivedRows: Array<{ category: string; slug?: string; sessionId?: string; payloadJson: string }> = [];
+    const mockNative = {
+      liveIngestBatch: (
+        _dbPath: string,
+        rows: Array<{ category: string; slug?: string; sessionId?: string; payloadJson: string }>,
+      ) => {
+        receivedRows = rows;
+        return { durationMs: 1, rowsWritten: rows.length, errors: [] };
+      },
+      ingest: async () => ({
+        durationMs: 0,
+        projectsProcessed: 0,
+        sessionsProcessed: 0,
+        messagesWritten: 0,
+        subagentsWritten: 0,
+        errors: [],
+      }),
+      nativeVersion: () => 'test',
+    } as unknown as NativeAddon;
+
+    const ingestRs = createIngestService(() => sqlite, {
+      sourceId: 'grok',
+      engine: 'rs',
+      native: mockNative,
+      messages: {
+        extract: (raw) => {
+          if ((raw as { type?: string })?.type === 'tool_result') return null;
+          return {
+            msgType: 'user',
+            uuid: null,
+            timestamp: null,
+            tokens: { inputTokens: 0, outputTokens: 0, cacheCreationTokens: 0, cacheReadTokens: 0 },
+            text: 'hi',
+          };
+        },
+      },
+    });
+    ingestRs.open(dbPath);
+
+    const result = await ingestRs.writeBatch([
+      {
+        category: 'message',
+        slug: SLUG,
+        sessionId: SESSION_ID,
+        message: { type: 'tool_result' } as unknown as SessionMessage,
+        msgIndex: 0,
+        byteOffset: 0,
+      },
+      {
+        category: 'message',
+        slug: SLUG,
+        sessionId: SESSION_ID,
+        message: { type: 'user', content: 'hi' } as unknown as SessionMessage,
+        msgIndex: 1,
+        byteOffset: 1,
+      },
+    ]);
+
+    assert.equal(receivedRows.length, 1);
+    assert.equal(receivedRows[0]?.category, 'message');
+    assert.equal(result.changes.length, 1);
+    ingestRs.close();
   });
 
   test('engine=rs + native loaded → routes through liveIngestBatch; Changes still built', async () => {

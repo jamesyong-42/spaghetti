@@ -16,7 +16,8 @@
  * 3. `startLivePipeline` — TS live tail for Change events.
  *
  * Failures in exclusive/attach are non-fatal (emit `error`, leave primary up).
- * Live writeBatch stays on TS (native liveIngestBatch is Claude-shaped).
+ * Live writeBatch stays on TS (registry pins Grok ingest `engine: 'ts'`) so
+ * Change events and extract-null skips stay on one connection.
  */
 
 import { EventEmitter } from 'events';
@@ -135,8 +136,41 @@ export class GrokLifecycleOwner extends EventEmitter implements LifecycleOwner {
     }
   }
 
+  /**
+   * True when extract/sidecar behaviour changed and a full Grok re-read is
+   * required even if file mtimes match. Reads meta with a brief open/close so
+   * exclusive native peers still see a free file handle.
+   */
+  private needsExtractForceReread(): boolean {
+    try {
+      this.ingestService.open(this.dbPath);
+      return this.ingestService.getMeta(GROK_EXTRACT_META_KEY) !== GROK_EXTRACT_VERSION;
+    } catch {
+      // Missing/corrupt DB → let native cold path create it; no force wipe needed.
+      return false;
+    } finally {
+      this.releaseShared();
+    }
+  }
+
   /** Native Grok cold/warm (exclusive connection inside the addon). */
   private async initializeWithNative(native: NonNullable<ReturnType<typeof loadNativeAddon>>): Promise<void> {
+    // Native warm-skip is fingerprint-only. If extract meta mismatches, wipe
+    // this source's rows so warm cannot skip and stale projections cannot linger
+    // after attachShared stamps the new version.
+    if (this.needsExtractForceReread()) {
+      this.emit('progress', {
+        phase: 'parsing',
+        message: 'Grok extract version changed — clearing Grok index for full re-read…',
+      });
+      try {
+        this.ingestService.open(this.dbPath);
+        this.ingestService.clearSourceData();
+      } finally {
+        this.releaseShared();
+      }
+    }
+
     this.emit('progress', {
       phase: 'parsing',
       message: `Running native Grok ingest (${native.nativeVersion()})…`,
@@ -167,9 +201,27 @@ export class GrokLifecycleOwner extends EventEmitter implements LifecycleOwner {
   /** Pure-TS GrokReader path. Handle must be open. */
   private readWithTypeScript(): void {
     const extractVer = this.ingestService.getMeta(GROK_EXTRACT_META_KEY);
-    const forceReread = extractVer !== GROK_EXTRACT_VERSION;
+    const sessionsDir = this.source.paths.sessionsDir;
+    let forceReread = extractVer !== GROK_EXTRACT_VERSION;
 
-    const reader = new GrokReader(this.fileService, this.source.paths.sessionsDir);
+    // Missing fingerprint paths (deleted on disk) → full wipe + re-read so
+    // sessions/messages do not linger as orphans (mirrors native ClearSourceData).
+    if (!forceReread) {
+      for (const fp of this.ingestService.getAllFingerprints()) {
+        if (fp.path.startsWith(sessionsDir) && !this.fileService.exists(fp.path)) {
+          forceReread = true;
+          break;
+        }
+      }
+    }
+
+    // Drop prior Grok rows so force re-read does not leave ghosts.
+    // Fingerprints are cleared too; onFileSeen repopulates.
+    if (forceReread) {
+      this.ingestService.clearSourceData();
+    }
+
+    const reader = new GrokReader(this.fileService, sessionsDir);
     this.ingestService.beginTransaction();
     try {
       reader.readAll(this.ingestService, {
@@ -182,7 +234,7 @@ export class GrokLifecycleOwner extends EventEmitter implements LifecycleOwner {
           this.ingestService.upsertFingerprint({ path: file, mtimeMs, size, bytePosition: lastByte });
         },
       });
-      if (forceReread) {
+      if (forceReread || extractVer !== GROK_EXTRACT_VERSION) {
         this.ingestService.setMeta(GROK_EXTRACT_META_KEY, GROK_EXTRACT_VERSION);
       }
       this.ingestService.commitTransaction();

@@ -132,6 +132,8 @@ export interface SearchQuery {
   type?: SegmentType;
   projectSlug?: string;
   sessionId?: string;
+  /** When set, only messages from this agent source (`claude-code` | `codex` | `grok`). */
+  sourceId?: string;
   tags?: string[];
   limit?: number;
   offset?: number;
@@ -144,6 +146,8 @@ export interface SearchResult {
   rank: number;
   projectSlug?: string;
   sessionId?: string;
+  /** Agent product that owns the hit (multi-source index). */
+  sourceId?: string;
 }
 
 export interface SearchResultSet {
