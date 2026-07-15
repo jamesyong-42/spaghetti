@@ -1,6 +1,16 @@
 //! Grok sidecar enrichment — timestamps (events.jsonl) + session tokens (signals.json).
 //!
 //! Behaviour-aligned with `packages/sdk/src/sources/grok/sidecars.ts`.
+//!
+//! # Timestamp join (turn-scoped)
+//!
+//! 1. `turn_started.conversation_message_count` = absolute chat_history index
+//!    of that turn's primary user message (exact on real installs).
+//! 2. Turn ranges: `[count_i, count_{i+1})`.
+//! 3. Within `[turn_started.ts, turn_ended.ts]`, pair `loop_started` /
+//!    `first_token` with assistant cycles; multiple `reasoning` rows may
+//!    share the current loop before the assistant advances it.
+//! 4. Pre-turn lines get `fallback_created` (summary.created_at).
 
 use std::collections::HashMap;
 use std::path::Path;
@@ -15,8 +25,15 @@ pub struct GrokSignals {
     pub context_tokens_used: u64,
 }
 
-/// Parse events.jsonl text into (type, ts, conversation_message_count?) triples.
-fn parse_events(text: &str) -> Vec<(String, String, Option<u32>)> {
+#[derive(Debug, Clone)]
+struct EventLine {
+    ty: String,
+    ts: String,
+    conversation_message_count: Option<u32>,
+    turn_number: Option<i64>,
+}
+
+fn parse_events(text: &str) -> Vec<EventLine> {
     let mut out = Vec::new();
     for line in text.lines() {
         let trimmed = line.trim();
@@ -31,11 +48,15 @@ fn parse_events(text: &str) -> Vec<(String, String, Option<u32>)> {
         if ty.is_empty() || ts.is_empty() {
             continue;
         }
-        let count = v
-            .get("conversation_message_count")
-            .and_then(Value::as_u64)
-            .map(|n| n as u32);
-        out.push((ty, ts, count));
+        out.push(EventLine {
+            ty,
+            ts,
+            conversation_message_count: v
+                .get("conversation_message_count")
+                .and_then(Value::as_u64)
+                .map(|n| n as u32),
+            turn_number: v.get("turn_number").and_then(Value::as_i64),
+        });
     }
     out
 }
@@ -60,89 +81,143 @@ pub fn collect_line_types(chat_text: &str) -> Vec<String> {
     types
 }
 
+fn clamp_index(v: i64, lo: usize, hi: usize) -> usize {
+    if hi <= lo {
+        return lo;
+    }
+    if v < lo as i64 {
+        return lo;
+    }
+    if v as usize > hi {
+        return hi;
+    }
+    v as usize
+}
+
 /// Build absolute-line-index → timestamp map (mirrors TS `buildTimestampMap`).
 pub fn build_timestamp_map(
     line_types: &[String],
     events_text: &str,
     fallback_created: Option<&str>,
 ) -> TimestampMap {
-    let events = parse_events(events_text);
+    let n = line_types.len();
     let mut map: TimestampMap = HashMap::new();
+    if n == 0 {
+        return map;
+    }
 
-    // 1) turn_started with conversation_message_count → user at that index.
-    for (ty, ts, count) in &events {
-        if ty != "turn_started" {
-            continue;
+    let events = parse_events(events_text);
+    let mut turns: Vec<&EventLine> = events.iter().filter(|e| e.ty == "turn_started").collect();
+    turns.sort_by(|a, b| {
+        match (a.turn_number, b.turn_number) {
+            (Some(ta), Some(tb)) if ta != tb => ta.cmp(&tb),
+            _ => a.ts.cmp(&b.ts),
         }
-        if let Some(mut idx) = *count {
-            while (idx as usize) < line_types.len() && line_types[idx as usize] != "user" {
-                idx += 1;
-            }
-            if (idx as usize) < line_types.len() {
-                map.entry(idx).or_insert_with(|| ts.clone());
+    });
+    let turn_ends: Vec<&str> = events
+        .iter()
+        .filter(|e| e.ty == "turn_ended")
+        .map(|e| e.ts.as_str())
+        .collect();
+
+    let first_turn_start = turns
+        .first()
+        .and_then(|t| t.conversation_message_count)
+        .map(|c| clamp_index(c as i64, 0, n))
+        .unwrap_or(n);
+
+    if let Some(fb) = fallback_created {
+        for (i, t) in line_types.iter().enumerate().take(first_turn_start) {
+            if t == "system" || t == "user" {
+                map.insert(i as u32, fb.to_owned());
             }
         }
     }
 
-    let leftover_turns: Vec<&str> = events
-        .iter()
-        .filter(|(t, _, _)| t == "turn_started")
-        .map(|(_, ts, _)| ts.as_str())
-        .collect();
-    let stamped_users = map
-        .keys()
-        .filter(|&&i| line_types.get(i as usize).map(|s| s.as_str()) == Some("user"))
-        .count();
-    let mut turn_i = stamped_users.min(leftover_turns.len());
-
-    let loop_starts: Vec<&str> = events
-        .iter()
-        .filter(|(t, _, _)| t == "loop_started")
-        .map(|(_, ts, _)| ts.as_str())
-        .collect();
-    let first_tokens: Vec<&str> = events
-        .iter()
-        .filter(|(t, _, _)| t == "first_token")
-        .map(|(_, ts, _)| ts.as_str())
-        .collect();
-    let mut loop_i = 0usize;
-    let mut first_i = 0usize;
-
-    for (i, t) in line_types.iter().enumerate() {
-        let idx = i as u32;
-        if map.contains_key(&idx) {
-            continue;
+    if turns.is_empty() {
+        if let Some(fb) = fallback_created {
+            for (i, t) in line_types.iter().enumerate().skip(first_turn_start) {
+                if t == "system" || t == "user" {
+                    map.insert(i as u32, fb.to_owned());
+                }
+            }
         }
-        match t.as_str() {
-            "system" => {
-                if let Some(fb) = fallback_created {
-                    map.insert(idx, fb.to_owned());
+        return map;
+    }
+
+    for (ti, turn) in turns.iter().enumerate() {
+        let start = clamp_index(
+            turn.conversation_message_count.unwrap_or(0) as i64,
+            0,
+            n,
+        );
+        let end = if ti + 1 < turns.len() {
+            clamp_index(
+                turns[ti + 1].conversation_message_count.unwrap_or(n as u32) as i64,
+                start,
+                n,
+            )
+        } else {
+            n
+        };
+
+        let window_start = turn.ts.as_str();
+        let window_end: &str = if ti < turn_ends.len() {
+            turn_ends[ti]
+        } else if ti + 1 < turns.len() {
+            turns[ti + 1].ts.as_str()
+        } else {
+            "\u{ffff}"
+        };
+
+        let loops: Vec<&str> = events
+            .iter()
+            .filter(|e| {
+                e.ty == "loop_started"
+                    && e.ts.as_str() >= window_start
+                    && e.ts.as_str() <= window_end
+            })
+            .map(|e| e.ts.as_str())
+            .collect();
+        let first_tokens: Vec<&str> = events
+            .iter()
+            .filter(|e| {
+                e.ty == "first_token"
+                    && e.ts.as_str() >= window_start
+                    && e.ts.as_str() <= window_end
+            })
+            .map(|e| e.ts.as_str())
+            .collect();
+
+        let mut loop_i: usize = 0;
+        for i in start..end {
+            let t = line_types[i].as_str();
+            let idx = i as u32;
+            match t {
+                "user" | "system" => {
+                    map.insert(idx, turn.ts.clone());
                 }
-            }
-            "user" => {
-                if turn_i < leftover_turns.len() {
-                    map.insert(idx, leftover_turns[turn_i].to_owned());
-                    turn_i += 1;
-                } else if let Some(fb) = fallback_created {
-                    map.insert(idx, fb.to_owned());
+                "reasoning" => {
+                    if loop_i < loops.len() {
+                        map.insert(idx, loops[loop_i].to_owned());
+                    } else if !loops.is_empty() {
+                        map.insert(idx, loops[loops.len() - 1].to_owned());
+                    } else {
+                        map.insert(idx, turn.ts.clone());
+                    }
                 }
-            }
-            "reasoning" => {
-                if loop_i < loop_starts.len() {
-                    map.insert(idx, loop_starts[loop_i].to_owned());
-                    loop_i += 1;
-                } else if first_i < first_tokens.len() {
-                    map.insert(idx, first_tokens[first_i].to_owned());
-                    first_i += 1;
+                "assistant" => {
+                    if loop_i < first_tokens.len() {
+                        map.insert(idx, first_tokens[loop_i].to_owned());
+                    } else if loop_i < loops.len() {
+                        map.insert(idx, loops[loop_i].to_owned());
+                    } else {
+                        map.insert(idx, turn.ts.clone());
+                    }
+                    loop_i = loop_i.saturating_add(1);
                 }
+                _ => {}
             }
-            "assistant" => {
-                if first_i < first_tokens.len() {
-                    map.insert(idx, first_tokens[first_i].to_owned());
-                    first_i += 1;
-                }
-            }
-            _ => {}
         }
     }
 
@@ -193,28 +268,54 @@ mod tests {
     use super::*;
 
     #[test]
-    fn assigns_turn_and_token_timestamps() {
+    fn turn_scoped_join_exact_user_and_loop_pairing() {
+        // Pre-turn: system + bootstrap users at 0..2; turn0 user at index 2.
         let types = vec![
             "system".into(),
-            "user".into(),
+            "user".into(), // bootstrap
+            "user".into(), // turn0 primary (conversation_message_count=2)
             "reasoning".into(),
+            "reasoning".into(), // same loop
             "assistant".into(),
             "tool_result".into(),
+            "reasoning".into(),
+            "assistant".into(),
+            // turn1
+            "user".into(), // conversation_message_count=9
+            "reasoning".into(),
             "assistant".into(),
         ];
         let events = r#"
-{"ts":"2026-04-01T10:00:00.000Z","type":"turn_started","conversation_message_count":1}
-{"ts":"2026-04-01T10:00:01.000Z","type":"loop_started"}
+{"ts":"2026-04-01T10:00:00.000Z","type":"turn_started","turn_number":0,"conversation_message_count":2}
+{"ts":"2026-04-01T10:00:01.000Z","type":"loop_started","loop_index":0}
 {"ts":"2026-04-01T10:00:02.000Z","type":"first_token"}
-{"ts":"2026-04-01T10:00:05.000Z","type":"first_token"}
+{"ts":"2026-04-01T10:00:10.000Z","type":"loop_started","loop_index":1}
+{"ts":"2026-04-01T10:00:11.000Z","type":"first_token"}
+{"ts":"2026-04-01T10:00:20.000Z","type":"turn_ended"}
+{"ts":"2026-04-01T11:00:00.000Z","type":"turn_started","turn_number":1,"conversation_message_count":9}
+{"ts":"2026-04-01T11:00:01.000Z","type":"loop_started","loop_index":0}
+{"ts":"2026-04-01T11:00:02.000Z","type":"first_token"}
+{"ts":"2026-04-01T11:00:10.000Z","type":"turn_ended"}
 "#;
         let map = build_timestamp_map(&types, events, Some("2026-04-01T09:00:00.000Z"));
-        assert_eq!(map.get(&0).map(String::as_str), Some("2026-04-01T09:00:00.000Z")); // system fallback
-        assert_eq!(map.get(&1).map(String::as_str), Some("2026-04-01T10:00:00.000Z")); // user
-        assert_eq!(map.get(&2).map(String::as_str), Some("2026-04-01T10:00:01.000Z")); // reasoning
-        assert_eq!(map.get(&3).map(String::as_str), Some("2026-04-01T10:00:02.000Z")); // assistant
-        assert_eq!(map.get(&5).map(String::as_str), Some("2026-04-01T10:00:05.000Z")); // 2nd assistant
-        assert!(!map.contains_key(&4)); // tool_result skipped
+
+        // Pre-turn bootstrap
+        assert_eq!(map.get(&0).map(String::as_str), Some("2026-04-01T09:00:00.000Z"));
+        assert_eq!(map.get(&1).map(String::as_str), Some("2026-04-01T09:00:00.000Z"));
+        // Turn 0 user
+        assert_eq!(map.get(&2).map(String::as_str), Some("2026-04-01T10:00:00.000Z"));
+        // Both reasonings in loop 0 share loop_started
+        assert_eq!(map.get(&3).map(String::as_str), Some("2026-04-01T10:00:01.000Z"));
+        assert_eq!(map.get(&4).map(String::as_str), Some("2026-04-01T10:00:01.000Z"));
+        // Assistants get first_token and advance loop
+        assert_eq!(map.get(&5).map(String::as_str), Some("2026-04-01T10:00:02.000Z"));
+        assert!(!map.contains_key(&6)); // tool_result
+        assert_eq!(map.get(&7).map(String::as_str), Some("2026-04-01T10:00:10.000Z"));
+        assert_eq!(map.get(&8).map(String::as_str), Some("2026-04-01T10:00:11.000Z"));
+        // Turn 1
+        assert_eq!(map.get(&9).map(String::as_str), Some("2026-04-01T11:00:00.000Z"));
+        assert_eq!(map.get(&10).map(String::as_str), Some("2026-04-01T11:00:01.000Z"));
+        assert_eq!(map.get(&11).map(String::as_str), Some("2026-04-01T11:00:02.000Z"));
     }
 
     #[test]

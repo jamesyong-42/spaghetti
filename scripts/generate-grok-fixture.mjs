@@ -105,17 +105,22 @@ const SESS_A2 = '019f5d62-bb11-7c70-b2c6-13166fe9fdee';
 writeSession(PROJ_A, SESS_A1, {
   title: 'Codebase Onboarding',
   branch: 'main',
-  created: '2026-04-01T10:00:00.000Z',
+  created: '2026-04-01T09:00:00.000Z',
   updated: '2026-04-01T10:30:00.000Z',
   signals: { contextTokensUsed: 4200, contextWindowTokens: 500000, turnCount: 1 },
-  // line types: 0 system, 1 user, 2 reasoning, 3 assistant, 4 tool_result, 5 assistant
+  // 0 system (pre-turn), 1 user (turn0 @ count=1), 2 reasoning, 3 assistant, 4 tool, 5 assistant
   events: [
-    { ts: '2026-04-01T10:00:10.000Z', type: 'turn_started', conversation_message_count: 1, turn_number: 0 },
-    { ts: '2026-04-01T10:00:11.000Z', type: 'loop_started' },
+    {
+      ts: '2026-04-01T10:00:10.000Z',
+      type: 'turn_started',
+      conversation_message_count: 1,
+      turn_number: 0,
+    },
+    { ts: '2026-04-01T10:00:11.000Z', type: 'loop_started', loop_index: 0 },
     { ts: '2026-04-01T10:00:12.000Z', type: 'first_token' },
-    { ts: '2026-04-01T10:00:20.000Z', type: 'loop_started' },
+    { ts: '2026-04-01T10:00:20.000Z', type: 'loop_started', loop_index: 1 },
     { ts: '2026-04-01T10:00:21.000Z', type: 'first_token' },
-    { ts: '2026-04-01T10:00:30.000Z', type: 'turn_ended' },
+    { ts: '2026-04-01T10:00:30.000Z', type: 'turn_ended', outcome: 'completed' },
   ],
   lines: [
     { type: 'system', content: 'You are Grok, a coding assistant.' },
@@ -144,8 +149,15 @@ writeSession(PROJ_A, SESS_A2, {
   updated: '2026-04-01T11:15:00.000Z',
   signals: { contextTokensUsed: 800, contextWindowTokens: 500000, turnCount: 1 },
   events: [
-    { ts: '2026-04-01T11:00:05.000Z', type: 'turn_started', conversation_message_count: 0, turn_number: 0 },
+    {
+      ts: '2026-04-01T11:00:05.000Z',
+      type: 'turn_started',
+      conversation_message_count: 0,
+      turn_number: 0,
+    },
+    { ts: '2026-04-01T11:00:05.100Z', type: 'loop_started', loop_index: 0 },
     { ts: '2026-04-01T11:00:06.000Z', type: 'first_token' },
+    { ts: '2026-04-01T11:00:10.000Z', type: 'turn_ended', outcome: 'completed' },
   ],
   lines: [
     { type: 'user', content: [{ type: 'text', text: 'and what about markdown?' }] },
@@ -163,11 +175,17 @@ writeSession(PROJ_B, SESS_B1, {
   created: '2026-04-01T12:00:00.000Z',
   updated: '2026-04-01T12:45:00.000Z',
   signals: { contextTokensUsed: 9900, contextWindowTokens: 500000, turnCount: 1 },
-  // 0 user, 1 backend_tool_call, 2 reasoning, 3 assistant
+  // 0 user, 1 backend_tool_call, 2 reasoning, 3 reasoning (same loop), 4 assistant
   events: [
-    { ts: '2026-04-01T12:00:10.000Z', type: 'turn_started', conversation_message_count: 0, turn_number: 0 },
-    { ts: '2026-04-01T12:00:11.000Z', type: 'loop_started' },
+    {
+      ts: '2026-04-01T12:00:10.000Z',
+      type: 'turn_started',
+      conversation_message_count: 0,
+      turn_number: 0,
+    },
+    { ts: '2026-04-01T12:00:11.000Z', type: 'loop_started', loop_index: 0 },
     { ts: '2026-04-01T12:00:12.000Z', type: 'first_token' },
+    { ts: '2026-04-01T12:00:30.000Z', type: 'turn_ended', outcome: 'completed' },
   ],
   lines: [
     {
@@ -187,6 +205,12 @@ writeSession(PROJ_B, SESS_B1, {
       summary: [{ type: 'summary_text', text: 'Keep the answer concise.' }],
       encrypted_content: 'yyy',
     },
+    {
+      type: 'reasoning',
+      id: 'rs_token_2',
+      summary: [{ type: 'summary_text', text: 'Still the same model loop.' }],
+      encrypted_content: 'zzz',
+    },
     { type: 'assistant', content: 'Here is a summary of token models.' },
   ],
 });
@@ -202,8 +226,15 @@ writeSession(PROJ_C, SESS_C1, {
   updated: '2026-04-01T14:05:00.000Z',
   signals: { contextTokensUsed: 2500, contextWindowTokens: 500000, turnCount: 1 },
   events: [
-    { ts: '2026-04-01T14:00:01.000Z', type: 'turn_started', conversation_message_count: 1, turn_number: 0 },
+    {
+      ts: '2026-04-01T14:00:01.000Z',
+      type: 'turn_started',
+      conversation_message_count: 1,
+      turn_number: 0,
+    },
+    { ts: '2026-04-01T14:00:01.100Z', type: 'loop_started', loop_index: 0 },
     { ts: '2026-04-01T14:00:02.000Z', type: 'first_token' },
+    { ts: '2026-04-01T14:00:05.000Z', type: 'turn_ended', outcome: 'completed' },
   ],
   lines: [
     { type: 'system', content: 'You are Grok.' },
