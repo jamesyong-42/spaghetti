@@ -1,5 +1,33 @@
 # Changelog
 
+## [0.5.18](https://github.com/jamesyong-42/spaghetti/compare/spaghetti-v0.5.17...spaghetti-v0.5.18) (2026-07-15)
+
+
+### Features
+
+* **cli,coverage:** multi-agent TUI for Grok + coverage claim + CI ([d1f6469](https://github.com/jamesyong-42/spaghetti/commit/d1f64694bdeaf795ccbfb2285b61af4f3d9dbc77))
+* **cli,sdk:** multi-agent CLI + TUI — Claude & Codex side by side ([#71](https://github.com/jamesyong-42/spaghetti/issues/71)) ([90c75e3](https://github.com/jamesyong-42/spaghetti/commit/90c75e315f67305fc9893cfc6a6f9d1112ab4666))
+* **cli:** render Grok sessions — display adapter + agent labels (M6 A6b) ([0e8e70a](https://github.com/jamesyong-42/spaghetti/commit/0e8e70a39d742c34475463eb43c2721ec438ea57))
+* **coverage:** interactive HTML report for claims + ground truth ([31e4abb](https://github.com/jamesyong-42/spaghetti/commit/31e4abbdef9c5e4df2ca0e14db0397a2969143f2))
+* **coverage:** multi-agent ground-truth scan + claim validation harness ([7fe0a8a](https://github.com/jamesyong-42/spaghetti/commit/7fe0a8aa6993a8cffc4526e6fac4ae0ad7f3bb5f))
+* **napi,sdk:** Grok native cold/warm ingest + ingest-diff fixture ([c683f96](https://github.com/jamesyong-42/spaghetti/commit/c683f96c9f807d5231492855bf340e3798fde233))
+* **napi,sdk:** native Codex cold/warm ingest (source_id=codex) ([f69e8e3](https://github.com/jamesyong-42/spaghetti/commit/f69e8e32e25ceb0396a363bb321594a669641cab))
+* **sdk,cli:** Grok (xAI) AgentSource — third RFC 006 source (M6 A5) ([0ad419a](https://github.com/jamesyong-42/spaghetti/commit/0ad419a36e8d920202581d35bad6a4ed4e52937e))
+* **sdk,napi:** Grok native live batch + events/signals sidecars ([0ab287c](https://github.com/jamesyong-42/spaghetti/commit/0ab287c6d7a957b66b136a2601065d04d70b6608))
+* **sdk:** Grok live-watch — Plane 2 incremental tail (M6 A6a) ([3710a43](https://github.com/jamesyong-42/spaghetti/commit/3710a43f2a5a7b3e6d8bb7881dd6d774beabedc2))
+* **sdk:** multi-source data plane + Codex live-watch (Codex source, composite PK, per-source LifecycleOwners, Plane 2) ([#70](https://github.com/jamesyong-42/spaghetti/issues/70)) ([aa2f024](https://github.com/jamesyong-42/spaghetti/commit/aa2f02462ed63a501b2713c101f097b75695365c))
+* **sdk:** relocate Claude message extraction into a source-owned MessageExtractor (RFC 006 1-3) ([#65](https://github.com/jamesyong-42/spaghetti/issues/65)) ([7a7eefb](https://github.com/jamesyong-42/spaghetti/commit/7a7eefba54fd714fb953a42304f03d92e0b5094f))
+
+
+### Bug Fixes
+
+* **ci:** clippy + eslint for Grok native and classify re-export ([f74d097](https://github.com/jamesyong-42/spaghetti/commit/f74d0971363185f5505a882a9ea92e225eef80ad))
+* **ci:** rustfmt + normalise mtime float noise in grok ingest-diff ([f54a2c4](https://github.com/jamesyong-42/spaghetti/commit/f54a2c432bbb72ff6a59bc5c5178ce11d10bdfef))
+* **coverage:** unified hero stats across agents ([e8ea2e3](https://github.com/jamesyong-42/spaghetti/commit/e8ea2e3d96e3c5b87bc76c3bd1d10494f5edae6e))
+* **sdk,cli:** prevent multi-source native from corrupting shared SQLite ([d95bb44](https://github.com/jamesyong-42/spaghetti/commit/d95bb4485d51b75d6c1a3e8897d61f4d7db88384))
+* **sdk,napi:** turn-scoped Grok timestamp join ([107a674](https://github.com/jamesyong-42/spaghetti/commit/107a674c7a688b496c02f332319adaa1fbc14ec2))
+* **sdk:** IdleMaintenance FTS merge targets search_fts ([3dccffa](https://github.com/jamesyong-42/spaghetti/commit/3dccffadc25d67b89a997b44d129dff857cb4db9))
+
 ## [0.5.17](https://github.com/jamesyong-42/spaghetti/compare/spaghetti-v0.5.16...spaghetti-v0.5.17) (2026-07-13)
 
 
