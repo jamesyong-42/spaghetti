@@ -13,9 +13,32 @@ import { ProjectTabView } from './project-tab-view.js';
 import { TabBar } from './tab-bar.js';
 import type { ViewEntry } from './types.js';
 
+/** Preferred tab order for known multi-agent sources. */
+const AGENT_TAB_ORDER = ['claude-code', 'codex', 'grok'];
+
 /** Short tab label for an agent source id. */
 function agentLabel(sourceId: string): string {
-  return sourceId === 'claude-code' ? 'claude' : sourceId;
+  switch (sourceId) {
+    case 'claude-code':
+      return 'claude';
+    case 'codex':
+      return 'codex';
+    case 'grok':
+      return 'grok';
+    default:
+      return sourceId;
+  }
+}
+
+function sortAgentIds(ids: string[]): string[] {
+  return ids.slice().sort((a, b) => {
+    const ia = AGENT_TAB_ORDER.indexOf(a);
+    const ib = AGENT_TAB_ORDER.indexOf(b);
+    if (ia >= 0 && ib >= 0) return ia - ib;
+    if (ia >= 0) return -1;
+    if (ib >= 0) return 1;
+    return a.localeCompare(b);
+  });
 }
 
 function projectKey(p: ProjectListItem): string {
@@ -107,11 +130,10 @@ export function ProjectsView(): React.ReactElement {
     return list;
   }, [api]);
 
-  // Agents present, Claude first — each becomes a tab (RFC 006 multi-source).
+  // Agents present — each becomes a tab (claude → codex → grok → others).
   const agents = useMemo(() => {
     const ids = Array.from(new Set(allProjects.map((p) => p.sourceId)));
-    ids.sort((a, b) => (a === 'claude-code' ? -1 : b === 'claude-code' ? 1 : a.localeCompare(b)));
-    return ids;
+    return sortAgentIds(ids);
   }, [allProjects]);
   const hasTabs = agents.length > 1;
 

@@ -164,24 +164,27 @@ export function DoctorView(): React.ReactElement {
       <Row icon={<StatusIcon kind="ok" />} label="Node">
         {env.node} ({env.platform} {env.arch})
       </Row>
-      {env.claudeBin ? (
-        <Row icon={<StatusIcon kind="ok" />} label="claude CLI">
-          {env.claudeBin}
-        </Row>
-      ) : (
-        <Row icon={<StatusIcon kind="bad" />} label="claude CLI">
-          <Text color="red">not found in PATH</Text>
-        </Row>
-      )}
-      <Row icon={<StatusIcon kind={env.claudeDir.exists ? 'ok' : 'bad'} />} label="~/.claude">
-        {tildify(env.claudeDir.path)}
-      </Row>
+      {(env.agentRoots ?? []).map((root) => (
+        <Box key={root.id} flexDirection="column">
+          <Row icon={<StatusIcon kind={root.exists ? 'ok' : 'warn'} />} label={root.label}>
+            {tildify(root.path)}
+          </Row>
+          {root.bin ? (
+            <Sub>
+              {root.id === 'claude-code' ? 'claude' : root.id} CLI: {root.bin}
+            </Sub>
+          ) : (
+            <Sub>{root.id === 'claude-code' ? 'claude' : root.id} CLI: not in PATH</Sub>
+          )}
+        </Box>
+      ))}
       <Row icon={<StatusIcon kind={env.settings.exists ? 'ok' : 'warn'} />} label="settings.json">
         {tildify(env.settings.path)}
       </Row>
       <Row icon={<StatusIcon kind={env.pluginsDir.exists ? 'ok' : 'warn'} />} label="plugins dir">
         {tildify(env.pluginsDir.path)}
       </Row>
+      <Sub>Claude Code plugins only (hooks / channel)</Sub>
       <Spacer />
 
       {/* Index & live */}

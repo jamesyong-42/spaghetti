@@ -1,0 +1,124 @@
+{
+  "schemaVersion": 1,
+  "agentId": "grok",
+  "updated": "2026-07-15",
+  "rootDefault": "~/.grok",
+  "description": "Honest coverage claim for Grok CLI (xAI). Thin multi-agent core: projects/sessions/conversational messages/search/session-token aggregates/live chat_history. Tool I/O and UI streams deliberately not productized.",
+  "engines": {
+    "ts": "packages/sdk sources/grok + GrokLifecycleOwner (fallback)",
+    "rs": "crates/spaghetti-napi grok reader (cold/warm) + liveIngestBatch via writeBatch when engine=rs"
+  },
+  "surfaces": [
+    {
+      "id": "chat_history.file",
+      "status": "ingested",
+      "match": { "bucket": "chat_history.file" },
+      "engines": { "ts": true, "rs": true },
+      "product": ["projects", "sessions", "messages"],
+      "notes": "sessions/<url-encoded-cwd>/<uuid>/chat_history.jsonl discovered by GrokReader (TS + RS)."
+    },
+    {
+      "id": "chat_history.record_type.system",
+      "status": "ingested",
+      "match": { "recordType": "system" },
+      "engines": { "ts": true, "rs": true },
+      "product": ["messages", "search", "fts"]
+    },
+    {
+      "id": "chat_history.record_type.user",
+      "status": "ingested",
+      "match": { "recordType": "user" },
+      "engines": { "ts": true, "rs": true },
+      "product": ["messages", "search", "fts"]
+    },
+    {
+      "id": "chat_history.record_type.assistant",
+      "status": "ingested",
+      "match": { "recordType": "assistant" },
+      "engines": { "ts": true, "rs": true },
+      "product": ["messages", "search", "fts", "tokens"]
+    },
+    {
+      "id": "chat_history.record_type.reasoning",
+      "status": "ingested",
+      "match": { "recordType": "reasoning" },
+      "engines": { "ts": true, "rs": true },
+      "product": ["messages", "search", "fts"],
+      "notes": "Plaintext summary[] only; encrypted_content ignored for FTS."
+    },
+    {
+      "id": "chat_history.record_type.tool_result",
+      "status": "ignored",
+      "match": { "recordType": "tool_result" },
+      "engines": { "ts": false, "rs": false },
+      "notes": "High volume tool I/O. extract()→null. Candidate for tool timeline."
+    },
+    {
+      "id": "chat_history.record_type.backend_tool_call",
+      "status": "ignored",
+      "match": { "recordType": "backend_tool_call" },
+      "engines": { "ts": false, "rs": false },
+      "notes": "Backend tool envelopes; extract()→null."
+    },
+    {
+      "id": "sibling.summary.json",
+      "status": "partial",
+      "match": { "bucket": "sibling.summary.json" },
+      "engines": { "ts": true, "rs": true },
+      "product": ["projects", "sessions"],
+      "notes": "Meta only: cwd, id, title, times, branch — not a message row."
+    },
+    {
+      "id": "sibling.events.jsonl",
+      "status": "partial",
+      "match": { "bucket": "sibling.events.jsonl" },
+      "engines": { "ts": true, "rs": true },
+      "product": ["messages"],
+      "notes": "Turn-scoped timestamp join onto message columns; events themselves not stored as rows."
+    },
+    {
+      "id": "sibling.signals.json",
+      "status": "partial",
+      "match": { "bucket": "sibling.signals.json" },
+      "engines": { "ts": true, "rs": true },
+      "product": ["tokens"],
+      "notes": "contextTokensUsed attributed to last assistant; tokens_estimated=1."
+    },
+    {
+      "id": "sibling.updates.jsonl",
+      "status": "ignored",
+      "match": { "bucket": "sibling.updates.jsonl" },
+      "engines": { "ts": false, "rs": false },
+      "notes": "ACP/UI stream, often ~10× chat_history. Not transcript SoT."
+    },
+    {
+      "id": "toplevel.sessions",
+      "status": "ingested",
+      "match": { "toplevel": "sessions" },
+      "engines": { "ts": true, "rs": true },
+      "product": ["projects", "sessions"],
+      "notes": "Session tree root under ~/.grok/sessions."
+    },
+    {
+      "id": "toplevel.user-settings.json",
+      "status": "ignored",
+      "match": { "toplevel": "user-settings.json" },
+      "engines": { "ts": false, "rs": false },
+      "notes": "Agent prefs; not indexed."
+    },
+    {
+      "id": "toplevel.glob.sqlite",
+      "status": "ignored",
+      "match": { "toplevelGlob": "*.sqlite*" },
+      "engines": { "ts": false, "rs": false },
+      "notes": "Derived indexes (e.g. session_search) — not canonical transcript."
+    },
+    {
+      "id": "toplevel.glob.misc",
+      "status": "ignored",
+      "match": { "toplevelGlob": "*" },
+      "engines": { "ts": false, "rs": false },
+      "notes": "Catch-all for other root files/dirs (logs, caches). Claim so non-empty roots do not fail validation."
+    }
+  ]
+}

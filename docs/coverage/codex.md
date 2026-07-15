@@ -57,7 +57,7 @@ This claim exists so we never confuse “we chose not to” with “Codex has no
 | | TS | RS |
 |---|---|---|
 | Codex cold/warm | yes (fallback) | **yes** (`native.ingest({ sourceId: 'codex' })`) |
-| Codex live disk | yes | not yet (TS live watch) |
+| Codex live disk | yes | not yet (TS live watch; Grok live does use RS writeBatch) |
 | Tiktoken estimate when no `token_count` | yes | not yet (official attribution only) |
 
 ## How to re-verify

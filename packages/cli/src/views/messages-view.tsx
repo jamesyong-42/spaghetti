@@ -25,6 +25,7 @@ import {
   applyDisplayFilters,
   createDefaultFilters,
   FILTER_CATEGORIES,
+  assistantFilterLabel,
   getToolCategory,
   TOOL_CATEGORY_COLORS,
   toolInputSummary,
@@ -52,11 +53,13 @@ const COLORS = {
   userLabelDim: 36,
   userText: 36,
   userTextSelected: 79,
-  /** Default assistant accent (Claude peach); Codex uses magenta family. */
+  /** Default assistant accent (Claude peach); Codex magenta; Grok amber. */
   claudeLabel: 216,
   claudeLabelDim: 173,
   codexLabel: 213,
   codexLabelDim: 170,
+  grokLabel: 220,
+  grokLabelDim: 178,
   assistantLabel: 116,
   assistantLabelDim: 73,
   timestamp: 248,
@@ -67,6 +70,8 @@ function assistantColors(sourceId: string): { bright: number; dim: number } {
   switch (sourceId) {
     case 'codex':
       return { bright: COLORS.codexLabel, dim: COLORS.codexLabelDim };
+    case 'grok':
+      return { bright: COLORS.grokLabel, dim: COLORS.grokLabelDim };
     case 'claude-code':
       return { bright: COLORS.claudeLabel, dim: COLORS.claudeLabelDim };
     default:
@@ -129,13 +134,14 @@ function buildAssistantBodyLines(msg: SessionMessage, cols: number, cap: number)
 
 // ─── Filter Chips ──────────────────────────────────────────────────────
 
-function buildFilterChips(filters: FilterState): string {
+function buildFilterChips(filters: FilterState, sourceId: string): string {
   return FILTER_CATEGORIES.map((cat) => {
+    const label = cat.key === '2' ? assistantFilterLabel(sourceId) : cat.label;
     const on = filters[cat.key];
     if (on) {
-      return `${pc.white(cat.key)}${pc.dim(':')}${cat.color(cat.label)}`;
+      return `${pc.white(cat.key)}${pc.dim(':')}${cat.color(label)}`;
     } else {
-      return `${pc.dim(cat.key)}${pc.dim(':')}${pc.strikethrough(pc.dim(cat.label))}`;
+      return `${pc.dim(cat.key)}${pc.dim(':')}${pc.strikethrough(pc.dim(label))}`;
     }
   }).join(pc.dim('  '));
 }
@@ -586,7 +592,7 @@ export function MessagesView({
   const total = allDisplayItems.length;
   const shown = displayItems.length;
   const countLabel = total === shown ? `(${total})` : `(${shown}/${total})`;
-  const filterChipsLine = `${buildFilterChips(filters)}  ${countLabel}`;
+  const filterChipsLine = `${buildFilterChips(filters, project.sourceId)}  ${countLabel}`;
 
   // Key handling
   useInput(

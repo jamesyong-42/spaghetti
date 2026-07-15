@@ -54,10 +54,18 @@ describe('adaptMessageForDisplay', () => {
   });
 
   test('maps Grok user record (content block array) to type user', () => {
-    const out = adaptMessageForDisplay({ type: 'user', content: [{ type: 'text', text: 'grok hi' }] }, 'grok');
+    const out = adaptMessageForDisplay(
+      {
+        type: 'user',
+        content: [{ type: 'text', text: 'grok hi' }],
+        timestamp: '2026-04-01T10:00:10.000Z',
+      },
+      'grok',
+    );
     assert.ok(out);
     assert.equal(out!.type, 'user');
     assert.equal((out as any).message.content, 'grok hi');
+    assert.equal((out as any).timestamp, '2026-04-01T10:00:10.000Z');
   });
 
   test('maps Grok assistant record (string content) to assistant text blocks', () => {

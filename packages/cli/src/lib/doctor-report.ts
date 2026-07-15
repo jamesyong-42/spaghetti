@@ -25,10 +25,20 @@ import {
 import { PLUGINS, PLUGINS_DIR, SETTINGS_PATH, getPluginState, type PluginState } from './plugins.js';
 
 export const CLAUDE_DIR = join(homedir(), '.claude');
+export const CODEX_DIR = join(homedir(), '.codex');
+export const GROK_DIR = join(homedir(), '.grok');
 
 export interface PathStatus {
   path: string;
   exists: boolean;
+}
+
+export interface AgentRootReport {
+  id: string;
+  label: string;
+  path: string;
+  exists: boolean;
+  bin: string | null;
 }
 
 export interface EnvironmentReport {
@@ -37,6 +47,8 @@ export interface EnvironmentReport {
   arch: string;
   claudeBin: string | null;
   claudeDir: PathStatus;
+  /** Multi-agent data roots (claude / codex / grok). */
+  agentRoots: AgentRootReport[];
   settings: PathStatus;
   pluginsDir: PathStatus;
 }
@@ -85,9 +97,9 @@ export interface DoctorReport {
   channelSessions: ChannelSessionsReport;
 }
 
-function findClaudeBinary(): string | null {
+function findBin(name: string): string | null {
   try {
-    const out = execSync('command -v claude', {
+    const out = execSync(`command -v ${name}`, {
       encoding: 'utf-8',
       stdio: ['ignore', 'pipe', 'ignore'],
     }).trim();
@@ -97,6 +109,36 @@ function findClaudeBinary(): string | null {
   }
 }
 
+function findClaudeBinary(): string | null {
+  return findBin('claude');
+}
+
+function collectAgentRoots(): AgentRootReport[] {
+  return [
+    {
+      id: 'claude-code',
+      label: '~/.claude',
+      path: CLAUDE_DIR,
+      exists: existsSync(CLAUDE_DIR),
+      bin: findClaudeBinary(),
+    },
+    {
+      id: 'codex',
+      label: '~/.codex',
+      path: CODEX_DIR,
+      exists: existsSync(CODEX_DIR),
+      bin: findBin('codex'),
+    },
+    {
+      id: 'grok',
+      label: '~/.grok',
+      path: GROK_DIR,
+      exists: existsSync(GROK_DIR),
+      bin: findBin('grok'),
+    },
+  ];
+}
+
 function collectEnvironment(): EnvironmentReport {
   return {
     node: process.version,
@@ -104,6 +146,7 @@ function collectEnvironment(): EnvironmentReport {
     arch: process.arch,
     claudeBin: findClaudeBinary(),
     claudeDir: { path: CLAUDE_DIR, exists: existsSync(CLAUDE_DIR) },
+    agentRoots: collectAgentRoots(),
     settings: { path: SETTINGS_PATH, exists: existsSync(SETTINGS_PATH) },
     pluginsDir: { path: PLUGINS_DIR, exists: existsSync(PLUGINS_DIR) },
   };

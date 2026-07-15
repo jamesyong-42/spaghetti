@@ -34,10 +34,12 @@ function collectContentText(content: unknown): string {
 function adaptGrokMessage(line: Record<string, unknown>): SessionMessage | null {
   const type = typeof line.type === 'string' ? line.type : '';
   const uuid = typeof line.id === 'string' ? line.id : '';
+  // Prefer sidecar-joined timestamp (query layer injects messages.timestamp).
+  const timestamp = typeof line.timestamp === 'string' ? line.timestamp : '';
   const base = {
     uuid,
     parentUuid: null,
-    timestamp: '',
+    timestamp,
     sessionId: '',
     cwd: '',
     version: '',

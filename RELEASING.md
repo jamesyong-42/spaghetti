@@ -38,6 +38,10 @@ The publish workflow then publishes the released package versions from the merge
 In practice:
 
 - `feat:` will normally drive a minor release.
+
+### Multi-agent native (Grok)
+
+The Rust addon (`@vibecook/spaghetti-sdk-native`) includes Grok cold/warm and live batch paths. After landing Grok native features on `main`, the next release-please publish is what ships those binaries to npm end users. Local `pnpm --filter @vibecook/spaghetti-sdk-native build` is enough for workspace testing.
 - `fix:` will normally drive a patch release.
 
 ## Current Baseline

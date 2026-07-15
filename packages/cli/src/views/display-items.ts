@@ -304,7 +304,8 @@ export interface FilterCategory {
 
 export const FILTER_CATEGORIES: FilterCategory[] = [
   { key: '1', label: 'user', color: pc.cyan, types: ['user'] },
-  { key: '2', label: 'claude', color: pc.green, types: ['assistant'] },
+  // Label is agent-agnostic; UI may re-label via assistantFilterLabel(sourceId).
+  { key: '2', label: 'assistant', color: pc.green, types: ['assistant'] },
   { key: '3', label: 'thinking', color: pc.magenta, types: ['__thinking__'] },
   { key: '4', label: 'tools', color: pc.yellow, types: ['__tool-call__'] },
   { key: '5', label: 'system', color: pc.red, types: ['system', 'progress', 'summary'] },
@@ -315,6 +316,20 @@ export const FILTER_CATEGORIES: FilterCategory[] = [
     types: ['file-history-snapshot', 'saved_hook_context', 'queue-operation', 'last-prompt'],
   },
 ];
+
+/** Short filter key-2 label for the active agent (help + message filter bar). */
+export function assistantFilterLabel(sourceId?: string): string {
+  switch (sourceId) {
+    case 'claude-code':
+      return 'claude';
+    case 'codex':
+      return 'codex';
+    case 'grok':
+      return 'grok';
+    default:
+      return 'assistant';
+  }
+}
 
 export type FilterState = Record<string, boolean>;
 

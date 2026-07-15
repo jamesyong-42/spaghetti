@@ -50,11 +50,15 @@ scripts/coverage/
   codex/
     scan_ground_truth.py
     claim.json
+  grok/
+    scan_ground_truth.py
+    claim.json
 
 docs/coverage/
   README.md                 index
   claude-code.md            human summary (keep in sync with claim.json)
   codex.md
+  grok.md
 ```
 
 ## Claim status meanings

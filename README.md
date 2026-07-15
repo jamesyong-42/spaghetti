@@ -76,7 +76,10 @@ spag doctor
 
 - **Claude Code** — projects/sessions under `~/.claude`, messages, plans, todos, memory, subagents, workflows, teams, hooks/channels
 - **OpenAI Codex** — rollouts under `~/.codex/sessions/**`, chat turns, official `token_count` usage (tiktoken estimate when events are missing)
+- **Grok CLI (xAI)** — `~/.grok/sessions/**/chat_history.jsonl`, conversational turns, turn-scoped timestamps (`events.jsonl`), session token aggregates (`signals.json`); tool I/O and `updates.jsonl` deliberately skipped
 - One local SQLite index under `~/.spaghetti/cache` with a `source_id` column (schema v7+)
+
+Native Grok cold/warm + live batch ship in the Rust addon (default `engine=rs`). Published npm builds pick this up on the next release after these commits land; local workspace builds already include it.
 
 ## Built for two audiences
 
@@ -92,7 +95,8 @@ Use the SDK when you want the same indexed data from scripts or apps:
 import { createSpaghettiService, createCodexSource } from '@vibecook/spaghetti-sdk';
 
 const api = createSpaghettiService({
-  additionalSources: [createCodexSource()], // optional; CLI auto-detects Codex
+  // optional; CLI auto-detects Codex + Grok when their session dirs exist
+  additionalSources: [createCodexSource()],
 });
 await api.initialize();
 

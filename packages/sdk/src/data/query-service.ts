@@ -142,6 +142,8 @@ interface SessionSummaryRow {
 
 interface MessageDataRow {
   data: string;
+  /** Column timestamp (sidecars may fill this when raw JSON has none). */
+  timestamp: string | null;
 }
 
 interface SubagentRow {
@@ -343,7 +345,7 @@ class QueryServiceImpl implements QueryService {
     const total = countRow?.count ?? 0;
 
     const rows = this.db.all<MessageDataRow>(
-      `SELECT data FROM messages WHERE project_slug = ? AND session_id = ?${sourceClause} ORDER BY msg_index LIMIT ? OFFSET ?`,
+      `SELECT data, timestamp FROM messages WHERE project_slug = ? AND session_id = ?${sourceClause} ORDER BY msg_index LIMIT ? OFFSET ?`,
       ...baseParams,
       limit,
       offset,
@@ -352,7 +354,15 @@ class QueryServiceImpl implements QueryService {
     const messages = rows
       .map((r) => {
         try {
-          return JSON.parse(r.data);
+          const msg = JSON.parse(r.data) as unknown;
+          // Prefer the typed column when present (Grok events.jsonl join, etc.).
+          if (msg && typeof msg === 'object' && r.timestamp) {
+            const rec = msg as Record<string, unknown>;
+            if (!rec.timestamp || rec.timestamp === '') {
+              rec.timestamp = r.timestamp;
+            }
+          }
+          return msg;
         } catch {
           return null;
         }

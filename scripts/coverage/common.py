@@ -145,6 +145,8 @@ def default_agent_root(agent_id: str) -> Path:
         return expand_home("~/.claude")
     if agent_id == "codex":
         return expand_home("~/.codex")
+    if agent_id == "grok":
+        return expand_home("~/.grok")
     raise ValueError(f"Unknown agent id: {agent_id}")
 
 

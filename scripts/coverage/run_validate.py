@@ -13,7 +13,12 @@ BASE = Path(__file__).resolve().parent
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("agent", nargs="?", default="all", choices=["claude-code", "codex", "all"])
+    ap.add_argument(
+        "agent",
+        nargs="?",
+        default="all",
+        choices=["claude-code", "codex", "grok", "all"],
+    )
     ap.add_argument(
         "--rescan",
         action="store_true",

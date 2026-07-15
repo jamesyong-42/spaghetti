@@ -116,10 +116,14 @@ def validate(claim: dict[str, Any], gt: dict[str, Any]) -> list[CheckResult]:
 
     buckets = gt.get("buckets") or {}
 
-    # --- Record types (Codex) ---
+    # --- Record types (Codex rollouts / Grok chat_history) ---
     record_types: dict[str, int] = {}
     if "rollout.record_type" in buckets and isinstance(buckets["rollout.record_type"], dict):
         record_types = {k: int(v) for k, v in buckets["rollout.record_type"].items()}
+    elif "chat_history.record_type" in buckets and isinstance(
+        buckets["chat_history.record_type"], dict
+    ):
+        record_types = {k: int(v) for k, v in buckets["chat_history.record_type"].items()}
 
     undocumented_rt: list[str] = []
     for rt, count in sorted(record_types.items(), key=lambda kv: -kv[1]):
@@ -132,10 +136,15 @@ def validate(claim: dict[str, Any], gt: dict[str, Any]) -> list[CheckResult]:
             # at least one surface documents it
             pass
 
-    if require_rt:
+    if require_rt and record_types:
+        label = (
+            "chat_history"
+            if "chat_history.record_type" in buckets
+            else "rollout"
+        )
         results.append(
             CheckResult(
-                "all non-zero rollout record types claimed",
+                f"all non-zero {label} record types claimed",
                 len(undocumented_rt) == 0,
                 (
                     "ok"
@@ -157,6 +166,11 @@ def validate(claim: dict[str, Any], gt: dict[str, Any]) -> list[CheckResult]:
         "tool_result.file",
         "workflow.file",
         "rollout.file",
+        "chat_history.file",
+        "sibling.summary.json",
+        "sibling.events.jsonl",
+        "sibling.signals.json",
+        "sibling.updates.jsonl",
     ]
     for key in named_bucket_keys:
         if key not in buckets:
@@ -290,7 +304,7 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument(
         "agent",
-        choices=["claude-code", "codex", "all"],
+        choices=["claude-code", "codex", "grok", "all"],
         help="Which agent claim to validate",
     )
     ap.add_argument(
@@ -307,14 +321,21 @@ def main() -> int:
     )
     args = ap.parse_args()
 
-    agents = ["claude-code", "codex"] if args.agent == "all" else [args.agent]
+    agents = ["claude-code", "codex", "grok"] if args.agent == "all" else [args.agent]
     exit_code = 0
     base = Path(__file__).resolve().parent
 
+    def agent_dir_for(a: str) -> Path:
+        if a == "claude-code":
+            return base / "claude_code"
+        if a == "codex":
+            return base / "codex"
+        if a == "grok":
+            return base / "grok"
+        raise ValueError(a)
+
     for agent in agents:
-        agent_dir = base / agent.replace("-", "_") if False else base / (
-            "claude_code" if agent == "claude-code" else "codex"
-        )
+        agent_dir = agent_dir_for(agent)
         claim_path = Path(args.claim) if args.claim and args.agent != "all" else agent_dir / "claim.json"
         gt_path = (
             Path(args.ground_truth)

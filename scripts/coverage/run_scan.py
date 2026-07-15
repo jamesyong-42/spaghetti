@@ -13,13 +13,25 @@ BASE = Path(__file__).resolve().parent
 AGENTS = {
     "claude-code": BASE / "claude_code" / "scan_ground_truth.py",
     "codex": BASE / "codex" / "scan_ground_truth.py",
+    "grok": BASE / "grok" / "scan_ground_truth.py",
 }
 
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("agent", nargs="?", default="all", choices=["claude-code", "codex", "all"])
+    ap.add_argument(
+        "agent",
+        nargs="?",
+        default="all",
+        choices=["claude-code", "codex", "grok", "all"],
+    )
     ap.add_argument("--max-rollouts", type=int, default=None, help="Codex only: cap rollout files")
+    ap.add_argument(
+        "--max-sessions",
+        type=int,
+        default=None,
+        help="Grok only: cap chat_history files",
+    )
     ap.add_argument(
         "--sample-sessions-per-project",
         type=int,
@@ -34,6 +46,8 @@ def main() -> int:
         cmd = [sys.executable, str(script), *rest]
         if a == "codex" and args.max_rollouts is not None:
             cmd += ["--max-rollouts", str(args.max_rollouts)]
+        if a == "grok" and args.max_sessions is not None:
+            cmd += ["--max-sessions", str(args.max_sessions)]
         if a == "claude-code" and args.sample_sessions_per_project is not None:
             cmd += ["--sample-sessions-per-project", str(args.sample_sessions_per_project)]
         print(f"\n>>> {' '.join(cmd)}")

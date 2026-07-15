@@ -51,7 +51,7 @@ async function withService<T>(fn: (api: Awaited<ReturnType<typeof initService>>)
       theme.error('\nFailed to initialize: ') +
         msg +
         '\n' +
-        theme.muted('Is Claude Code installed? Expected data at ~/.claude\n\n'),
+        theme.muted('Install a supported agent and re-run. Data roots: ~/.claude, ~/.codex, ~/.grok\n\n'),
     );
     if (process.argv.includes('--verbose') && err instanceof Error && err.stack) {
       process.stderr.write(theme.muted(err.stack + '\n'));

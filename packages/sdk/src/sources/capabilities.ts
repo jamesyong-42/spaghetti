@@ -17,9 +17,10 @@
 export function sourceReportsPerMessageTokens(sourceId: string): boolean {
   switch (sourceId) {
     case 'grok':
-      // Grok's chat_history.jsonl carries no per-message tokens; only
-      // session-level aggregates exist (signals.json), not yet ingested.
-      return false;
+      // Grok has no per-message usage in chat_history; sidecars attribute
+      // session-level signals.contextTokensUsed onto the last assistant and
+      // set tokens_estimated. UI should show the column with "~" / est.
+      return true;
     case 'codex':
     case 'claude-code':
     default:

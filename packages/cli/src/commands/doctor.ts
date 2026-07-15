@@ -60,14 +60,18 @@ function renderReport(report: DoctorReport): string {
   const env = report.environment;
   lines.push(heading('Environment'));
   lines.push(row(OK, 'Node', `${env.node} (${env.platform} ${env.arch})`));
-  if (env.claudeBin) {
-    lines.push(row(OK, 'claude CLI', env.claudeBin));
-  } else {
-    lines.push(row(BAD, 'claude CLI', theme.error('not found in PATH')));
+  for (const root of env.agentRoots ?? []) {
+    lines.push(row(root.exists ? OK : WARN, root.label, tildify(root.path)));
+    const binName = root.id === 'claude-code' ? 'claude' : root.id;
+    if (root.bin) {
+      lines.push(sub(`${binName} CLI: ${root.bin}`));
+    } else {
+      lines.push(sub(`${binName} CLI: not in PATH`));
+    }
   }
-  lines.push(row(env.claudeDir.exists ? OK : BAD, '~/.claude', tildify(env.claudeDir.path)));
   lines.push(row(env.settings.exists ? OK : WARN, 'settings.json', tildify(env.settings.path)));
   lines.push(row(env.pluginsDir.exists ? OK : WARN, 'plugins dir', tildify(env.pluginsDir.path)));
+  lines.push(sub('Claude Code plugins only (hooks / channel)'));
   lines.push('');
 
   // ─── Index & live (Plane 1 / 2 / 3) ─────────────────────────────────

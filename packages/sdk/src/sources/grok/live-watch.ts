@@ -7,16 +7,14 @@
  *
  *   watcher(sessionsDir) → debounce → for each changed chat_history.jsonl:
  *     incremental read from the last byte offset → writeBatch(grokIngest)
- *     → store.emit(change)
+ *     → store.emit(change) → apply sidecars
+ *
+ *   events.jsonl / signals.json changes re-apply sidecars only (timestamps +
+ *   session tokens) for the sibling chat_history in the same session dir.
  *
  * `msg_index` is the ABSOLUTE file line index (same convention the cold reader
  * uses), tracked per file in memory — critical because messages upsert on
- * `(session_id, msg_index)`; a divergent live index would leave duplicates after
- * a restart. A file not yet seen in this watch session is picked up from its
- * current on-disk offset on first event: the cold ingest already wrote the
- * existing lines, so live only appends what arrives after start. The per-file
- * `nextIndex` is seeded from the cold-ingested row count so appended rows keep
- * the same absolute indices a cold re-ingest would assign.
+ * `(session_id, msg_index)`.
  */
 
 import * as path from 'node:path';
@@ -33,6 +31,8 @@ import { readGrokSessionMeta, encodeGrokSlug } from './reader.js';
 import { applyGrokSidecars } from './sidecars.js';
 
 const CHAT_HISTORY_FILE = 'chat_history.jsonl';
+const EVENTS_FILE = 'events.jsonl';
+const SIGNALS_FILE = 'signals.json';
 const DEBOUNCE_MS = 50;
 
 interface FileState {
@@ -40,6 +40,12 @@ interface FileState {
   nextIndex: number;
   slug: string;
   sessionId: string;
+}
+
+/** Work unit after debounce — chat delta and/or sidecar re-apply. */
+interface PendingWork {
+  chatHistory?: string;
+  sidecarOnly?: boolean;
 }
 
 export interface GrokLiveWatchDeps {
@@ -61,21 +67,57 @@ function isChatHistory(file: string): boolean {
   return path.basename(file) === CHAT_HISTORY_FILE;
 }
 
+function isSidecar(file: string): boolean {
+  const base = path.basename(file);
+  return base === EVENTS_FILE || base === SIGNALS_FILE;
+}
+
+/** Resolve chat_history.jsonl next to an events/signals path. */
+function chatHistoryForSidecar(file: string): string {
+  return path.join(path.dirname(file), CHAT_HISTORY_FILE);
+}
+
 export function createGrokLiveWatch(deps: GrokLiveWatchDeps): GrokLiveWatch {
   const state = new Map<string, FileState>();
-  const pending = new Set<string>();
+  /** Keyed by chat_history path so chat + sidecar events coalesce. */
+  const pending = new Map<string, PendingWork>();
   let watcher: Watcher | null = null;
   let unsubscribe: Unsubscribe | null = null;
   let timer: ReturnType<typeof setTimeout> | null = null;
 
-  function schedule(file: string): void {
-    pending.add(file);
+  function scheduleChat(chatFile: string): void {
+    const cur = pending.get(chatFile) ?? {};
+    cur.chatHistory = chatFile;
+    cur.sidecarOnly = false;
+    pending.set(chatFile, cur);
+    armTimer();
+  }
+
+  function scheduleSidecar(sidecarFile: string): void {
+    const chatFile = chatHistoryForSidecar(sidecarFile);
+    const cur = pending.get(chatFile) ?? {};
+    // If chat is already scheduled, sidecar runs after ingestChanged.
+    // If only sidecar, mark sidecar-only re-apply.
+    if (!cur.chatHistory) {
+      cur.sidecarOnly = true;
+    }
+    pending.set(chatFile, cur);
+    armTimer();
+  }
+
+  function armTimer(): void {
     if (timer) return;
     timer = setTimeout(() => {
       timer = null;
-      const batch = [...pending];
+      const batch = [...pending.entries()];
       pending.clear();
-      for (const f of batch) void ingestChanged(f);
+      for (const [chatFile, work] of batch) {
+        if (work.chatHistory) {
+          void ingestChanged(chatFile);
+        } else if (work.sidecarOnly) {
+          void reapplySidecars(chatFile);
+        }
+      }
     }, DEBOUNCE_MS);
   }
 
@@ -97,6 +139,19 @@ export function createGrokLiveWatch(deps: GrokLiveWatchDeps): GrokLiveWatch {
     };
   }
 
+  function reapplySidecars(chatFile: string): void {
+    try {
+      if (!deps.fileService.exists(chatFile)) return;
+      const meta = readGrokSessionMeta(deps.fileService, chatFile);
+      if (!meta) return;
+      applyGrokSidecars(deps.fileService, chatFile, meta.sessionId, deps.ingestService.getSessionWriteApi(), {
+        fallbackCreated: meta.created ?? null,
+      });
+    } catch (err) {
+      deps.errorSink.error(err instanceof Error ? err : new Error(String(err)));
+    }
+  }
+
   async function ingestChanged(file: string): Promise<void> {
     if (!isChatHistory(file)) return;
     try {
@@ -106,18 +161,11 @@ export function createGrokLiveWatch(deps: GrokLiveWatchDeps): GrokLiveWatch {
         if (!meta) return;
         const slug = encodeGrokSlug(meta.cwd);
         const entry = buildEntry(meta, file);
-        // Was this session already in the DB (cold-ingested)? Only decides whether
-        // to announce session.created; NOT the index (see below).
         const existed = deps.store.getSessionMessages(slug, meta.sessionId, 1, 0).total > 0;
         const sessionsIndex: SessionsIndex = { version: 1, originalPath: meta.cwd, entries: [entry] };
         deps.ingestService.onProject(slug, meta.cwd, sessionsIndex);
         deps.ingestService.onSession(slug, entry);
 
-        // Read from byte 0 with absolute msg_index 0 on first event (like Codex):
-        // messages upsert on (session_id, msg_index), so re-reading the already
-        // cold-ingested lines is idempotent and appended lines get their true
-        // absolute index. Seeding from a fingerprint offset + row count would
-        // double-offset the indices and duplicate rows.
         st = { byteOffset: 0, nextIndex: 0, slug, sessionId: meta.sessionId };
         state.set(file, st);
         if (!existed) {
@@ -132,7 +180,6 @@ export function createGrokLiveWatch(deps: GrokLiveWatchDeps): GrokLiveWatch {
         }
       }
 
-      // Incremental read from the last offset; msg_index = absolute file line.
       const rows: ParsedRow[] = [];
       const res = deps.fileService.readJsonlStreaming<unknown>(
         file,
@@ -156,8 +203,6 @@ export function createGrokLiveWatch(deps: GrokLiveWatchDeps): GrokLiveWatch {
         for (const change of result.changes) deps.store.emit(change);
       }
 
-      // Re-apply events.jsonl / signals.json after each chat_history delta so
-      // timestamps and session tokens stay current while the agent runs.
       try {
         const meta = readGrokSessionMeta(deps.fileService, file);
         applyGrokSidecars(deps.fileService, file, st.sessionId, deps.ingestService.getSessionWriteApi(), {
@@ -173,7 +218,12 @@ export function createGrokLiveWatch(deps: GrokLiveWatchDeps): GrokLiveWatch {
 
   const onEvents = (events: { type: string; path: string }[]): void => {
     for (const e of events) {
-      if ((e.type === 'create' || e.type === 'update') && isChatHistory(e.path)) schedule(e.path);
+      if (e.type !== 'create' && e.type !== 'update') continue;
+      if (isChatHistory(e.path)) {
+        scheduleChat(e.path);
+      } else if (isSidecar(e.path)) {
+        scheduleSidecar(e.path);
+      }
     }
   };
 
@@ -185,7 +235,6 @@ export function createGrokLiveWatch(deps: GrokLiveWatchDeps): GrokLiveWatch {
       try {
         unsubscribe = await watcher.subscribe(deps.sessionsDir, onEvents, { ignore: [], recursive: true });
       } catch {
-        // Fall back to chokidar if parcel's native watcher is unavailable.
         watcher = createChokidarWatcher();
         unsubscribe = await watcher.subscribe(deps.sessionsDir, onEvents, { ignore: [], recursive: true });
       }

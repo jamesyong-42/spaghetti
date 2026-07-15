@@ -35,15 +35,20 @@ export function HelpView(): React.ReactElement {
       <Text> {'Esc'.padEnd(14)}Cancel search</Text>
       <Text> </Text>
       <Text bold>Message Filters</Text>
-      <Text dimColor> Messages tab only</Text>
+      <Text dimColor> Messages tab only (multi-agent)</Text>
       <Text>
         {' '}
-        {'1'.padEnd(4)}user {'2'.padEnd(4)}claude {'3'.padEnd(4)}thinking
+        {'1'.padEnd(4)}user {'2'.padEnd(4)}assistant {'3'.padEnd(4)}thinking
       </Text>
       <Text>
         {' '}
         {'4'.padEnd(4)}tools {'5'.padEnd(4)}system {'6'.padEnd(4)}internal
       </Text>
+      <Text dimColor> Key 2 labels claude / codex / grok when that agent is open</Text>
+      <Text> </Text>
+      <Text bold>Agents</Text>
+      <Text dimColor> Claude Code, Codex, and Grok sessions share one index</Text>
+      <Text dimColor> Project list tabs appear when multiple agents are present</Text>
       <Text> </Text>
     </Box>
   );
