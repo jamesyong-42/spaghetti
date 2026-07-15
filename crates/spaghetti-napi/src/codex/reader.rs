@@ -90,12 +90,13 @@ impl CodexReader {
                 });
         }
 
-        let mut stats = CodexReadStats::default();
-        stats.projects = by_project.len() as u32;
+        let mut stats = CodexReadStats {
+            projects: by_project.len() as u32,
+            ..Default::default()
+        };
 
         for (slug, (original_path, sessions)) in by_project {
-            let entries: Vec<SessionIndexEntry> =
-                sessions.iter().map(|s| session_entry(s)).collect();
+            let entries: Vec<SessionIndexEntry> = sessions.iter().map(session_entry).collect();
             let sessions_index = SessionsIndex {
                 version: 1,
                 original_path: Some(original_path.clone()),

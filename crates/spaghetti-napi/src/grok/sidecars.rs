@@ -188,8 +188,8 @@ pub fn build_timestamp_map(
             .collect();
 
         let mut loop_i: usize = 0;
-        for i in start..end {
-            let t = line_types[i].as_str();
+        for (i, line_ty) in line_types.iter().enumerate().take(end).skip(start) {
+            let t = line_ty.as_str();
             let idx = i as u32;
             match t {
                 "user" | "system" => {

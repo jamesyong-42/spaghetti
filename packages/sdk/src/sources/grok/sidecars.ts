@@ -235,7 +235,7 @@ export function applyGrokSidecars(
   opts?: { fallbackCreated?: string | null; lastAssistantIndex?: number | null },
 ): void {
   const sessionDir = path.dirname(chatHistoryFile);
-  let lineTypes: string[] = [];
+  let lineTypes: string[];
   try {
     lineTypes = collectChatLineTypes(fileService.readFileSync(chatHistoryFile));
   } catch {

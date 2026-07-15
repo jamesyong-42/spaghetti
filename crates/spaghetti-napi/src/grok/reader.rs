@@ -118,8 +118,10 @@ impl GrokReader {
                 });
         }
 
-        let mut stats = GrokReadStats::default();
-        stats.projects = by_project.len() as u32;
+        let mut stats = GrokReadStats {
+            projects: by_project.len() as u32,
+            ..Default::default()
+        };
 
         for (slug, (original_path, sessions)) in by_project {
             let entries: Vec<SessionIndexEntry> = sessions.iter().map(session_entry).collect();

@@ -12,7 +12,7 @@
 
 import path from 'node:path';
 
-import type { Category, RouteResult } from '../../live/router.js';
+import type { RouteResult } from '../../live/router.js';
 
 export type { Category, RouteResult } from '../../live/router.js';
 
