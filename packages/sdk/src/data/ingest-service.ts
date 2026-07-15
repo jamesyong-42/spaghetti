@@ -54,6 +54,12 @@ export interface IngestService extends ProjectParseSink {
    */
   getNextMessageIndex(sessionId: string): number;
 
+  /**
+   * Write surface for product sidecars (token attribution, timestamps).
+   * Same API passed into {@link IngestHooks}.
+   */
+  getSessionWriteApi(): SessionTokenApi;
+
   // Schema meta — small key/value markers (one-shot heals, migrations)
   getMeta(key: string): string | null;
   setMeta(key: string, value: string): void;
@@ -151,6 +157,7 @@ class IngestServiceImpl implements IngestService {
   private stmtInsertPlan!: PreparedStatement;
   private stmtUpsertFingerprint!: PreparedStatement;
   private stmtUpdateMessageTokens!: PreparedStatement;
+  private stmtUpdateMessageTimestamp!: PreparedStatement;
 
   private inTransaction = false;
 
@@ -217,6 +224,9 @@ class IngestServiceImpl implements IngestService {
           msgType: r.msg_type,
           text: r.text_content,
         }));
+      },
+      updateMessageTimestamp: (sessionId, msgIndex, timestamp) => {
+        this.stmtUpdateMessageTimestamp.run(timestamp, sessionId, msgIndex);
       },
     };
   }
@@ -295,6 +305,10 @@ class IngestServiceImpl implements IngestService {
            cache_creation_tokens = ?,
            cache_read_tokens = ?
        WHERE session_id = ? AND msg_index = ?`,
+    );
+
+    this.stmtUpdateMessageTimestamp = this.db.prepare(
+      `UPDATE messages SET timestamp = ? WHERE session_id = ? AND msg_index = ?`,
     );
 
     this.stmtInsertMessage = this.db.prepare(
@@ -567,6 +581,10 @@ class IngestServiceImpl implements IngestService {
       sessionId,
     );
     return row?.next ?? 0;
+  }
+
+  getSessionWriteApi(): SessionTokenApi {
+    return this.tokenApi();
   }
 
   getMeta(key: string): string | null {

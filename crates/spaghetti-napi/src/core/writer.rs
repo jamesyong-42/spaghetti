@@ -541,6 +541,19 @@ impl Writer {
                 // future byte_position updates on source_files.
             }
 
+            IngestEvent::SessionTokensEstimated {
+                ref session_id,
+                estimated,
+            } => {
+                if !self.in_transaction {
+                    self.begin_transaction("<orphan>")?;
+                }
+                self.conn.execute(
+                    "UPDATE sessions SET tokens_estimated = ? WHERE id = ?",
+                    params![if estimated { 1 } else { 0 }, session_id],
+                )?;
+            }
+
             IngestEvent::ProjectComplete { slug, .. } => {
                 // Commit the current transaction if it belongs to this
                 // project. If it's an orphan transaction, commit anyway —
@@ -918,6 +931,16 @@ pub fn dispatch_event(
                     session_id,
                     source_id,
                 ],
+            )?;
+        }
+
+        IngestEvent::SessionTokensEstimated {
+            session_id,
+            estimated,
+        } => {
+            conn.execute(
+                "UPDATE sessions SET tokens_estimated = ? WHERE id = ?",
+                params![if *estimated { 1 } else { 0 }, session_id],
             )?;
         }
 

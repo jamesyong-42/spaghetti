@@ -15,6 +15,7 @@ use crate::claude::types::{SessionIndexEntry, SessionsIndex};
 use crate::core::event::IngestEvent;
 use crate::core::jsonl::read_jsonl_streaming;
 use crate::grok::message_extractor;
+use crate::grok::sidecars;
 
 static UUID_RE: Lazy<Regex> = Lazy::new(|| {
     Regex::new(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}").expect("uuid")
@@ -362,6 +363,13 @@ fn stream_session(
     let mut line_index: u32 = 0;
     let mut send_err: Option<SendError<IngestEvent>> = None;
 
+    // events.jsonl + signals.json (same join rules as TS sidecars).
+    let (ts_map, signals, _line_types) =
+        sidecars::load_sidecars(&sess.path, sess.meta.created.as_deref());
+
+    // Buffer last assistant so we can re-upsert with session-aggregate tokens.
+    let mut last_assistant: Option<(u32, u64, String, message_extractor::MessageProjection)> = None;
+
     let stream = read_jsonl_streaming(&sess.path, 0, |line, _idx, byte_offset| {
         if send_err.is_some() {
             return;
@@ -375,23 +383,27 @@ fn stream_session(
                 let fts = if proj.fts_text.is_empty() {
                     None
                 } else {
-                    Some(proj.fts_text)
+                    Some(proj.fts_text.clone())
                 };
+                let timestamp = ts_map.get(&idx).cloned();
                 let ev = IngestEvent::Message {
                     slug: slug.to_owned(),
                     session_id: session_id.clone(),
                     index: idx,
                     byte_offset,
                     raw_json: line.to_owned(),
-                    msg_type: proj.msg_type,
-                    uuid: proj.uuid,
-                    timestamp: None,
+                    msg_type: proj.msg_type.clone(),
+                    uuid: proj.uuid.clone(),
+                    timestamp,
                     input_tokens: 0,
                     output_tokens: 0,
                     cache_creation_tokens: 0,
                     cache_read_tokens: 0,
                     fts_text: fts,
                 };
+                if proj.msg_type == "assistant" {
+                    last_assistant = Some((idx, byte_offset, line.to_owned(), proj));
+                }
                 if let Err(e) = events.send(ev) {
                     send_err = Some(e);
                     return;
@@ -410,6 +422,40 @@ fn stream_session(
     if let Ok(r) = stream {
         last_byte = r.final_byte_position.max(last_byte);
     }
+
+    // Attribute signals.contextTokensUsed onto the last assistant + estimate flag.
+    if let Some(sig) = signals {
+        if sig.context_tokens_used > 0 {
+            if let Some((idx, byte_offset, raw, proj)) = last_assistant {
+                let fts = if proj.fts_text.is_empty() {
+                    None
+                } else {
+                    Some(proj.fts_text)
+                };
+                let timestamp = ts_map.get(&idx).cloned();
+                events.send(IngestEvent::Message {
+                    slug: slug.to_owned(),
+                    session_id: session_id.clone(),
+                    index: idx,
+                    byte_offset,
+                    raw_json: raw,
+                    msg_type: proj.msg_type,
+                    uuid: proj.uuid,
+                    timestamp,
+                    input_tokens: sig.context_tokens_used,
+                    output_tokens: 0,
+                    cache_creation_tokens: 0,
+                    cache_read_tokens: 0,
+                    fts_text: fts,
+                })?;
+                events.send(IngestEvent::SessionTokensEstimated {
+                    session_id: session_id.clone(),
+                    estimated: true,
+                })?;
+            }
+        }
+    }
+
     Ok((message_count, last_byte))
 }
 

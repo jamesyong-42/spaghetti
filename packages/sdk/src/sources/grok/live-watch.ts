@@ -30,6 +30,7 @@ import type { SessionIndexEntry, SessionsIndex } from '../../types/index.js';
 import { createParcelWatcher, createChokidarWatcher, type Watcher, type Unsubscribe } from '../../live/watcher.js';
 import type { LiveWatch } from '../../live/live-watch.js';
 import { readGrokSessionMeta, encodeGrokSlug } from './reader.js';
+import { applyGrokSidecars } from './sidecars.js';
 
 const CHAT_HISTORY_FILE = 'chat_history.jsonl';
 const DEBOUNCE_MS = 50;
@@ -153,6 +154,17 @@ export function createGrokLiveWatch(deps: GrokLiveWatchDeps): GrokLiveWatch {
       if (rows.length > 0) {
         const result = await deps.ingestService.writeBatch(rows);
         for (const change of result.changes) deps.store.emit(change);
+      }
+
+      // Re-apply events.jsonl / signals.json after each chat_history delta so
+      // timestamps and session tokens stay current while the agent runs.
+      try {
+        const meta = readGrokSessionMeta(deps.fileService, file);
+        applyGrokSidecars(deps.fileService, file, st.sessionId, deps.ingestService.getSessionWriteApi(), {
+          fallbackCreated: meta?.created ?? null,
+        });
+      } catch {
+        /* sidecar best-effort */
       }
     } catch (err) {
       deps.errorSink.error(err instanceof Error ? err : new Error(String(err)));

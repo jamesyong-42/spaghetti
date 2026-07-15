@@ -49,6 +49,8 @@ function writePinned(filePath, content) {
  * @param {string} opts.created
  * @param {string} opts.updated
  * @param {object[]} opts.lines
+ * @param {object[]} [opts.events]
+ * @param {object} [opts.signals]
  */
 function writeSession(cwd, sessionId, opts) {
   const sessionDir = path.join(OUT, '.grok', 'sessions', encodeURIComponent(cwd), sessionId);
@@ -70,8 +72,25 @@ function writeSession(cwd, sessionId, opts) {
       2,
     ) + '\n',
   );
+  // Session aggregates (cold path attributes contextTokensUsed to last assistant).
+  writePinned(
+    path.join(sessionDir, 'signals.json'),
+    JSON.stringify(
+      opts.signals ?? {
+        contextTokensUsed: 1200,
+        contextWindowTokens: 500000,
+        turnCount: 1,
+      },
+    ) + '\n',
+  );
+  // Timeline sidecar for per-message timestamps.
+  if (opts.events?.length) {
+    writePinned(
+      path.join(sessionDir, 'events.jsonl'),
+      opts.events.map((e) => JSON.stringify(e)).join('\n') + '\n',
+    );
+  }
   // Noise the reader must ignore (never becomes a message row).
-  writePinned(path.join(sessionDir, 'signals.json'), JSON.stringify({ contextTokensUsed: 1200 }) + '\n');
   writePinned(
     path.join(sessionDir, 'updates.jsonl'),
     JSON.stringify({ type: 'ui_noise', payload: 'ignore me' }) + '\n',
@@ -88,20 +107,30 @@ writeSession(PROJ_A, SESS_A1, {
   branch: 'main',
   created: '2026-04-01T10:00:00.000Z',
   updated: '2026-04-01T10:30:00.000Z',
+  signals: { contextTokensUsed: 4200, contextWindowTokens: 500000, turnCount: 1 },
+  // line types: 0 system, 1 user, 2 reasoning, 3 assistant, 4 tool_result, 5 assistant
+  events: [
+    { ts: '2026-04-01T10:00:10.000Z', type: 'turn_started', conversation_message_count: 1, turn_number: 0 },
+    { ts: '2026-04-01T10:00:11.000Z', type: 'loop_started' },
+    { ts: '2026-04-01T10:00:12.000Z', type: 'first_token' },
+    { ts: '2026-04-01T10:00:20.000Z', type: 'loop_started' },
+    { ts: '2026-04-01T10:00:21.000Z', type: 'first_token' },
+    { ts: '2026-04-01T10:00:30.000Z', type: 'turn_ended' },
+  ],
   lines: [
     { type: 'system', content: 'You are Grok, a coding assistant.' },
     { type: 'user', content: [{ type: 'text', text: 'how is text rendered?' }] },
-    {
-      type: 'assistant',
-      content: "I'll explore the repo.",
-      tool_calls: [{ id: 'call-1', name: 'list_dir', arguments: '{}' }],
-    },
     {
       type: 'reasoning',
       id: 'rs_onboard_1',
       summary: [{ type: 'summary_text', text: 'The user wants onboarding help.' }],
       encrypted_content: 'opaque-blob',
       status: 'completed',
+    },
+    {
+      type: 'assistant',
+      content: "I'll explore the repo.",
+      tool_calls: [{ id: 'call-1', name: 'list_dir', arguments: '{}' }],
     },
     { type: 'tool_result', tool_call_id: 'call-1', content: 'a/\nb/\nc.ts' },
     { type: 'assistant', content: 'Text is rendered via the terminal layer.' },
@@ -113,6 +142,11 @@ writeSession(PROJ_A, SESS_A2, {
   branch: 'main',
   created: '2026-04-01T11:00:00.000Z',
   updated: '2026-04-01T11:15:00.000Z',
+  signals: { contextTokensUsed: 800, contextWindowTokens: 500000, turnCount: 1 },
+  events: [
+    { ts: '2026-04-01T11:00:05.000Z', type: 'turn_started', conversation_message_count: 0, turn_number: 0 },
+    { ts: '2026-04-01T11:00:06.000Z', type: 'first_token' },
+  ],
   lines: [
     { type: 'user', content: [{ type: 'text', text: 'and what about markdown?' }] },
     { type: 'assistant', content: 'Markdown is converted to ANSI sequences.' },
@@ -128,6 +162,13 @@ writeSession(PROJ_B, SESS_B1, {
   branch: 'feature/tokens',
   created: '2026-04-01T12:00:00.000Z',
   updated: '2026-04-01T12:45:00.000Z',
+  signals: { contextTokensUsed: 9900, contextWindowTokens: 500000, turnCount: 1 },
+  // 0 user, 1 backend_tool_call, 2 reasoning, 3 assistant
+  events: [
+    { ts: '2026-04-01T12:00:10.000Z', type: 'turn_started', conversation_message_count: 0, turn_number: 0 },
+    { ts: '2026-04-01T12:00:11.000Z', type: 'loop_started' },
+    { ts: '2026-04-01T12:00:12.000Z', type: 'first_token' },
+  ],
   lines: [
     {
       type: 'user',
@@ -140,13 +181,13 @@ writeSession(PROJ_B, SESS_B1, {
       type: 'backend_tool_call',
       kind: { tool_type: 'web_search', action: { type: 'search', query: 'tokens' } },
     },
-    { type: 'assistant', content: 'Here is a summary of token models.' },
     {
       type: 'reasoning',
       id: 'rs_token_1',
       summary: [{ type: 'summary_text', text: 'Keep the answer concise.' }],
       encrypted_content: 'yyy',
     },
+    { type: 'assistant', content: 'Here is a summary of token models.' },
   ],
 });
 
@@ -159,6 +200,11 @@ writeSession(PROJ_C, SESS_C1, {
   branch: 'dev',
   created: '2026-04-01T14:00:00.000Z',
   updated: '2026-04-01T14:05:00.000Z',
+  signals: { contextTokensUsed: 2500, contextWindowTokens: 500000, turnCount: 1 },
+  events: [
+    { ts: '2026-04-01T14:00:01.000Z', type: 'turn_started', conversation_message_count: 1, turn_number: 0 },
+    { ts: '2026-04-01T14:00:02.000Z', type: 'first_token' },
+  ],
   lines: [
     { type: 'system', content: 'You are Grok.' },
     { type: 'user', content: [{ type: 'text', text: 'write a long answer' }] },

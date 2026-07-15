@@ -1,6 +1,6 @@
 {"type":"system","content":"You are Grok, a coding assistant."}
 {"type":"user","content":[{"type":"text","text":"how is text rendered?"}]}
-{"type":"assistant","content":"I'll explore the repo.","tool_calls":[{"id":"call-1","name":"list_dir","arguments":"{}"}]}
 {"type":"reasoning","id":"rs_onboard_1","summary":[{"type":"summary_text","text":"The user wants onboarding help."}],"encrypted_content":"opaque-blob","status":"completed"}
+{"type":"assistant","content":"I'll explore the repo.","tool_calls":[{"id":"call-1","name":"list_dir","arguments":"{}"}]}
 {"type":"tool_result","tool_call_id":"call-1","content":"a/\nb/\nc.ts"}
 {"type":"assistant","content":"Text is rendered via the terminal layer."}

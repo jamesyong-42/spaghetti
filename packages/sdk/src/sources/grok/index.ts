@@ -27,6 +27,15 @@ export {
 export { GrokLifecycleOwner } from './lifecycle-owner.js';
 export { createGrokLiveWatch, type GrokLiveWatch, type GrokLiveWatchDeps } from './live-watch.js';
 export { buildGrokPaths, defaultGrokDir } from './paths.js';
+export {
+  applyGrokSidecars,
+  buildTimestampMap,
+  parseGrokEvents,
+  parseGrokSignals,
+  collectChatLineTypes,
+  type GrokEventLine,
+  type GrokSignals,
+} from './sidecars.js';
 
 const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
 

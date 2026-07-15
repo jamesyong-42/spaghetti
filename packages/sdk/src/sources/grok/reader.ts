@@ -36,7 +36,9 @@ import * as path from 'node:path';
 
 import type { FileService } from '../../io/file-service.js';
 import type { ProjectParseSink } from '../../data/parse-sink.js';
+import type { IngestService } from '../../data/ingest-service.js';
 import type { SessionIndexEntry, SessionsIndex } from '../../types/index.js';
+import { applyGrokSidecars } from './sidecars.js';
 
 const CHAT_HISTORY_FILE = 'chat_history.jsonl';
 const SUMMARY_FILE = 'summary.json';
@@ -214,6 +216,14 @@ export class GrokReader {
           }
         }
         sink.onSessionComplete(slug, entry.sessionId, lineCount, lastByte);
+
+        // events.jsonl timestamps + signals.json session tokens (best-effort).
+        if (isIngestService(sink)) {
+          applyGrokSidecars(this.fileService, file, entry.sessionId, sink.getSessionWriteApi(), {
+            fallbackCreated: entry.created || null,
+          });
+        }
+
         opts?.onFileSeen?.(file, mtimeMs, size, lastByte);
       }
 
@@ -230,4 +240,8 @@ export class GrokReader {
       return [];
     }
   }
+}
+
+function isIngestService(sink: ProjectParseSink): sink is IngestService {
+  return typeof (sink as IngestService).getSessionWriteApi === 'function';
 }

@@ -79,6 +79,11 @@ export interface SessionTokenApi {
   updateMessageTokens(sessionId: string, msgIndex: number, tokens: MessageTokenBag): void;
   setSessionTokensEstimated(sessionId: string, estimated: boolean): void;
   listSessionMessageTexts(sessionId: string): SessionMessageTextRow[];
+  /**
+   * Optional: stamp a message timestamp after write (Grok events.jsonl join).
+   * Absent on older writers — callers should optional-chain.
+   */
+  updateMessageTimestamp?(sessionId: string, msgIndex: number, timestamp: string): void;
 }
 
 /**

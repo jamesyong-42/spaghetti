@@ -38,7 +38,8 @@ import { createGrokLiveWatch, type GrokLiveWatch } from './live-watch.js';
  * chat_history files even if mtime is unchanged. Absent/mismatched → force a
  * full Grok re-read once, then stamp the new version.
  */
-const GROK_EXTRACT_VERSION = 'grok_v1';
+/** Bump when Grok extract/sidecar behaviour changes (forces cold re-read). */
+const GROK_EXTRACT_VERSION = 'grok_v2_sidecars';
 const GROK_EXTRACT_META_KEY = 'grok_extract_version';
 
 export class GrokLifecycleOwner extends EventEmitter implements LifecycleOwner {

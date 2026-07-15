@@ -84,12 +84,14 @@ const REGISTRY: Record<AgentSourceId, LifecycleOwnerFactory> = {
   },
 
   grok: (deps) => {
-    // Live writeBatch stays on TS (native liveIngestBatch is Claude-shaped).
-    // Cold/warm still uses rs via exclusiveIngest when engine is rs.
+    // Cold/warm uses rs via exclusiveIngest when engine is rs.
+    // Live writeBatch also uses native when engine=rs (message + session_index
+    // only — liveIngestBatch supports those categories with sourceId stamp).
     const ingest = createIngestService(() => deps.store.sqlite, {
       sourceId: 'grok',
       messages: deps.source.messages,
-      engine: 'ts',
+      engine: deps.engine,
+      native: deps.native,
     });
     return new GrokLifecycleOwner(
       deps.fileService,

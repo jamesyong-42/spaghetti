@@ -7,6 +7,7 @@
 
 pub mod message_extractor;
 pub mod reader;
+pub mod sidecars;
 
 pub use message_extractor::{project_jsonl_line, MessageProjection};
 pub use reader::GrokReader;

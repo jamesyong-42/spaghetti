@@ -136,11 +136,15 @@ if (!Number.isFinite(liveBatchChunk) || liveBatchChunk <= 0) {
 if (mode === 'cold' && !existsSync(fixtureRootDir)) {
   console.error(`fixture not found: ${fixtureRootDir}`);
   if (coldSource === 'grok') {
-    console.error('regenerate with: node scripts/generate-grok-fixture.mjs --out crates/spaghetti-napi/fixtures/small-grok');
+    console.error(
+      'regenerate with: node scripts/generate-grok-fixture.mjs --out crates/spaghetti-napi/fixtures/small-grok',
+    );
   } else if (coldSource === 'codex') {
     console.error('Codex fixture not shipped yet — pass --fixture <path-to-.codex>');
   } else {
-    console.error('regenerate with: node scripts/generate-ingest-fixture.mjs --out crates/spaghetti-napi/fixtures/small');
+    console.error(
+      'regenerate with: node scripts/generate-ingest-fixture.mjs --out crates/spaghetti-napi/fixtures/small',
+    );
   }
   process.exit(2);
 }
@@ -432,8 +436,7 @@ const TABLE_SPECS: TableSpec[] = [
     // TS-engine-local / lifecycle markers that native cold ingest never writes:
     // - heal_msg_index_v1: Claude TS one-shot heal
     // - *_extract_version: stamped by lifecycle attachShared after native returns
-    where:
-      "key NOT IN ('heal_msg_index_v1', 'grok_extract_version', 'codex_extract_version')",
+    where: "key NOT IN ('heal_msg_index_v1', 'grok_extract_version', 'codex_extract_version')",
   },
   {
     name: 'projects',
