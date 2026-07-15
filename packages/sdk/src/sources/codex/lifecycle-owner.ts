@@ -133,8 +133,40 @@ export class CodexLifecycleOwner extends EventEmitter implements LifecycleOwner 
     }
   }
 
+  /**
+   * True when extract/token behaviour changed and a full Codex re-read is
+   * required even if file mtimes match. Brief open/close keeps the exclusive
+   * native queue free for peers.
+   */
+  private needsExtractForceReread(): boolean {
+    try {
+      this.ingestService.open(this.dbPath);
+      return this.ingestService.getMeta(CODEX_EXTRACT_META_KEY) !== CODEX_EXTRACT_VERSION;
+    } catch {
+      return false;
+    } finally {
+      this.releaseShared();
+    }
+  }
+
   /** Native Codex cold/warm (exclusive connection inside the addon). */
   private async initializeWithNative(native: NonNullable<ReturnType<typeof loadNativeAddon>>): Promise<void> {
+    // Native warm-skip is fingerprint-only. Wipe this source on extract meta
+    // mismatch so warm cannot skip and attachShared does not stamp a new
+    // version over stale projections.
+    if (this.needsExtractForceReread()) {
+      this.emit('progress', {
+        phase: 'parsing',
+        message: 'Codex extract version changed — clearing Codex index for full re-read…',
+      });
+      try {
+        this.ingestService.open(this.dbPath);
+        this.ingestService.clearSourceData();
+      } finally {
+        this.releaseShared();
+      }
+    }
+
     this.emit('progress', {
       phase: 'parsing',
       message: `Running native Codex ingest (${native.nativeVersion()})…`,
@@ -165,9 +197,25 @@ export class CodexLifecycleOwner extends EventEmitter implements LifecycleOwner 
   /** TypeScript CodexReader path (when native unavailable). Handle must be open. */
   private async initializeWithTypeScript(): Promise<void> {
     const extractVer = this.ingestService.getMeta(CODEX_EXTRACT_META_KEY);
-    const forceReread = extractVer !== CODEX_EXTRACT_VERSION;
+    const sessionsDir = this.source.paths.sessionsDir;
+    let forceReread = extractVer !== CODEX_EXTRACT_VERSION;
 
-    const reader = new CodexReader(this.fileService, this.source.paths.sessionsDir);
+    // Missing fingerprint paths (deleted on disk) → full wipe + re-read so
+    // sessions/messages do not linger as orphans (mirrors native ClearSourceData).
+    if (!forceReread) {
+      for (const fp of this.ingestService.getAllFingerprints()) {
+        if (fp.path.startsWith(sessionsDir) && !this.fileService.exists(fp.path)) {
+          forceReread = true;
+          break;
+        }
+      }
+    }
+
+    if (forceReread) {
+      this.ingestService.clearSourceData();
+    }
+
+    const reader = new CodexReader(this.fileService, sessionsDir);
     this.ingestService.beginTransaction();
     try {
       reader.readAll(this.ingestService, {
@@ -180,7 +228,7 @@ export class CodexLifecycleOwner extends EventEmitter implements LifecycleOwner 
           this.ingestService.upsertFingerprint({ path: file, mtimeMs, size, bytePosition: lastByte });
         },
       });
-      if (forceReread) {
+      if (forceReread || extractVer !== CODEX_EXTRACT_VERSION) {
         this.ingestService.setMeta(CODEX_EXTRACT_META_KEY, CODEX_EXTRACT_VERSION);
       }
       this.ingestService.commitTransaction();

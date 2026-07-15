@@ -143,6 +143,14 @@ export function createCodexLiveWatch(deps: CodexLiveWatchDeps): CodexLiveWatch {
         }
       }
 
+      // Rewrite / truncate detection: if the file shrank past our offset,
+      // re-read from 0 so we don't permanently miss compacted history.
+      const stats = deps.fileService.getStats(file);
+      if (stats && stats.size < st.byteOffset) {
+        st.byteOffset = 0;
+        st.nextIndex = 0;
+      }
+
       // Incremental read from the last offset; msg_index = absolute file line.
       const rows: ParsedRow[] = [];
       const res = deps.fileService.readJsonlStreaming<unknown>(

@@ -26,10 +26,10 @@
  * so `IngestService` stores Grok rows unchanged — only `source_id` and the raw
  * record shape differ.
  *
- * NOTE: like Codex, the project slug is the cwd with `/`→`-`. Until the
- * `(source_id, slug)` composite PK work lands, a Grok and Claude/Codex session
- * sharing a cwd would collide on `projects.slug` in ONE shared DB — fine for the
- * per-source rows since every row is also tagged `source_id`.
+ * NOTE: like Codex, the project slug is the cwd with `/`→`-`. Schema v6+ uses
+ * composite PK `(source_id, slug)` so Claude/Codex/Grok can share a cwd without
+ * merging project rows. Sessions/messages still key primarily by session id
+ * (product UUIDs are expected unique across agents).
  */
 
 import * as path from 'node:path';

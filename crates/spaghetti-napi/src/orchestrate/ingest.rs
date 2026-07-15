@@ -597,8 +597,9 @@ fn run_codex_ingest(
         )
         .map_err(IngestInternalError::Io)?;
 
-    // Scoped fingerprint clear for codex only, then full read.
-    let _ = sender.send(IngestEvent::ClearSourceFiles);
+    // Wipe this source's entity rows + fingerprints, then full read.
+    // ClearSourceFiles alone left deleted rollouts as permanent orphans.
+    let _ = sender.send(IngestEvent::ClearSourceData);
     let read_stats = CodexReader::read_all(&sessions_dir, &sender)
         .map_err(|e| IngestInternalError::Io(std::io::Error::other(e.to_string())))?;
     drop(sender);
@@ -682,8 +683,9 @@ fn run_grok_ingest(
         )
         .map_err(IngestInternalError::Io)?;
 
-    // Scoped fingerprint clear for grok only, then full read.
-    let _ = sender.send(IngestEvent::ClearSourceFiles);
+    // Wipe this source's entity rows + fingerprints, then full read.
+    // ClearSourceFiles alone left deleted session dirs as permanent orphans.
+    let _ = sender.send(IngestEvent::ClearSourceData);
     let read_stats = GrokReader::read_all(&sessions_dir, &sender)
         .map_err(|e| IngestInternalError::Io(std::io::Error::other(e.to_string())))?;
     drop(sender);

@@ -161,7 +161,16 @@ pub enum IngestEvent {
     /// before a batch of `Fingerprint` events so warm-fallback re-ingests
     /// start from a clean slate — stale paths (files that were deleted
     /// between runs) don't linger as ghost fingerprints.
+    ///
+    /// Claude cold path emits this *after* writing entity rows (fingerprints
+    /// only). Do **not** delete sessions/messages here.
     ClearSourceFiles,
+
+    /// Delete all durable rows for this writer's `source_id` (messages,
+    /// sessions, projects, source_files). Used by Codex/Grok non-fast-path
+    /// re-ingest *before* a full read so sessions removed on disk do not
+    /// leave permanent orphans. FTS follows via message DELETE triggers.
+    ClearSourceData,
 
     /// Warm-start fingerprint record — one row to UPSERT into
     /// `source_files`. Emitted by the orchestrator after all per-project

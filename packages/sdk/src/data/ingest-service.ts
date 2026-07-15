@@ -104,6 +104,15 @@ export interface IngestService extends ProjectParseSink {
   vacuum(): void;
   rebuildFts(): void;
   deleteAllData(): void;
+
+  /**
+   * Delete all durable rows for this service's `source_id` (messages,
+   * sessions, projects, source_files). FTS auto-syncs via message DELETE
+   * triggers. Used when extract behaviour changes (force re-read) or a
+   * non-fast-path re-ingest must drop orphans for sessions removed on disk.
+   * Scoped — never touches other agents in a multi-source DB.
+   */
+  clearSourceData(): void;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -295,6 +304,7 @@ class IngestServiceImpl implements IngestService {
          plan_slug = excluded.plan_slug,
          has_task = excluded.has_task,
          updated_at = excluded.updated_at,
+         source_id = excluded.source_id,
          tokens_estimated = excluded.tokens_estimated`,
     );
 
@@ -325,7 +335,8 @@ class IngestServiceImpl implements IngestService {
          cache_creation_tokens = excluded.cache_creation_tokens,
          cache_read_tokens = excluded.cache_read_tokens,
          text_content = excluded.text_content,
-         byte_offset = excluded.byte_offset`,
+         byte_offset = excluded.byte_offset,
+         source_id = excluded.source_id`,
     );
 
     this.stmtInsertSubagent = this.db.prepare(
@@ -749,12 +760,19 @@ class IngestServiceImpl implements IngestService {
     // fallback visible without spamming.
     if (this.engine === 'rs' && this.native && this.dbPath) {
       try {
-        this.native.liveIngestBatch(
-          this.dbPath,
-          rows.map((r) => parsedRowToNativeLiveRow(r, this.messageExtractor)),
-          this.sourceId,
-        );
-        return { changes: buildChangesFromRows(rows), durationMs: Date.now() - startedAt };
+        // Skip message rows the extractor rejects (null) — same contract as
+        // onMessage / the TS path. Without this, Grok tool_result lines and
+        // Codex non-message rollouts land as msgType "unknown".
+        const nativeRows = rows
+          .map((r) => parsedRowToNativeLiveRow(r, this.messageExtractor))
+          .filter((r): r is NonNullable<typeof r> => r !== null);
+        if (nativeRows.length > 0) {
+          this.native.liveIngestBatch(this.dbPath, nativeRows, this.sourceId);
+        }
+        return {
+          changes: buildChangesFromRows(rows, this.messageExtractor),
+          durationMs: Date.now() - startedAt,
+        };
       } catch (err) {
         if (!this.nativeFallbackLogged) {
           console.warn(
@@ -803,7 +821,10 @@ class IngestServiceImpl implements IngestService {
       throw err;
     }
 
-    return { changes: buildChangesFromRows(rows), durationMs: Date.now() - startedAt };
+    return {
+      changes: buildChangesFromRows(rows, this.messageExtractor),
+      durationMs: Date.now() - startedAt,
+    };
   }
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -816,6 +837,15 @@ class IngestServiceImpl implements IngestService {
 
   rebuildFts(): void {
     this.db.exec(`INSERT INTO search_fts(search_fts) VALUES('rebuild')`);
+  }
+
+  clearSourceData(): void {
+    // Order: messages first so FTS DELETE triggers run while the connection
+    // is healthy; then sessions/projects; fingerprints last.
+    this.db.run('DELETE FROM messages WHERE source_id = ?', this.sourceId);
+    this.db.run('DELETE FROM sessions WHERE source_id = ?', this.sourceId);
+    this.db.run('DELETE FROM projects WHERE source_id = ?', this.sourceId);
+    this.db.run('DELETE FROM source_files WHERE source_id = ?', this.sourceId);
   }
 
   deleteAllData(): void {
@@ -929,25 +959,14 @@ function parsedRowToNativeLiveRow(
   slug?: string;
   sessionId?: string;
   payloadJson: string;
-} {
+} | null {
   switch (row.category) {
     case 'message': {
-      // Mirrors the per-field extraction `onMessage` performs for the TS path
-      // — the source's extractor runs once here so the Rust writer can bind
-      // directly without re-parsing the raw JSONL. The `??` fallbacks are dead
-      // code for claude-code (its extractor yields a projection per line); they
-      // guard a future source whose extractor skips non-message rows.
+      // Mirrors `onMessage`: null extract means "not a message row" (Grok
+      // tool I/O, Codex non-message envelopes). Do not invent msgType
+      // "unknown" — that polluted live native writes for multi-source.
       const extracted = extractor.extract(row.message);
-      const msgType = extracted?.msgType ?? 'unknown';
-      const uuid = extracted?.uuid ?? null;
-      const timestamp = extracted?.timestamp ?? null;
-      const tokens = extracted?.tokens ?? {
-        inputTokens: 0,
-        outputTokens: 0,
-        cacheCreationTokens: 0,
-        cacheReadTokens: 0,
-      };
-      const ftsText = extracted?.text ?? '';
+      if (!extracted) return null;
       const payload = {
         msgIndex: row.msgIndex,
         byteOffset: row.byteOffset,
@@ -957,14 +976,14 @@ function parsedRowToNativeLiveRow(
         // `onMessage`. Keeping the same stringifier means round-tripping
         // produces identical bytes.
         rawJson: JSON.stringify(row.message),
-        msgType,
-        uuid,
-        timestamp,
-        inputTokens: tokens.inputTokens,
-        outputTokens: tokens.outputTokens,
-        cacheCreationTokens: tokens.cacheCreationTokens,
-        cacheReadTokens: tokens.cacheReadTokens,
-        ftsText,
+        msgType: extracted.msgType,
+        uuid: extracted.uuid,
+        timestamp: extracted.timestamp,
+        inputTokens: extracted.tokens.inputTokens,
+        outputTokens: extracted.tokens.outputTokens,
+        cacheCreationTokens: extracted.tokens.cacheCreationTokens,
+        cacheReadTokens: extracted.tokens.cacheReadTokens,
+        ftsText: extracted.text,
       };
       return {
         category: 'message',
@@ -1216,9 +1235,14 @@ function applyRowHandler(row: ParsedRow, ctx: RowWriteContext): void {
  * here would divorce the counter from fan-out order; see C3.1 for the
  * history.
  */
-function buildChangesFromRows(rows: ParsedRow[]): Change[] {
+function buildChangesFromRows(rows: ParsedRow[], extractor: MessageExtractor): Change[] {
   const changes: Change[] = [];
   for (const row of rows) {
+    // Only emit message.added for rows that were (or would be) written.
+    // Skipped extracts must not produce phantom live events.
+    if (row.category === 'message' && extractor.extract(row.message) === null) {
+      continue;
+    }
     const ts = Date.now();
     const change = (ROW_HANDLERS[row.category] as RowHandler<typeof row.category>).toChange(row as never, ts);
     if (change !== null) changes.push(change);
