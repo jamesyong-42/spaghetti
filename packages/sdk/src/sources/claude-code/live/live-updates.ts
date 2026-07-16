@@ -13,6 +13,8 @@
  */
 
 import * as path from 'node:path';
+import * as os from 'node:os';
+import { createHash } from 'node:crypto';
 
 import type { FileService } from '../../../io/file-service.js';
 import type { SqliteService } from '../../../io/sqlite-service.js';
@@ -53,7 +55,12 @@ export interface ClaudeCodeLiveUpdatesOptions {
    * `AgentSource.classify`. Defaults to Claude Code classify bound to rootDir.
    */
   classify?: (absPath: string) => RouteResult;
-  /** Absolute path to the checkpoint JSON. Defaults to `<rootDir>/.spaghetti-live-state.json`. */
+  /**
+   * Absolute path to the checkpoint JSON. Defaults to
+   * `<dbPath>.live-state.json` next to the SQLite cache (or a tmpdir
+   * path when no dbPath is configured). Never defaults inside
+   * `rootDir` — the watched source tree is read-only.
+   */
   stateFilePath?: string;
   /** Time-window batching window, ms. Default 75. */
   batchWindowMs?: number;
@@ -184,6 +191,10 @@ const WATCHER_IGNORE_GLOBS = [
   '**/session-env/**',
   '**/*.tmp',
   '**/.DS_Store',
+  // Legacy checkpoint artifact (pre-2026-07 versions wrote it into
+  // rootDir; the default now lives next to the DB). Belt-and-braces so
+  // a stale copy in a watched tree never generates traffic.
+  '**/.spaghetti-live-state.json',
 ];
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -278,7 +289,19 @@ export function createClaudeCodeLiveUpdates(
   const rootDir: string = resolvedRoot;
   // Source-provided classifier, or the built-in Claude Code one bound to root.
   const classifyPath = options.classify ?? ((absPath: string) => classify(absPath, rootDir));
-  const stateFilePath = options.stateFilePath ?? path.join(rootDir, '.spaghetti-live-state.json');
+  // Checkpoint state must NEVER live inside rootDir: the source tree is a
+  // read-only data plane (writing there also polluted test fixtures and
+  // fed the watcher its own artifact). Anchor it to the SQLite cache path
+  // — per-instance and naturally test-isolated — falling back to a
+  // rootDir-keyed tmpdir file when no dbPath is configured.
+  const stateFilePath =
+    options.stateFilePath ??
+    (deps.dbPath
+      ? `${deps.dbPath}.live-state.json`
+      : path.join(
+          os.tmpdir(),
+          `spaghetti-live-state-${createHash('sha1').update(rootDir).digest('hex').slice(0, 12)}.json`,
+        ));
   const batchWindowMs = options.batchWindowMs ?? DEFAULT_BATCH_WINDOW_MS;
   const maxBatchRows = options.maxBatchRows ?? DEFAULT_MAX_BATCH_ROWS;
   const debounceMs = options.debounceMs ?? DEFAULT_DEBOUNCE_MS;
