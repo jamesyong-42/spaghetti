@@ -1,3 +1,8 @@
+> **⚠️ Historical design doc — superseded.** The `@spaghetti/core` and
+> `@spaghetti/ui` packages described below were never shipped and have been
+> removed from the repo. Kept for design-history reference only; do not treat
+> the package layout or APIs here as current.
+
 # Spaghetti Implementation Plan
 **Status**: Core implementation complete (Architecture C)
 **Created**: 2026-03-16

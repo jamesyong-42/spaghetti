@@ -4,6 +4,11 @@
  * Measures cold start, warm start, and query performance against real ~/.claude data.
  * Validates against Architecture C targets.
  *
+ * ⚠️  DANGER: this manual dev script DELETES AND REBUILDS your REAL Spaghetti
+ *     cache DB at ~/.spaghetti/cache/spaghetti.db (see deleteDbFiles below). Set
+ *     SPAGHETTI_DB_PATH to a throwaway path to bench against a scratch DB and
+ *     leave your real data untouched.
+ *
  * Usage:
  *   npx tsx scripts/benchmark.ts
  *
@@ -18,9 +23,9 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { homedir } from 'node:os';
 import { execSync } from 'node:child_process';
-import { createSpaghettiService } from '../packages/core/src/create.js';
-import type { SpaghettiAPI } from '../packages/core/src/api.js';
-import type { InitProgress } from '../packages/core/src/data/segment-types.js';
+import { createSpaghettiService } from '../packages/sdk/src/create.js';
+import type { SpaghettiAPI } from '../packages/sdk/src/api.js';
+import type { InitProgress } from '../packages/sdk/src/data/segment-types.js';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Ensure parse-worker.js exists (needed for worker threads in dev mode)
@@ -28,8 +33,8 @@ import type { InitProgress } from '../packages/core/src/data/segment-types.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(__dirname, '..');
-const WORKER_TS = join(ROOT, 'packages/core/src/workers/parse-worker.ts');
-const WORKER_JS = join(ROOT, 'packages/core/src/workers/parse-worker.js');
+const WORKER_TS = join(ROOT, 'packages/sdk/src/workers/parse-worker.ts');
+const WORKER_JS = join(ROOT, 'packages/sdk/src/workers/parse-worker.js');
 
 if (!existsSync(WORKER_JS)) {
   console.log('Building parse-worker.js for worker threads...');
@@ -44,7 +49,9 @@ if (!existsSync(WORKER_JS)) {
 // Config
 // ═══════════════════════════════════════════════════════════════════════════
 
-const DB_PATH = join(homedir(), '.spaghetti', 'cache', 'spaghetti.db');
+// SPAGHETTI_DB_PATH overrides the real cache DB — see the danger note above.
+const DB_PATH =
+  process.env.SPAGHETTI_DB_PATH ?? join(homedir(), '.spaghetti', 'cache', 'spaghetti.db');
 const DB_WAL_PATH = DB_PATH + '-wal';
 const DB_SHM_PATH = DB_PATH + '-shm';
 const QUERY_ITERATIONS = 10;

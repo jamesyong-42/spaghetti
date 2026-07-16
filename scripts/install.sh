@@ -53,9 +53,9 @@ fi
 
 # Install
 echo ""
-info "  Installing @spaghetti/cli..."
+info "  Installing @vibecook/spaghetti..."
 echo ""
-if npm install -g @spaghetti/cli@latest 2>&1 | tail -3; then
+if npm install -g @vibecook/spaghetti@latest 2>&1 | tail -3; then
   echo ""
 else
   echo ""

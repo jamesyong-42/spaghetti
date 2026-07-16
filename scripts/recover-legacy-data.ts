@@ -5,6 +5,10 @@
  *
  * CRITICAL: Source DBs are the ONLY copies. They are opened READ-ONLY.
  *
+ * ⚠️  DANGER: this manual dev script WRITES the recovered rows into your REAL
+ *     Spaghetti cache DB at ~/.spaghetti/cache/spaghetti.db. Set SPAGHETTI_DB_PATH
+ *     to a throwaway path to target a scratch DB instead of your real data.
+ *
  * Run with: npx tsx scripts/recover-legacy-data.ts
  */
 
@@ -12,8 +16,8 @@ import Database from 'better-sqlite3';
 import { decode } from '@msgpack/msgpack';
 import { join } from 'path';
 import { homedir } from 'os';
-import { createSqliteService } from '../packages/core/src/io/sqlite-service.js';
-import { createIngestService } from '../packages/core/src/data/ingest-service.js';
+import { createSqliteService } from '../packages/sdk/src/io/sqlite-service.js';
+import { createIngestService } from '../packages/sdk/src/data/ingest-service.js';
 import type {
   SessionsIndex,
   SessionIndexEntry,
@@ -23,8 +27,8 @@ import type {
   TodoFile,
   TaskEntry,
   PlanFile,
-} from '../packages/core/src/types/index.js';
-import type { FileHistorySession } from '../packages/core/src/types/file-history-data.js';
+} from '../packages/sdk/src/types/index.js';
+import type { FileHistorySession } from '../packages/sdk/src/types/file-history-data.js';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // PATHS
@@ -32,7 +36,9 @@ import type { FileHistorySession } from '../packages/core/src/types/file-history
 
 const SOURCE_A_PATH = join(homedir(), '.claude-on-the-go', 'cache', 'agent-claude-code-segments.db');
 const SOURCE_B_PATH = join(homedir(), '.claude-on-the-go', 'cache', 'messages.db');
-const TARGET_DB_PATH = join(homedir(), '.spaghetti', 'cache', 'spaghetti.db');
+// SPAGHETTI_DB_PATH overrides the real cache DB — see the danger note above.
+const TARGET_DB_PATH =
+  process.env.SPAGHETTI_DB_PATH ?? join(homedir(), '.spaghetti', 'cache', 'spaghetti.db');
 
 // ═══════════════════════════════════════════════════════════════════════════
 // KEY PARSING

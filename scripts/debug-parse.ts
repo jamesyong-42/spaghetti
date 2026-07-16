@@ -5,9 +5,9 @@
  * parseProjectStreaming for a known broken project and reports the results.
  */
 
-import { createFileService } from '../packages/core/src/io/file-service.js';
-import { createProjectParser } from '../packages/core/src/parser/project-parser.js';
-import type { ProjectParseSink } from '../packages/core/src/parser/parse-sink.js';
+import { createFileService } from '../packages/sdk/src/io/file-service.js';
+import { createProjectParser } from '../packages/sdk/src/parser/project-parser.js';
+import type { ProjectParseSink } from '../packages/sdk/src/parser/parse-sink.js';
 import type {
   SessionsIndex,
   SessionIndexEntry,
@@ -18,7 +18,7 @@ import type {
   TodoFile,
   TaskEntry,
   PlanFile,
-} from '../packages/core/src/types/index.js';
+} from '../packages/sdk/src/types/index.js';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import * as fs from 'node:fs';
@@ -195,7 +195,7 @@ for (const [sessionId, count] of sessionMessages) {
 // Step 7: Also test the streaming reader directly for a known JSONL file
 console.log('');
 console.log('--- Direct streaming reader test ---');
-import { readJsonlStreaming } from '../packages/core/src/io/streaming-jsonl-reader.js';
+import { readJsonlStreaming } from '../packages/sdk/src/io/streaming-jsonl-reader.js';
 
 const jsonlFiles = fs.readdirSync(projectDir).filter((f) => f.endsWith('.jsonl'));
 for (const jsonlFile of jsonlFiles) {
