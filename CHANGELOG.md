@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.20](https://github.com/jamesyong-42/spaghetti/compare/spaghetti-v0.5.19...spaghetti-v0.5.20) (2026-07-16)
+
+
+### Bug Fixes
+
+* **ci:** darwin-x64 smoke test via Rosetta; deflake watcher tests ([16ddb32](https://github.com/jamesyong-42/spaghetti/commit/16ddb322cf47a64df2770caefabc8fdb6bd7ce09))
+
 ## [0.5.19](https://github.com/jamesyong-42/spaghetti/compare/spaghetti-v0.5.18...spaghetti-v0.5.19) (2026-07-16)
 
 
