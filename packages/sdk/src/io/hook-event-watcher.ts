@@ -5,7 +5,7 @@
  * incrementally using the streaming JSONL reader's fromBytePosition support.
  */
 
-import { watch, existsSync, statSync, writeFileSync, mkdirSync, type FSWatcher } from 'fs';
+import { watch, existsSync, statSync, realpathSync, writeFileSync, mkdirSync, type FSWatcher } from 'fs';
 import { dirname } from 'path';
 import { readJsonlStreaming } from './streaming-jsonl-reader.js';
 import type { HookEvent } from '../types/spaghetti/hook-events.js';
@@ -108,9 +108,19 @@ export function createHookEventWatcher(options?: HookEventWatcherOptions): HookE
         lastBytePosition = seekResult.lastTerminatedPosition;
       }
 
-      // Watch the directory (more reliable than watching a file that may not exist yet)
+      // Watch the directory (more reliable than watching a file that may not exist yet).
+      // realpathSync first: on Windows, handing fs.watch an 8.3 short-form
+      // path (e.g. C:\Users\RUNNER~1\...) trips a fatal libuv assertion
+      // (fs-event.c "!_wcsnicmp(filename, dir, dirlen)") that aborts the
+      // whole process. Canonicalising expands short names.
+      let watchDir = dir;
       try {
-        watcher = watch(dir, (eventType, filename) => {
+        watchDir = realpathSync(dir);
+      } catch {
+        // Keep the raw path — watch() below has its own error handling.
+      }
+      try {
+        watcher = watch(watchDir, (eventType, filename) => {
           // Some platforms report a null filename — fall through to a
           // read rather than dropping the wakeup (readNewEvents no-ops
           // when nothing new landed).

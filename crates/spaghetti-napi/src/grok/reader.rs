@@ -49,8 +49,10 @@ struct SessionMeta {
 }
 
 /// Encode cwd → project slug (Claude-compatible `/` → `-`).
+/// Windows cwds separate with `\\`, so both separators are folded
+/// (parity with the TS readers).
 pub fn encode_slug(cwd: &str) -> String {
-    cwd.replace('/', "-")
+    cwd.replace(['/', '\\'], "-")
 }
 
 /// Percent-decode a path segment (matches JS `decodeURIComponent` for `%XX`).
@@ -484,6 +486,7 @@ mod tests {
     #[test]
     fn encode_slug_replaces_slashes() {
         assert_eq!(encode_slug("/tmp/proj-a"), "-tmp-proj-a");
+        assert_eq!(encode_slug(r"C:\tmp\proj-a"), "C:-tmp-proj-a");
     }
 
     #[test]

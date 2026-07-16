@@ -111,7 +111,7 @@ describe('api.live.onChange end-to-end delivery (RFC 005 C3.3 + C3.4)', () => {
     } catch {
       /* ignore */
     }
-    rmSync(tempRoot, { recursive: true, force: true });
+    rmSync(tempRoot, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   });
 
   test('api.live.onChange delivers session.message.added for a live JSONL write', { timeout: 10000 }, async () => {

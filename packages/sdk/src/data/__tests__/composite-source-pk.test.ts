@@ -93,7 +93,7 @@ describe('composite (source_id, slug) projects PK (schema v6)', () => {
     } catch {
       /* ignore */
     }
-    rmSync(tempDir, { recursive: true, force: true });
+    rmSync(tempDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   });
 
   test('the same slug from two sources is two project rows, not one merged row', () => {

@@ -27,7 +27,7 @@ describe('ConfigParser settings.local.json', () => {
     parser = createConfigParser(createFileService());
   });
 
-  after(() => rmSync(tempDir, { recursive: true, force: true }));
+  after(() => rmSync(tempDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }));
 
   beforeEach((t) => {
     rootDir = path.join(tempDir, t.name.replace(/[^a-zA-Z0-9]/g, '_'));

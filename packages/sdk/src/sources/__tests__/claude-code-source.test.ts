@@ -26,14 +26,16 @@ describe('createClaudeCodeSource', () => {
       rootDir: '/tmp/fake-claude',
       stateDir: '/tmp/fake-spaghetti',
     });
+    // Derived paths come from path.join, so expectations must too —
+    // hardcoded '/'-joined strings fail on Windows.
     assert.equal(source.rootDir, '/tmp/fake-claude');
     assert.equal(source.stateDir, '/tmp/fake-spaghetti');
-    assert.equal(source.paths.projectsDir, '/tmp/fake-claude/projects');
-    assert.equal(source.paths.hookEventsFile, '/tmp/fake-spaghetti/hooks/events.jsonl');
-    assert.equal(source.paths.channelSessionsDir, '/tmp/fake-spaghetti/channel/sessions');
-    assert.equal(source.paths.channelMessagesDir, '/tmp/fake-spaghetti/channel/messages');
-    assert.equal(source.paths.sessionsDir, '/tmp/fake-claude/sessions');
-    assert.equal(source.paths.settingsFile, '/tmp/fake-claude/settings.json');
+    assert.equal(source.paths.projectsDir, path.join('/tmp/fake-claude', 'projects'));
+    assert.equal(source.paths.hookEventsFile, path.join('/tmp/fake-spaghetti', 'hooks', 'events.jsonl'));
+    assert.equal(source.paths.channelSessionsDir, path.join('/tmp/fake-spaghetti', 'channel', 'sessions'));
+    assert.equal(source.paths.channelMessagesDir, path.join('/tmp/fake-spaghetti', 'channel', 'messages'));
+    assert.equal(source.paths.sessionsDir, path.join('/tmp/fake-claude', 'sessions'));
+    assert.equal(source.paths.settingsFile, path.join('/tmp/fake-claude', 'settings.json'));
   });
 
   it('maps to lifecycle options via StaticIngest helper', () => {
@@ -54,9 +56,9 @@ describe('createClaudeCodeSource', () => {
       stateDir: '/s',
     });
     const bridge = createRuntimeBridge(source);
-    assert.equal(bridge.hookEventsPath(), '/s/hooks/events.jsonl');
-    assert.equal(bridge.channelSessionsDir(), '/s/channel/sessions');
-    assert.equal(bridge.channelMessagesDir(), '/s/channel/messages');
+    assert.equal(bridge.hookEventsPath(), path.join('/s', 'hooks', 'events.jsonl'));
+    assert.equal(bridge.channelSessionsDir(), path.join('/s', 'channel', 'sessions'));
+    assert.equal(bridge.channelMessagesDir(), path.join('/s', 'channel', 'messages'));
     assert.equal(bridge.source, source);
     assert.equal(bridge.isRunning(), false);
   });

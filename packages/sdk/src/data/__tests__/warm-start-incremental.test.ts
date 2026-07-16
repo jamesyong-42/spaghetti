@@ -67,7 +67,7 @@ describe('TS warm start — incremental correctness', () => {
 
   after(() => {
     // beforeEach re-creates tempDir per test; clean the last one.
-    rmSync(tempDir, { recursive: true, force: true });
+    rmSync(tempDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   });
 
   async function boot(): Promise<SpaghettiAPI> {
@@ -93,7 +93,7 @@ describe('TS warm start — incremental correctness', () => {
     assert.deepEqual(messageUuids(warm), ['uuid-0', 'uuid-1', 'uuid-2', 'uuid-3', 'uuid-4']);
     await warm.dispose();
 
-    rmSync(tempDir, { recursive: true, force: true });
+    rmSync(tempDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   });
 
   test('stray files under projects/ are not ingested as projects', async () => {
@@ -106,7 +106,7 @@ describe('TS warm start — incremental correctness', () => {
     );
     await svc.dispose();
 
-    rmSync(tempDir, { recursive: true, force: true });
+    rmSync(tempDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   });
 
   test('one-shot heal restores rows clobbered by the old incremental path', async () => {
@@ -134,7 +134,7 @@ describe('TS warm start — incremental correctness', () => {
     assert.deepEqual(messageUuids(warm), ['uuid-0', 'uuid-1', 'uuid-2']);
     await warm.dispose();
 
-    rmSync(tempDir, { recursive: true, force: true });
+    rmSync(tempDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   });
 
   test('repeated warm starts with no changes stay stable', async () => {
@@ -147,6 +147,6 @@ describe('TS warm start — incremental correctness', () => {
       await warm.dispose();
     }
 
-    rmSync(tempDir, { recursive: true, force: true });
+    rmSync(tempDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   });
 });

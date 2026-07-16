@@ -58,7 +58,7 @@ describe('IncrementalParser (C2.4)', () => {
   });
 
   after(() => {
-    rmSync(tempDir, { recursive: true, force: true });
+    rmSync(tempDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   });
 
   // Each test gets a fresh path to avoid state leaking across cases.
@@ -522,7 +522,7 @@ describe('IncrementalParser (C2.4)', () => {
     assert.equal(row.task.hasHighwatermark, true);
     assert.equal(row.task.highwatermark, 42);
 
-    rmSync(rootDir, { recursive: true, force: true });
+    rmSync(rootDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   });
 
   // ─────────────────────────────────────────────────────────────────────────

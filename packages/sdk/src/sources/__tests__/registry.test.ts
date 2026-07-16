@@ -78,7 +78,7 @@ describe('lifecycle owner registry', () => {
       });
       assert.equal(unknown, null);
     } finally {
-      rmSync(tempDir, { recursive: true, force: true });
+      rmSync(tempDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
     }
   });
 });

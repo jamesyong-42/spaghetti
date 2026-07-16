@@ -69,7 +69,7 @@ describe('ConfigParser teams/', () => {
   });
 
   after(() => {
-    rmSync(tempDir, { recursive: true, force: true });
+    rmSync(tempDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   });
 
   // Each test gets a fresh fake ~/.claude dir so cases stay independent.
@@ -201,7 +201,7 @@ describe('ConfigParser teams/', () => {
   });
 
   test('missing teams dir parses to an empty list', () => {
-    rmSync(teamsDir, { recursive: true, force: true });
+    rmSync(teamsDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
 
     assert.deepEqual(parser.parseConfig(rootDir).teams, []);
   });

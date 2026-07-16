@@ -79,9 +79,11 @@ function createCollector() {
  * sides with `fs.realpathSync`.
  */
 function samePath(a: string, b: string): boolean {
-  // Keep this shallow — tests pass realpathed strings through
-  // `fs.realpathSync` before comparing, so string-equal is enough here.
-  return a === b;
+  // Tests pass realpathed strings through `fs.realpathSync` before
+  // comparing, so string-equal handles POSIX. Windows paths are
+  // case-insensitive and backends may differ in casing — compare folded.
+  if (a === b) return true;
+  return process.platform === 'win32' && a.toLowerCase() === b.toLowerCase();
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -100,7 +102,7 @@ describe('createParcelWatcher (RFC 005 C2.1)', () => {
   });
 
   after(() => {
-    rmSync(tempDir, { recursive: true, force: true });
+    rmSync(tempDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   });
 
   // ─── subscribe: create ────────────────────────────────────────────────
@@ -160,18 +162,25 @@ describe('createParcelWatcher (RFC 005 C2.1)', () => {
     const watcher = createParcelWatcher();
     const target = path.join(realTempDir, 'delete-me.txt');
     writeFileSync(target, 'doomed');
+    // Let the pre-subscribe create settle so the backend's snapshot
+    // includes the file (mirrors the `update` test above; without it
+    // Windows' backend can coalesce create+delete into nothing).
+    await new Promise((r) => setTimeout(r, 200));
 
     const { onEvents, waitForMatch } = createCollector();
     const unsubscribe = await watcher.subscribe(realTempDir, onEvents, {
       ignore: [],
       recursive: true,
     });
+    // Warm-up beat: subscribe resolving does not guarantee the backend
+    // is delivering yet on every platform.
+    await new Promise((r) => setTimeout(r, 100));
 
     unlinkSync(target);
 
     const evt = await waitForMatch((e) => e.type === 'delete' && samePath(e.path, target));
     assert.strictEqual(evt.type, 'delete');
-    assert.strictEqual(evt.path, target);
+    assert.ok(samePath(evt.path, target), evt.path);
 
     await unsubscribe();
   });
