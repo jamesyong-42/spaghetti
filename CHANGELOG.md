@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.5.19](https://github.com/jamesyong-42/spaghetti/compare/spaghetti-v0.5.18...spaghetti-v0.5.19) (2026-07-16)
+
+
+### Bug Fixes
+
+* **ci:** gate release on native publish; run SDK tests; full smoke matrix ([ded5927](https://github.com/jamesyong-42/spaghetti/commit/ded5927789c3c2dc0f2c47abc24d592a7a7837e6))
+* **ci:** scope SDK test gate to ubuntu/macos pending Windows compat ([0e4de1b](https://github.com/jamesyong-42/spaghetti/commit/0e4de1bf67124005cbdd2a7f29f37d55e47124fa))
+* **cli:** error boundary, arg guards, TUI robustness ([728f19f](https://github.com/jamesyong-42/spaghetti/commit/728f19fb8d35918cc5be52c692faac16626bed1b))
+* **napi:** serde tolerance, fingerprint robustness, TS parity ([af4aa94](https://github.com/jamesyong-42/spaghetti/commit/af4aa949d1e3cf3fbc9c61604be9d54f2a6879af))
+* **sdk,napi:** multi-source ingest correctness after Grok review ([322fd3a](https://github.com/jamesyong-42/spaghetti/commit/322fd3aefe7dbd8125ea8ecf7ef2330e715975b2))
+* **sdk:** consume only terminated JSONL lines in live tailers ([728482b](https://github.com/jamesyong-42/spaghetti/commit/728482bfdc22e8a3ea0987e83e2205312e809559))
+* **sdk:** lifecycle ordering, runtime scoping, react cache identity ([6bbd0bb](https://github.com/jamesyong-42/spaghetti/commit/6bbd0bb6f8cf909ce26fe3167568304254bd4fab))
+* **sdk:** move live checkpoint state out of the watched rootDir ([aaf4306](https://github.com/jamesyong-42/spaghetti/commit/aaf4306c2b3c4ffb9933a3424cc7f274e2dd0164))
+* **sdk:** rewrite worker-pool crash recovery ([2684902](https://github.com/jamesyong-42/spaghetti/commit/268490222385a6da5ed132ba4e9d3da481acfb65))
+* **sdk:** second round of Windows CI fixes ([b333cd6](https://github.com/jamesyong-42/spaghetti/commit/b333cd6fdfb2a1878d031a39fa84ec7ff6f09169))
+* **sdk:** Windows compatibility for tests and path handling ([#73](https://github.com/jamesyong-42/spaghetti/issues/73)) ([18ea883](https://github.com/jamesyong-42/spaghetti/commit/18ea883a7105b60098401f17b680cb63f3a6c211))
+
 ## [0.5.18](https://github.com/jamesyong-42/spaghetti/compare/spaghetti-v0.5.17...spaghetti-v0.5.18) (2026-07-15)
 
 
