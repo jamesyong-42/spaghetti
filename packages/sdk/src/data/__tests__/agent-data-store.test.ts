@@ -164,7 +164,7 @@ describe('AgentDataStore (C1.1 skeleton)', () => {
     } catch {
       /* ignore */
     }
-    rmSync(tempDir, { recursive: true, force: true });
+    rmSync(tempDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   });
 
   test('getProjectSlugs returns the seeded slug', () => {

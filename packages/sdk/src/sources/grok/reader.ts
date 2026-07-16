@@ -57,7 +57,8 @@ export interface GrokSessionMeta {
 
 /** Encode a project cwd into an opaque slug (mirrors Claude/Codex `/`→`-`). */
 export function encodeGrokSlug(cwd: string): string {
-  return cwd.replace(/\//g, '-');
+  // Windows cwds separate with `\`, so both separators are folded.
+  return cwd.replace(/[/\\]/g, '-');
 }
 
 /**

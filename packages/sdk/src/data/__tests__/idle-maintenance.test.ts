@@ -111,7 +111,7 @@ describe('IdleMaintenance (RFC 005 C5.1)', () => {
       assert.equal(optimizeFired, true, 'PRAGMA optimize should have fired');
     } finally {
       close();
-      rmSync(tmp, { recursive: true, force: true });
+      rmSync(tmp, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
     }
   });
 
@@ -157,7 +157,7 @@ describe('IdleMaintenance (RFC 005 C5.1)', () => {
       im.stop();
     } finally {
       close();
-      rmSync(tmp, { recursive: true, force: true });
+      rmSync(tmp, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
     }
   });
 
@@ -190,7 +190,7 @@ describe('IdleMaintenance (RFC 005 C5.1)', () => {
       assert.doesNotThrow(() => im.noteActivity());
     } finally {
       close();
-      rmSync(tmp, { recursive: true, force: true });
+      rmSync(tmp, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
     }
   });
 
@@ -241,7 +241,7 @@ describe('IdleMaintenance (RFC 005 C5.1)', () => {
       assert.equal(checkpointFired, false, 'checkpoint should skip when WAL sidecar absent');
     } finally {
       close();
-      rmSync(tmp, { recursive: true, force: true });
+      rmSync(tmp, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
     }
   });
 });

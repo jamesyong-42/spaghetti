@@ -141,7 +141,7 @@ describe('Codex tiktoken fallback when token_count is missing', () => {
     } catch {
       /* ignore */
     }
-    rmSync(tempDir, { recursive: true, force: true });
+    rmSync(tempDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   });
 
   test('session without token_count is estimated and has non-zero text tokens', () => {

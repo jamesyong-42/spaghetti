@@ -52,7 +52,7 @@ function makeStub(): { dir: string; script: string; cleanup: () => void } {
   const dir = mkdtempSync(path.join(os.tmpdir(), 'spaghetti-pool-'));
   const script = path.join(dir, 'stub-worker.mjs');
   writeFileSync(script, STUB_WORKER);
-  return { dir, script, cleanup: () => rmSync(dir, { recursive: true, force: true }) };
+  return { dir, script, cleanup: () => rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }) };
 }
 
 function completedSlugs(messages: WorkerToMainMessage[]): string[] {

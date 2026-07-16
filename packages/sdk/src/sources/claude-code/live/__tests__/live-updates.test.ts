@@ -253,7 +253,7 @@ async function createFixture(opts: FixtureOptions = {}): Promise<Fixture> {
       /* ignore */
     }
     try {
-      rmSync(tempRoot, { recursive: true, force: true });
+      rmSync(tempRoot, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
     } catch {
       /* ignore */
     }

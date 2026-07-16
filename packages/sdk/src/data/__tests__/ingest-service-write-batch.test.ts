@@ -114,7 +114,7 @@ describe('IngestService.writeBatch (RFC 005 C2.6)', () => {
     } catch {
       /* ignore */
     }
-    rmSync(tempDir, { recursive: true, force: true });
+    rmSync(tempDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   });
 
   // Clean slate per test for tables that tests poke at. Projects +
@@ -619,7 +619,7 @@ describe('IngestService.writeBatch engine=rs routing (RFC 005 C4.3)', () => {
     } catch {
       /* ignore */
     }
-    rmSync(tempDir, { recursive: true, force: true });
+    rmSync(tempDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   });
 
   test('engine=rs native path omits extract-null message rows from liveIngestBatch', async () => {

@@ -27,6 +27,8 @@
  * must precede running both sources into the same store.
  */
 
+import * as path from 'node:path';
+
 import type { FileService } from '../../io/file-service.js';
 import type { ProjectParseSink } from '../../data/parse-sink.js';
 import type { SessionIndexEntry, SessionsIndex } from '../../types/index.js';
@@ -46,9 +48,12 @@ interface CodexSessionMeta {
   firstPrompt: string;
 }
 
-/** Encode a project cwd into an opaque slug (mirrors Claude's `/`→`-`). */
+/**
+ * Encode a project cwd into an opaque slug (mirrors Claude's `/`→`-`).
+ * Windows cwds separate with `\`, so both separators are folded.
+ */
 function encodeSlug(cwd: string): string {
-  return cwd.replace(/\//g, '-');
+  return cwd.replace(/[/\\]/g, '-');
 }
 
 function textOfContent(content: unknown): string {
@@ -204,8 +209,10 @@ export class CodexReader {
 }
 
 function basename(p: string): string {
-  const i = p.lastIndexOf('/');
-  return i >= 0 ? p.slice(i + 1) : p;
+  // path.basename, NOT lastIndexOf('/'): scanDirectorySync returns
+  // native separators, so the slash-only version returned the WHOLE
+  // path on Windows and the ROLLOUT_FILE filter discovered nothing.
+  return path.basename(p);
 }
 
 function uuidFromFilename(file: string): string | null {

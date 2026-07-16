@@ -42,8 +42,9 @@ describe('coalescePath (RFC 005 C5.2)', () => {
     const a = coalescePath(path.join(ROOT_DIR, 'tasks', 's1', '.lock'), r1, ROOT_DIR);
     const b = coalescePath(path.join(ROOT_DIR, 'tasks', 's2', '.lock'), r2, ROOT_DIR);
     assert.notEqual(a, b);
-    assert.match(a, /tasks\/s1\/\.coalesced$/);
-    assert.match(b, /tasks\/s2\/\.coalesced$/);
+    // coalescePath builds with path.join → native separators on Windows.
+    assert.ok(a.endsWith(path.join('tasks', 's1', '.coalesced')), a);
+    assert.ok(b.endsWith(path.join('tasks', 's2', '.coalesced')), b);
   });
 
   test('task without sessionId → identity (defensive: should not happen in practice)', () => {

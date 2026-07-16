@@ -226,7 +226,7 @@ describe('@vibecook/spaghetti-sdk integration', { skip: !hasClaudeProjects }, ()
 
   test('8. shutdown()', () => {
     spaghetti.shutdown();
-    rmSync(tempDir, { recursive: true, force: true });
+    rmSync(tempDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
     assert.strictEqual(spaghetti.isReady(), false, 'Service should not be ready after shutdown');
 
     console.log(`\n  -- Shutdown --`);

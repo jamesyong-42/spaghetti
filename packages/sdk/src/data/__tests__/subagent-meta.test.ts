@@ -56,7 +56,7 @@ describe('Subagent .meta.json sidecar', () => {
     writeFileSync(path.join(subagentsDir, 'agent-anometa.jsonl'), userLine('b0') + '\n');
   });
 
-  after(() => rmSync(tempDir, { recursive: true, force: true }));
+  after(() => rmSync(tempDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }));
 
   async function boot(): Promise<SpaghettiAPI> {
     const svc = createSpaghettiService({ engine: 'ts', rootDir, dbPath });

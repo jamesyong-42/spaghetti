@@ -163,7 +163,7 @@ describe('Codex source — end-to-end ingest', () => {
     } catch {
       /* ignore */
     }
-    rmSync(tempDir, { recursive: true, force: true });
+    rmSync(tempDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   });
 
   test('every row is stamped source_id = codex', () => {

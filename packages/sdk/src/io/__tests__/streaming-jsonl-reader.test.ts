@@ -21,7 +21,7 @@ function makeTempFile(content: string): { file: string; cleanup: () => void } {
   const dir = mkdtempSync(path.join(os.tmpdir(), 'spaghetti-jsonl-'));
   const file = path.join(dir, 'events.jsonl');
   writeFileSync(file, content);
-  return { file, cleanup: () => rmSync(dir, { recursive: true, force: true }) };
+  return { file, cleanup: () => rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }) };
 }
 
 describe('readJsonlStreaming — terminated-line resume contract', () => {

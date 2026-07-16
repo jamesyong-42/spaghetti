@@ -47,8 +47,10 @@ struct PeekMeta {
 }
 
 /// Encode cwd → project slug (Claude-compatible `/` → `-`).
+/// Windows cwds separate with `\\`, so both separators are folded
+/// (parity with the TS readers).
 pub fn encode_slug(cwd: &str) -> String {
-    cwd.replace('/', "-")
+    cwd.replace(['/', '\\'], "-")
 }
 
 struct SessionFile {
@@ -428,6 +430,7 @@ mod tests {
     #[test]
     fn encode_slug_replaces_slashes() {
         assert_eq!(encode_slug("/Users/me/proj"), "-Users-me-proj");
+        assert_eq!(encode_slug(r"C:\Users\me\proj"), "C:-Users-me-proj");
     }
 
     #[test]

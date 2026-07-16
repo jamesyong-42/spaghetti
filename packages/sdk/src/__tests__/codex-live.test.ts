@@ -74,9 +74,12 @@ describe('Codex live disk ingest (Plane 2)', () => {
     await spaghetti.initialize();
   });
 
-  after(() => {
-    spaghetti.shutdown();
-    rmSync(tempDir, { recursive: true, force: true });
+  after(async () => {
+    // Await the full teardown before deleting: Windows cannot remove a
+    // directory while the SQLite handle is still open (EPERM), and the
+    // retry knobs absorb transient locks from AV scanners.
+    await spaghetti.dispose();
+    rmSync(tempDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   });
 
   function codexMessageCount(): number {

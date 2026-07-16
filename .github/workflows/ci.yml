@@ -34,17 +34,8 @@ jobs:
       # addon + better-sqlite3, both present here: `pnpm build` above ran
       # `pnpm -r build` (which builds the native crate) and better-sqlite3 is a
       # root devDependency installed by the frozen-lockfile step.
-      #
-      # Windows runs only the CLI suite for now: the SDK suite has ~21
-      # pre-existing Windows-only failures (path-separator assumptions in
-      # tests and codex/grok path handling) — tracked in the "SDK test suite
-      # fails on Windows" issue. Remove the split once that lands.
       - name: Test
-        if: matrix.os != 'windows-latest'
         run: pnpm test:packages
-      - name: Test (CLI only)
-        if: matrix.os == 'windows-latest'
-        run: pnpm --filter @vibecook/spaghetti test
       - name: Ingest diff (small fixture)
         if: matrix.os == 'ubuntu-latest'
         run: pnpm test:ingest-diff

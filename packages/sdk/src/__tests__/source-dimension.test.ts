@@ -37,7 +37,7 @@ describe('source dimension (schema v5)', () => {
 
   after(() => {
     spaghetti.shutdown();
-    rmSync(tempDir, { recursive: true, force: true });
+    rmSync(tempDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   });
 
   test('getSourceIds() reports the one source present', () => {

@@ -7,7 +7,16 @@
  * subscribers with the current live session list.
  */
 
-import { watch, existsSync, mkdirSync, readdirSync, readFileSync, unlinkSync, type FSWatcher } from 'node:fs';
+import {
+  watch,
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  realpathSync,
+  unlinkSync,
+  type FSWatcher,
+} from 'node:fs';
 import { join } from 'node:path';
 import { getChannelSessionsDir, type SessionInfo } from '../types/spaghetti/channel-messages.js';
 
@@ -136,8 +145,16 @@ export function createChannelRegistry(options?: ChannelRegistryOptions): Channel
       // Seed current state.
       refresh();
 
+      // realpathSync first: on Windows, handing fs.watch an 8.3 short-form
+      // path trips a fatal libuv assertion that aborts the process.
+      let watchDir = sessionsDir;
       try {
-        watcher = watch(sessionsDir, () => {
+        watchDir = realpathSync(sessionsDir);
+      } catch {
+        // Keep the raw path — watch() below has its own error handling.
+      }
+      try {
+        watcher = watch(watchDir, () => {
           onDirChange();
         });
         watcher.on('error', () => {
