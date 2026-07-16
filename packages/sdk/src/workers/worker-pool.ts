@@ -9,6 +9,7 @@
 
 import { Worker } from 'node:worker_threads';
 import * as os from 'node:os';
+import { fileURLToPath } from 'node:url';
 import type { WorkerToMainMessage, MainToWorkerMessage } from './worker-types.js';
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -51,8 +52,10 @@ class WorkerPoolImpl implements WorkerPool {
     this.maxWorkers = options?.maxWorkers ?? Math.min(os.cpus().length - 1, 8);
     if (this.maxWorkers < 1) this.maxWorkers = 1;
 
-    // Resolve worker script path relative to this file
-    this.workerScript = options?.workerScript ?? new URL('./parse-worker.js', import.meta.url).pathname;
+    // Resolve worker script path relative to this file. fileURLToPath, not
+    // URL.pathname: the latter yields "/C:/..." on Windows, which Worker
+    // cannot open.
+    this.workerScript = options?.workerScript ?? fileURLToPath(new URL('./parse-worker.js', import.meta.url));
   }
 
   async parseProjects(rootDir: string, slugs: string[], onMessage: (msg: WorkerToMainMessage) => void): Promise<void> {
@@ -60,116 +63,151 @@ class WorkerPoolImpl implements WorkerPool {
 
     const workerCount = Math.min(this.maxWorkers, slugs.length);
     const queue = [...slugs];
-    let completedCount = 0;
     const totalCount = slugs.length;
-    // Track workers whose crash has already been counted (by the 'error' handler)
-    // to avoid double-counting when the 'exit' handler also fires.
-    const errorCountedWorkers = new Set<Worker>();
+    let completedCount = 0;
+    // Slug currently being parsed per live worker; `null` = idle.
+    const inFlight = new Map<Worker, string | null>();
+    // Slugs already re-queued once after a worker crash. A slug that kills
+    // two workers is counted lost instead of retried forever.
+    const retried = new Set<string>();
+    // Slugs abandoned after repeated crashes. Losing SOME is graceful
+    // degradation; losing ALL means the worker system itself is broken
+    // (e.g. unloadable script) and must fail loudly, not resolve empty.
+    let crashLostCount = 0;
+    let settled = false;
 
     return new Promise<void>((resolve, reject) => {
-      let hasRejected = false;
+      const settle = (err?: Error): void => {
+        if (settled) return;
+        settled = true;
+        if (err) reject(err);
+        else resolve();
+      };
 
-      const assignNext = (worker: Worker): void => {
-        const slug = queue.shift();
-        if (slug) {
-          worker.postMessage({
-            type: 'parse-project',
-            rootDir,
-            slug,
-          } satisfies MainToWorkerMessage);
+      const checkDone = (): void => {
+        if (completedCount < totalCount) return;
+        if (crashLostCount >= totalCount) {
+          settle(new Error(`[worker-pool] All ${totalCount} project(s) lost to worker crashes — nothing was parsed.`));
+        } else {
+          settle();
         }
       };
 
-      // Spawn workers
-      for (let i = 0; i < workerCount; i++) {
-        let worker: Worker;
-        try {
-          worker = new Worker(this.workerScript);
-        } catch (err) {
-          // If worker creation fails, reject with a clear error
-          if (!hasRejected) {
-            hasRejected = true;
-            reject(
-              new Error(`Failed to create worker thread: ${String(err)}. ` + `Worker script: ${this.workerScript}`),
-            );
-          }
+      const assignNext = (worker: Worker): void => {
+        const slug = queue.shift();
+        if (slug === undefined) {
+          inFlight.set(worker, null);
           return;
         }
+        inFlight.set(worker, slug);
+        worker.postMessage({
+          type: 'parse-project',
+          rootDir,
+          slug,
+        } satisfies MainToWorkerMessage);
+      };
 
-        this.workers.push(worker);
+      const removeWorker = (worker: Worker): void => {
+        const idx = this.workers.indexOf(worker);
+        if (idx >= 0) this.workers.splice(idx, 1);
+        inFlight.delete(worker);
+        void worker.terminate().catch(() => {});
+      };
 
+      /**
+       * Shared crash path for the 'error' event and hard deaths that only
+       * surface as a non-zero 'exit'. Retries the in-flight slug once on a
+       * fresh worker, and fails the whole run loudly if no workers remain —
+       * a hang here would stall cold-start ingest forever.
+       */
+      const handleCrash = (worker: Worker, err: unknown): void => {
+        console.error(`[worker-pool] Worker crashed:`, err);
+        const lostSlug = inFlight.get(worker) ?? null;
+        removeWorker(worker);
+
+        if (lostSlug !== null) {
+          if (!retried.has(lostSlug)) {
+            retried.add(lostSlug);
+            queue.unshift(lostSlug);
+          } else {
+            completedCount++;
+            crashLostCount++;
+            console.error(`[worker-pool] Project "${lostSlug}" lost after repeated worker crashes.`);
+          }
+        }
+
+        if (queue.length > 0) {
+          const replacement = spawnWorker();
+          if (replacement) assignNext(replacement);
+        }
+
+        if (this.workers.length === 0 && completedCount < totalCount) {
+          settle(
+            new Error(
+              `[worker-pool] All workers died with ${totalCount - completedCount} of ${totalCount} project(s) unfinished.`,
+            ),
+          );
+          return;
+        }
+        checkDone();
+      };
+
+      // Every worker — initial or replacement — gets FRESH handlers bound to
+      // itself. (A previous version cloned the dead worker's listeners onto
+      // replacements; the cloned closures kept assigning work to the dead
+      // worker and the pool hung.)
+      const setupWorker = (worker: Worker): void => {
         worker.on('message', (msg: WorkerToMainMessage) => {
-          // Forward the message to the main thread handler
           onMessage(msg);
 
-          // When a project completes, assign the next one or check if all done
-          if (msg.type === 'project-complete') {
-            completedCount++;
-            if (queue.length > 0) {
-              assignNext(worker);
-            } else if (completedCount >= totalCount) {
-              resolve();
+          // Both outcomes free the worker: assign the next slug or finish.
+          if (msg.type === 'project-complete' || msg.type === 'worker-error') {
+            if (msg.type === 'worker-error') {
+              console.error(`[worker-pool] Error parsing project "${msg.slug}": ${msg.error}`);
             }
-          }
-
-          // If a worker reports an error, log but continue (graceful degradation)
-          if (msg.type === 'worker-error') {
             completedCount++;
-            console.error(`[worker-pool] Error parsing project "${msg.slug}": ${msg.error}`);
-            if (queue.length > 0) {
-              assignNext(worker);
-            } else if (completedCount >= totalCount) {
-              resolve();
-            }
+            assignNext(worker);
+            checkDone();
           }
         });
 
         worker.on('error', (err) => {
-          // Worker process-level error (e.g. uncaught exception)
-          console.error(`[worker-pool] Worker error:`, err);
-          errorCountedWorkers.add(worker);
-          completedCount++;
-
-          // Try to replace the dead worker if there are more slugs to process
-          if (queue.length > 0 && !hasRejected) {
-            try {
-              const replacement = new Worker(this.workerScript);
-              const idx = this.workers.indexOf(worker);
-              if (idx >= 0) this.workers[idx] = replacement;
-              else this.workers.push(replacement);
-
-              // Re-attach listeners (clone the event handling)
-              replacement.on('message', worker.listeners('message')[0] as (msg: WorkerToMainMessage) => void);
-              replacement.on('error', worker.listeners('error')[0] as (err: Error) => void);
-              replacement.on('exit', worker.listeners('exit')[0] as (code: number) => void);
-
-              assignNext(replacement);
-            } catch {
-              // Can't replace — just continue
-              if (completedCount >= totalCount) {
-                resolve();
-              }
-            }
-          } else if (completedCount >= totalCount) {
-            resolve();
-          }
+          if (settled) return;
+          handleCrash(worker, err);
         });
 
         worker.on('exit', (code) => {
-          if (code !== 0 && completedCount < totalCount && !errorCountedWorkers.has(worker)) {
-            // Worker exited abnormally without sending 'project-complete' or
-            // 'worker-error', AND the 'error' event didn't fire (or didn't
-            // account for this worker). This can happen if the worker crashes
-            // hard (e.g., segfault, OOM kill) before it can send a message.
-            // Increment completedCount to prevent the Promise from hanging forever.
-            completedCount++;
-            if (completedCount >= totalCount) {
-              resolve();
-            }
+          if (settled) return;
+          // Still tracked in `inFlight` means the 'error' handler never ran —
+          // a hard death (segfault/OOM kill). Route it through the same path.
+          if (code !== 0 && inFlight.has(worker)) {
+            handleCrash(worker, new Error(`worker exited with code ${code}`));
           }
         });
+      };
 
-        // Assign initial work
+      const spawnWorker = (): Worker | null => {
+        let worker: Worker;
+        try {
+          worker = new Worker(this.workerScript);
+        } catch {
+          return null;
+        }
+        this.workers.push(worker);
+        setupWorker(worker);
+        return worker;
+      };
+
+      // Spawn the initial fleet.
+      for (let i = 0; i < workerCount; i++) {
+        const worker = spawnWorker();
+        if (!worker) {
+          if (this.workers.length === 0) {
+            settle(new Error(`Failed to create any worker thread. Worker script: ${this.workerScript}`));
+            return;
+          }
+          break; // partial fleet is fine — the live workers drain the queue
+        }
         assignNext(worker);
       }
     });
@@ -183,17 +221,15 @@ class WorkerPoolImpl implements WorkerPool {
         // Worker may already be terminated
       }
     }
-    // Force terminate after a brief delay
-    setTimeout(() => {
+    // Force terminate after a brief delay; unref so a one-shot process
+    // isn't pinned open for the grace period.
+    const timer = setTimeout(() => {
       for (const worker of this.workers) {
-        try {
-          worker.terminate();
-        } catch {
-          // Already terminated
-        }
+        void worker.terminate().catch(() => {});
       }
       this.workers = [];
     }, 100);
+    timer.unref();
   }
 }
 
