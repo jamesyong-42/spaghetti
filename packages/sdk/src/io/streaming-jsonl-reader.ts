@@ -39,6 +39,16 @@ export interface StreamingJsonlResult {
   totalLines: number;
   processedLines: number;
   finalBytePosition: number;
+  /**
+   * Byte just past the `\n` of the last newline-terminated line seen in
+   * this read (parse success or failure alike), or `fromBytePosition`
+   * when none was seen. Live tailers must resume from HERE rather than
+   * `finalBytePosition`: the latter includes a possibly partially-written
+   * unterminated tail, and advancing past it permanently drops the row.
+   */
+  lastTerminatedPosition: number;
+  /** Non-empty newline-terminated lines seen this read (parsed or not). */
+  terminatedLineCount: number;
   errorCount: number;
 }
 
@@ -65,10 +75,13 @@ export function readJsonlStreaming<T>(
   callback: JsonlLineCallback<T>,
   options?: StreamingJsonlOptions,
 ): StreamingJsonlResult {
+  const startPosition = options?.fromBytePosition ?? 0;
   const result: StreamingJsonlResult = {
     totalLines: 0,
     processedLines: 0,
     finalBytePosition: 0,
+    lastTerminatedPosition: startPosition,
+    terminatedLineCount: 0,
     errorCount: 0,
   };
 
@@ -80,7 +93,6 @@ export function readJsonlStreaming<T>(
     return result;
   }
 
-  const startPosition = options?.fromBytePosition ?? 0;
   if (startPosition >= fileSize) {
     result.finalBytePosition = startPosition;
     return result;
@@ -140,8 +152,13 @@ export function readJsonlStreaming<T>(
           const lineByteOffset = workBufFileStart + scanFrom;
           const lineEndByteOffset = workBufFileStart + newlinePos + 1;
 
+          // A trailing `\n` was seen: this range is fully consumed even if
+          // the line is blank or fails to parse — safe to resume past it.
+          result.lastTerminatedPosition = lineEndByteOffset;
+
           if (lineStr.length > 0) {
             result.totalLines++;
+            result.terminatedLineCount++;
 
             try {
               const entry = JSON.parse(lineStr) as T;
