@@ -1231,8 +1231,9 @@ export class ClaudeCodeLifecycleOwner extends EventEmitter implements AgentDataS
     agentId: string,
     limit: number,
     offset: number,
+    workflowId?: string,
   ): PaginatedSegmentResult<SessionMessage> {
-    const result = this.store.getSubagentMessages(slug, sessionId, agentId, limit, offset);
+    const result = this.store.getSubagentMessages(slug, sessionId, agentId, limit, offset, workflowId);
 
     const segments: Segment<SessionMessage>[] = result.messages.map((msg, i) => ({
       key: `subagent:${slug}/${sessionId}/${agentId}/${offset + i}`,

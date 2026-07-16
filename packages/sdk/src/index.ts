@@ -32,7 +32,13 @@ export {
 // Schema
 export { SCHEMA_VERSION, initializeSchema } from './data/schema.js';
 
-// Query & Ingest services
+// Query & Ingest services.
+// NOTE: these factories (and the io/* ones above) are composition
+// internals kept exported for the ingest-diff parity harness and manual
+// wiring. Constructing them directly bypasses the shared-SQLite-connection
+// invariant — application consumers should go through
+// `createSpaghettiService(...)`. Slated for removal from the public
+// barrel in the CLI-redesign export tightening.
 export { createQueryService, type QueryService } from './data/query-service.js';
 export { createIngestService, type IngestService } from './data/ingest-service.js';
 

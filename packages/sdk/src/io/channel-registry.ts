@@ -143,6 +143,9 @@ export function createChannelRegistry(options?: ChannelRegistryOptions): Channel
         watcher.on('error', () => {
           // Silently ignore watch errors.
         });
+        // Don't let a lazily-started registry pin a one-shot CLI process
+        // open — snapshot reads may start this without ever disposing.
+        watcher.unref();
       } catch {
         // fs.watch not available — rely on periodic rescan.
       }
@@ -152,6 +155,7 @@ export function createChannelRegistry(options?: ChannelRegistryOptions): Channel
       rescanTimer = setInterval(() => {
         refresh();
       }, RESCAN_INTERVAL_MS);
+      rescanTimer.unref();
     },
 
     stop(): void {

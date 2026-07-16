@@ -27,6 +27,8 @@ import { useSpaghettiAPI } from '../context.js';
 type ListSnapshot = {
   /** Input key the snapshot was computed against. */
   key: string;
+  /** API identity the snapshot was read from — a provider swap must invalidate. */
+  api: unknown;
   seq: number;
   items: SessionListItem[] | ProjectListItem[];
 };
@@ -72,12 +74,12 @@ export function useLiveSessionList(slug?: string): SessionListItem[] | ProjectLi
 
   const getSnapshot = useCallback((): ListSnapshot => {
     const cached = cacheRef.current;
-    if (cached && cached.key === key && cached.seq === localSeqRef.current) {
+    if (cached && cached.key === key && cached.api === api && cached.seq === localSeqRef.current) {
       return cached;
     }
     const items: SessionListItem[] | ProjectListItem[] =
       slug !== undefined ? api.getSessionList(slug) : api.getProjectList();
-    const next: ListSnapshot = { key, seq: localSeqRef.current, items };
+    const next: ListSnapshot = { key, api, seq: localSeqRef.current, items };
     cacheRef.current = next;
     return next;
   }, [api, key, slug]);

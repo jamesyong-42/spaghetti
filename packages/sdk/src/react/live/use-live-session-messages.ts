@@ -35,6 +35,8 @@ const MAX_MESSAGES = 500;
 interface MessagesSnapshot {
   /** Input key the snapshot was computed against — used to detect stale cache. */
   key: string;
+  /** API identity the snapshot was read from — a provider swap must invalidate. */
+  api: unknown;
   /** Local seq bumped by the subscribe callback; pins the "has anything new landed" check. */
   seq: number;
   messages: SessionMessage[];
@@ -83,11 +85,11 @@ export function useLiveSessionMessages(slug: string, sessionId: string): UseLive
 
   const getSnapshot = useCallback((): MessagesSnapshot => {
     const cached = cacheRef.current;
-    if (cached && cached.key === key && cached.seq === localSeqRef.current) {
+    if (cached && cached.key === key && cached.api === api && cached.seq === localSeqRef.current) {
       return cached;
     }
     const page = api.getSessionMessages(slug, sessionId, MAX_MESSAGES, 0);
-    const next: MessagesSnapshot = { key, seq: localSeqRef.current, messages: page.messages };
+    const next: MessagesSnapshot = { key, api, seq: localSeqRef.current, messages: page.messages };
     cacheRef.current = next;
     return next;
   }, [api, key, slug, sessionId]);

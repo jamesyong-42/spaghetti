@@ -164,9 +164,12 @@ export function createSpaghettiService(options?: SpaghettiServiceOptions): Spagh
   const dataService = new SpaghettiDataService(store.data, owners);
 
   // Plane 3: RuntimeBridge — always attached on the default factory path.
-  // Watchers start lazily on first api.runtime subscribe. Bound to primary
-  // source roots (hooks/channel paths).
-  const runtimeBridge = createRuntimeBridge(primary, { errorSink });
+  // Watchers start lazily on first api.runtime subscribe. The hook/channel
+  // paths it consumes are Claude Code concepts, so bind to the Claude
+  // source wherever it sits in the source list — a non-Claude primary
+  // (e.g. Codex-only setup) must not feed its roots to the bridge.
+  const bridgeSource = allSources.find((s) => s.id === 'claude-code') ?? primary;
+  const runtimeBridge = createRuntimeBridge(bridgeSource, { errorSink });
 
   return createSpaghettiAppService(dataService, errorSink, runtimeBridge);
 }
