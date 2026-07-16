@@ -104,21 +104,39 @@ impl ProjectParser {
         let start = Instant::now();
         let project_dir = root_dir.join("projects").join(slug);
 
-        // 1. Read sessions-index.json (or synthesise an empty one on miss)
-        let (sessions_index, sessions_index_json) = read_sessions_index(&project_dir);
+        // 1. Read + parse sessions-index.json (or synthesise an empty one).
+        let sessions_index = read_sessions_index(&project_dir);
         let original_path = sessions_index
             .original_path
             .clone()
             .unwrap_or_else(|| slug_to_path(slug));
 
-        // 2. Emit the Project event
+        // 2. Merge index entries with any on-disk JSONL files the index doesn't
+        //    already know about — matches TS `mergeWithDiscoveredEntries`.
+        let merged_index = SessionsIndex {
+            version: sessions_index.version,
+            entries: merge_with_discovered_entries(
+                sessions_index.entries,
+                &project_dir,
+                sessions_index.original_path.as_deref(),
+            ),
+            original_path: sessions_index.original_path,
+        };
+
+        // 3. Emit the Project event storing the serialized MERGED index
+        //    (parity with TS `onProject`, which stores
+        //    `JSON.stringify(parseSessionsIndex(...))`). Storing the raw file
+        //    text here would drop discovered-but-unindexed sessions from
+        //    `projects.sessions_index`.
+        let sessions_index_json =
+            serde_json::to_string(&merged_index).unwrap_or_else(|_| "{}".to_owned());
         events.send(IngestEvent::Project {
             slug: slug.to_owned(),
             original_path,
             sessions_index_json,
         })?;
 
-        // 3. MEMORY.md (optional)
+        // 4. MEMORY.md (optional)
         if let Some(memory) = read_project_memory(&project_dir) {
             events.send(IngestEvent::ProjectMemory {
                 slug: slug.to_owned(),
@@ -126,19 +144,11 @@ impl ProjectParser {
             })?;
         }
 
-        // 4. Merge index entries with anything on disk that the index
-        //    doesn't already know about — matches TS `mergeWithDiscoveredEntries`.
-        let entries = merge_with_discovered_entries(
-            sessions_index.entries,
-            &project_dir,
-            sessions_index.original_path.as_deref(),
-        );
-
         // 5. Walk sessions. The only error returned from `parse_one_session`
         //    is `ChannelClosed` — propagate it immediately so we don't spin
         //    over a dead channel.
-        for entry in entries {
-            parse_one_session(root_dir, &project_dir, slug, &entry, events)?;
+        for entry in &merged_index.entries {
+            parse_one_session(root_dir, &project_dir, slug, entry, events)?;
         }
 
         // 6. Final project-complete marker
@@ -321,24 +331,18 @@ fn build_message_event(
 
 // ─── sessions-index.json ────────────────────────────────────────────────────
 
-/// Read `sessions-index.json` from `<project_dir>/sessions-index.json`.
+/// Read + parse `sessions-index.json` from `<project_dir>/sessions-index.json`.
 ///
-/// Returns `(parsed_index, raw_json_string)` where `raw_json_string` is
-/// what the writer stores verbatim in `projects.sessions_index`. On any
-/// failure we fall back to a synthetic empty index (matches TS behaviour).
-fn read_sessions_index(project_dir: &Path) -> (SessionsIndex, String) {
+/// Returns the parsed [`SessionsIndex`]. On a missing or malformed file we
+/// fall back to a synthetic empty index — matching TS `parseSessionsIndex`,
+/// which reconstructs the index from disk rather than persisting the raw
+/// (possibly malformed) file text.
+fn read_sessions_index(project_dir: &Path) -> SessionsIndex {
     let path = project_dir.join("sessions-index.json");
-    let raw = match std::fs::read_to_string(&path) {
-        Ok(s) => s,
-        Err(_) => return (empty_sessions_index(), "{}".to_owned()),
+    let Ok(raw) = std::fs::read_to_string(&path) else {
+        return empty_sessions_index();
     };
-
-    match serde_json::from_str::<SessionsIndex>(&raw) {
-        Ok(parsed) => (parsed, raw),
-        // Malformed index — fall back to empty, but hold on to the raw
-        // string so the writer still stores whatever was there.
-        Err(_) => (empty_sessions_index(), raw),
-    }
+    serde_json::from_str::<SessionsIndex>(&raw).unwrap_or_else(|_| empty_sessions_index())
 }
 
 fn empty_sessions_index() -> SessionsIndex {
@@ -771,7 +775,10 @@ fn read_task(root_dir: &Path, session_id: &str) -> Option<TaskEntry> {
 
     let (has_highwatermark, highwatermark) =
         match std::fs::read_to_string(task_dir.join(".highwatermark")) {
-            Ok(raw) => (true, raw.trim().parse::<i64>().ok()),
+            // Lenient parse to match TS `parseInt(hwContent.trim(), 10)`:
+            // "12abc" → 12, non-numeric → None. `.parse::<i64>()` is strict and
+            // would reject any trailing noise, dropping a valid highwatermark.
+            Ok(raw) => (true, parse_leading_int(&raw)),
             Err(_) => (false, None),
         };
 
@@ -782,6 +789,34 @@ fn read_task(root_dir: &Path, session_id: &str) -> Option<TaskEntry> {
         lock_exists: true,
         items: None,
     })
+}
+
+/// Parse the leading base-10 integer prefix of `s`, mirroring JS
+/// `parseInt(s, 10)`: skip leading whitespace, consume an optional sign, then
+/// consecutive ASCII digits, and ignore any trailing characters
+/// (`"12abc"` → `12`, `"  -5x"` → `-5`). Returns `None` when no digits follow.
+fn parse_leading_int(s: &str) -> Option<i64> {
+    let t = s.trim_start();
+    let bytes = t.as_bytes();
+    let mut i = 0;
+    let mut negative = false;
+    if let Some(&c) = bytes.first() {
+        if c == b'+' || c == b'-' {
+            negative = c == b'-';
+            i = 1;
+        }
+    }
+    let start = i;
+    while i < bytes.len() && bytes[i].is_ascii_digit() {
+        i += 1;
+    }
+    if i == start {
+        return None;
+    }
+    t[start..i]
+        .parse::<i64>()
+        .ok()
+        .map(|n| if negative { -n } else { n })
 }
 
 // ─── Slug → path (filesystem-probing) ───────────────────────────────────────
@@ -878,30 +913,43 @@ fn epoch_ms_to_iso8601(ms: f64) -> String {
         .unwrap_or_else(|_| "1970-01-01T00:00:00.000Z".to_string())
 }
 
-/// Read the first "user" message from a JSONL session file and return
-/// its first 200 characters as a first-prompt candidate. Returns None
-/// if the file can't be opened, has no user message, or the content
-/// can't be extracted. Matches the behaviour of the TS parser's
-/// `discoverSessionEntries` peek.
+/// Read the first user message from a JSONL session file and return its first
+/// 200 UTF-16 code units of text as a first-prompt candidate.
+///
+/// Matches the TS `discoverSessionEntries` peek exactly:
+/// - a message is "user" when its `message.role === 'user'` (not the top-level
+///   `type`);
+/// - scanning STOPS at the first such message even if it carries no text block
+///   (the caller then maps the empty result to "No prompt"); it does NOT keep
+///   looking for a later user message with text;
+/// - the text is truncated with `.slice(0, 200)` = 200 UTF-16 code units.
+///
+/// Returns `None` when the file can't be opened / has no user message / the
+/// first user message has no extractable text.
 fn peek_first_user_prompt(path: &Path) -> Option<String> {
     use std::cell::RefCell;
 
+    // `done` guards the "stop at the first user message" rule independently of
+    // whether text was actually extracted — read_jsonl_streaming has no early
+    // exit, so subsequent lines must be ignored once we've seen a user message.
+    let done: RefCell<bool> = RefCell::new(false);
     let found: RefCell<Option<String>> = RefCell::new(None);
     let _ = crate::core::jsonl::read_jsonl_streaming(path, 0, |line, _, _| {
-        if found.borrow().is_some() {
+        if *done.borrow() {
             return;
         }
         let Ok(val) = serde_json::from_str::<serde_json::Value>(line) else {
             return;
         };
-        if val.get("type").and_then(|v| v.as_str()) != Some("user") {
-            return;
-        }
         let Some(message) = val.get("message") else {
             return;
         };
-        let content = message.get("content");
-        let text = match content {
+        if message.get("role").and_then(|v| v.as_str()) != Some("user") {
+            return;
+        }
+        // First user message — record any text, then stop regardless.
+        *done.borrow_mut() = true;
+        let text = match message.get("content") {
             Some(serde_json::Value::String(s)) => Some(s.clone()),
             Some(serde_json::Value::Array(blocks)) => blocks.iter().find_map(|block| {
                 if block.get("type").and_then(|v| v.as_str()) == Some("text") {
@@ -916,7 +964,7 @@ fn peek_first_user_prompt(path: &Path) -> Option<String> {
             _ => None,
         };
         if let Some(t) = text {
-            *found.borrow_mut() = Some(t.chars().take(200).collect());
+            *found.borrow_mut() = Some(crate::core::text::truncate_utf16(&t, 200).to_owned());
         }
     });
     found.into_inner()
@@ -1270,6 +1318,162 @@ mod tests {
             _ => None,
         });
         assert_eq!(fts.as_deref(), Some("hi u1"));
+    }
+
+    // ── 9. Merged sessions-index serialization (item 6) ───────────────────
+
+    #[test]
+    fn no_sessions_index_stores_merged_discovered_entries() {
+        // A project with a session JSONL but NO sessions-index.json must store
+        // a MERGED index containing the discovered entry — not "{}" (which is
+        // what storing the raw missing-file fallback would produce).
+        let dir = mk_tempdir();
+        let session_id = "99999999-9999-9999-9999-999999999999";
+        let project_dir = mk_project(dir.path(), "proj-merge");
+        fs::write(
+            project_dir.join(format!("{session_id}.jsonl")),
+            format!("{}\n", user_line("m1")),
+        )
+        .unwrap();
+
+        let events = run_parser(dir.path(), "proj-merge");
+        let json = events
+            .iter()
+            .find_map(|ev| match ev {
+                IngestEvent::Project {
+                    sessions_index_json,
+                    ..
+                } => Some(sessions_index_json.clone()),
+                _ => None,
+            })
+            .expect("Project event");
+
+        assert_ne!(json, "{}", "merged index must not be the empty fallback");
+        let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+        let entries = parsed
+            .get("entries")
+            .and_then(|v| v.as_array())
+            .expect("entries array");
+        assert_eq!(entries.len(), 1, "discovered session must be in the index");
+        assert_eq!(
+            entries[0].get("sessionId").and_then(|v| v.as_str()),
+            Some(session_id)
+        );
+        // The discovered entry carries the peeked first prompt, not blank.
+        assert_eq!(
+            entries[0].get("firstPrompt").and_then(|v| v.as_str()),
+            Some("hi m1")
+        );
+    }
+
+    // ── 10. first-prompt peek parity (item 8) ─────────────────────────────
+
+    #[test]
+    fn peek_first_prompt_stops_at_first_user_message_even_without_text() {
+        // First user message has no text block (image only); a LATER user
+        // message does. TS stops at the first user message, so the result is
+        // None (caller maps to "No prompt") — NOT "later text".
+        let dir = mk_tempdir();
+        let path = dir.path().join("s.jsonl");
+        let body = concat!(
+            r#"{"type":"user","message":{"role":"user","content":[{"type":"image","source":{}}]}}"#,
+            "\n",
+            r#"{"type":"user","message":{"role":"user","content":"later text"}}"#,
+            "\n",
+        );
+        fs::write(&path, body).unwrap();
+        assert_eq!(peek_first_user_prompt(&path), None);
+    }
+
+    #[test]
+    fn peek_first_prompt_truncates_at_200_utf16_units() {
+        let dir = mk_tempdir();
+        let path = dir.path().join("s.jsonl");
+        let long = "z".repeat(500);
+        let body = format!(r#"{{"type":"user","message":{{"role":"user","content":"{long}"}}}}"#);
+        fs::write(&path, format!("{body}\n")).unwrap();
+        let out = peek_first_user_prompt(&path).expect("first prompt");
+        assert_eq!(out.chars().count(), 200);
+    }
+
+    // ── 11. highwatermark leniency (item 9) ───────────────────────────────
+
+    #[test]
+    fn parse_leading_int_matches_parseint_semantics() {
+        assert_eq!(parse_leading_int("12abc"), Some(12));
+        assert_eq!(parse_leading_int("  42  "), Some(42));
+        assert_eq!(parse_leading_int("-5x"), Some(-5));
+        assert_eq!(parse_leading_int("+7"), Some(7));
+        assert_eq!(parse_leading_int("abc"), None);
+        assert_eq!(parse_leading_int(""), None);
+        assert_eq!(parse_leading_int("  -"), None);
+    }
+
+    #[test]
+    fn read_task_highwatermark_is_lenient() {
+        let dir = mk_tempdir();
+        let session_id = "77777777-7777-7777-7777-777777777777";
+        let task_dir = dir.path().join("tasks").join(session_id);
+        fs::create_dir_all(&task_dir).unwrap();
+        fs::write(task_dir.join(".lock"), "").unwrap();
+        fs::write(task_dir.join(".highwatermark"), "12abc\n").unwrap();
+        let task = read_task(dir.path(), session_id).expect("task");
+        assert!(task.has_highwatermark);
+        assert_eq!(task.highwatermark, Some(12));
+    }
+
+    #[test]
+    fn read_task_highwatermark_non_numeric_is_none() {
+        let dir = mk_tempdir();
+        let session_id = "88888888-8888-8888-8888-888888888888";
+        let task_dir = dir.path().join("tasks").join(session_id);
+        fs::create_dir_all(&task_dir).unwrap();
+        fs::write(task_dir.join(".lock"), "").unwrap();
+        fs::write(task_dir.join(".highwatermark"), "not-a-number").unwrap();
+        let task = read_task(dir.path(), session_id).expect("task");
+        assert!(task.has_highwatermark);
+        assert_eq!(task.highwatermark, None);
+    }
+
+    // ── 12. api-error assistant kept in subagent transcript (item 1) ──────
+
+    #[test]
+    fn subagent_keeps_assistant_line_without_usage_or_request_id() {
+        // An assistant transcript line without `requestId` / `message.usage`
+        // (API-error line) previously failed the typed parse and was dropped
+        // from the subagent's `messages`, undercounting message_count. It must
+        // now be retained.
+        let dir = mk_tempdir();
+        let session_id = "abababab-1111-2222-3333-444444444444";
+        let project_dir = mk_project(dir.path(), "proj-suberr");
+        let idx = format!(
+            r#"{{"version":1,"entries":[{{"sessionId":"{session_id}","fullPath":"","fileMtime":0,"firstPrompt":"","summary":"","messageCount":0,"created":"","modified":"","gitBranch":"","projectPath":"","isSidechain":false}}]}}"#
+        );
+        fs::write(project_dir.join("sessions-index.json"), idx).unwrap();
+        fs::write(project_dir.join(format!("{session_id}.jsonl")), "").unwrap();
+
+        let subagents_dir = project_dir.join(session_id).join("subagents");
+        fs::create_dir_all(&subagents_dir).unwrap();
+        let assistant = r#"{"type":"assistant","uuid":"a1","timestamp":"2026-04-17T00:00:00Z","sessionId":"s","cwd":"/","version":"1","gitBranch":"main","isSidechain":true,"userType":"external","isApiErrorMessage":true,"message":{"model":"m","id":"m1","type":"message","role":"assistant","content":[{"type":"text","text":"overloaded"}]}}"#;
+        fs::write(
+            subagents_dir.join("agent-abc.jsonl"),
+            format!("{assistant}\n"),
+        )
+        .unwrap();
+
+        let events = run_parser(dir.path(), "proj-suberr");
+        let transcript = events
+            .iter()
+            .find_map(|ev| match ev {
+                IngestEvent::Subagent { transcript, .. } => Some(transcript),
+                _ => None,
+            })
+            .expect("subagent event");
+        assert_eq!(
+            transcript.messages.len(),
+            1,
+            "api-error assistant line must not be dropped from the transcript"
+        );
     }
 
     // ── Plans ─────────────────────────────────────────────────────────────

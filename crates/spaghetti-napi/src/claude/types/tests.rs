@@ -210,11 +210,79 @@ fn deserializes_system_compact_boundary_with_unknown_fields() {
         panic!("expected system variant");
     };
     assert_eq!(s.level.as_deref(), Some("info"));
-    match s.payload {
-        SystemMessagePayload::CompactBoundary(cb) => {
-            assert_eq!(cb.compact_metadata.trigger, "auto");
-            assert_eq!(cb.compact_metadata.pre_tokens, 12345);
+    // Top-level `content` is exposed for FTS regardless of subtype.
+    assert_eq!(s.content_str(), Some("compacted"));
+    // `subtype` and all subtype-specific / unknown fields round-trip via extra.
+    assert_eq!(
+        s.extra.get("subtype").and_then(|v| v.as_str()),
+        Some("compact_boundary")
+    );
+    assert_eq!(
+        s.extra
+            .get("compactMetadata")
+            .and_then(|v| v.get("trigger"))
+            .and_then(|v| v.as_str()),
+        Some("auto")
+    );
+    assert!(s.extra.contains_key("future_field"));
+    assert!(s.extra.contains_key("extraNoise"));
+}
+
+#[test]
+fn deserializes_system_message_with_missing_subtype() {
+    // A system line without any `subtype` field must parse (the old
+    // internally-tagged payload rejected it) and still expose `content`.
+    let raw = r#"{
+        "type": "system",
+        "uuid": "sys-2",
+        "timestamp": "2026-04-01T00:00:04.000Z",
+        "sessionId": "s-1",
+        "content": "no subtype here"
+    }"#;
+    let msg: SessionMessage = serde_json::from_str(raw).expect("missing subtype must parse");
+    let SessionMessage::System(s) = msg else {
+        panic!("expected system variant");
+    };
+    assert!(s.extra.get("subtype").is_none());
+    assert_eq!(s.content_str(), Some("no subtype here"));
+}
+
+#[test]
+fn assistant_line_without_usage_or_request_id_still_parses() {
+    // API-error assistant lines omit `message.usage` and `requestId`; the
+    // typed parse must tolerate both so the line keeps its FTS text and is
+    // not dropped from subagent transcripts (message_count includes it).
+    let raw = r#"{
+        "type": "assistant",
+        "uuid": "a-err",
+        "timestamp": "2026-04-01T00:00:05.000Z",
+        "sessionId": "s-1",
+        "isApiErrorMessage": true,
+        "message": {
+            "model": "claude-opus-4-7",
+            "id": "msg-err",
+            "type": "message",
+            "role": "assistant",
+            "content": [{"type": "text", "text": "overloaded"}]
         }
-        _ => panic!("expected compact_boundary subtype"),
-    }
+    }"#;
+    let msg: SessionMessage = serde_json::from_str(raw).expect("api-error assistant must parse");
+    let SessionMessage::Assistant(a) = msg else {
+        panic!("expected assistant variant");
+    };
+    assert_eq!(a.request_id, "");
+    assert_eq!(a.message.usage.input_tokens, 0);
+    assert_eq!(a.message.content.len(), 1);
+}
+
+#[test]
+fn summary_line_without_leaf_uuid_still_parses() {
+    let raw = r#"{"type":"summary","summary":"just a summary"}"#;
+    let msg: SessionMessage =
+        serde_json::from_str(raw).expect("summary without leafUuid must parse");
+    let SessionMessage::Summary(s) = msg else {
+        panic!("expected summary variant");
+    };
+    assert_eq!(s.summary, "just a summary");
+    assert_eq!(s.leaf_uuid, "");
 }

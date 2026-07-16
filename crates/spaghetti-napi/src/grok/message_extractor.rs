@@ -6,7 +6,9 @@
 
 use serde_json::Value;
 
-/// FTS/preview text cap — matches the other extractors' convention.
+use crate::core::text::truncate_utf16;
+
+/// FTS/preview text cap in UTF-16 code units — matches the other extractors.
 const MAX_TEXT_LENGTH: usize = 2_000;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -18,14 +20,7 @@ pub struct MessageProjection {
 }
 
 fn truncate(text: &str) -> &str {
-    if text.len() <= MAX_TEXT_LENGTH {
-        return text;
-    }
-    let mut end = MAX_TEXT_LENGTH;
-    while end > 0 && !text.is_char_boundary(end) {
-        end -= 1;
-    }
-    &text[..end]
+    truncate_utf16(text, MAX_TEXT_LENGTH)
 }
 
 /// Collect readable text from a bare string or an array of `{ text }` blocks

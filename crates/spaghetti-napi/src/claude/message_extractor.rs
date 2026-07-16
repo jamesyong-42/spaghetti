@@ -160,4 +160,35 @@ mod tests {
     fn invalid_json_errors() {
         assert!(project_jsonl_line("not-json").is_err());
     }
+
+    #[test]
+    fn assistant_without_usage_or_request_id_still_produces_fts() {
+        // API-error assistant line: no `requestId`, no `message.usage`. It must
+        // still project to msg_type=assistant with fts text (the typed parse no
+        // longer fails on the missing fields), and zero tokens.
+        let line = format!(
+            r#"{{
+                "type": "assistant",
+                {BASE},
+                "isApiErrorMessage": true,
+                "message": {{
+                    "model": "claude-opus",
+                    "id": "m-err",
+                    "type": "message",
+                    "role": "assistant",
+                    "content": [
+                        {{ "type": "text", "text": "overloaded, retrying" }},
+                        {{ "type": "tool_use", "id": "t1", "name": "Bash", "input": {{}} }}
+                    ]
+                }}
+            }}"#
+        );
+        let p = project_jsonl_line(&line).expect("project");
+        assert_eq!(p.msg_type, "assistant");
+        assert_eq!(p.input_tokens, 0);
+        assert_eq!(p.output_tokens, 0);
+        let fts = p.fts_text.expect("api-error assistant must keep fts text");
+        assert!(fts.contains("overloaded, retrying"));
+        assert!(fts.contains("[tool:Bash]"));
+    }
 }

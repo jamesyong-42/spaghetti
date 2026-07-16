@@ -11,32 +11,24 @@
 use crate::claude::types::content::{
     AssistantContentBlock, ToolResultContent, UserContentBlock, UserMessageContent,
 };
-use crate::claude::types::session::SystemMessagePayload;
 use crate::claude::types::SessionMessage;
+use crate::core::text::truncate_utf16;
 
-/// Maximum number of bytes of extracted text stored per message.
+/// Maximum length of extracted text stored per message, measured in UTF-16
+/// code units.
 ///
-/// Matches the TS constant `MAX_TEXT_LENGTH = 2_000`. The TS version measures
-/// this in JS string units (UTF-16 code units), but in practice the writer
-/// simply passes the string to SQLite, which stores it as UTF-8 — so
-/// truncating by bytes here is the pragmatic equivalent. Callers must pass
-/// through `truncate` to honour this bound on UTF-8 boundaries.
+/// Matches the TS constant `MAX_TEXT_LENGTH = 2_000`, where the TS extractor
+/// truncates via `String.prototype.substring` — i.e. UTF-16 code units. The
+/// Rust engine counts the same unit (see [`truncate`]) so both engines store
+/// the identical FTS/preview blob for text containing multi-byte characters.
 pub const MAX_TEXT_LENGTH: usize = 2_000;
 
-/// Truncate `text` to at most `MAX_TEXT_LENGTH` bytes, without splitting a
-/// multi-byte UTF-8 codepoint. Returns a borrowed slice when possible.
+/// Truncate `text` to at most `MAX_TEXT_LENGTH` UTF-16 code units, never
+/// splitting a `char`. Returns a borrowed slice.
 ///
-/// If the naive byte cut would land inside a codepoint, the slice is
-/// shortened to the nearest preceding char boundary.
+/// Mirrors the TS `truncate` helper (`substring(0, MAX_TEXT_LENGTH)`).
 pub fn truncate(text: &str) -> &str {
-    if text.len() <= MAX_TEXT_LENGTH {
-        return text;
-    }
-    let mut end = MAX_TEXT_LENGTH;
-    while end > 0 && !text.is_char_boundary(end) {
-        end -= 1;
-    }
-    &text[..end]
+    truncate_utf16(text, MAX_TEXT_LENGTH)
 }
 
 /// Extract searchable text content from a [`SessionMessage`] for FTS
@@ -118,19 +110,10 @@ pub fn extract_message_text(msg: &SessionMessage) -> String {
             parts.push(m.ai_title.as_str());
         }
         SessionMessage::System(sys) => {
-            // TS pushes the raw top-level `content` field for system lines.
-            // In Rust that content lives on the subtype payload; pull it
-            // from the variants that carry it (parity with extractTextContent).
-            let content = match &sys.payload {
-                SystemMessagePayload::AwaySummary(p) => Some(p.content.as_str()),
-                SystemMessagePayload::LocalCommand(p) => Some(p.content.as_str()),
-                SystemMessagePayload::CompactBoundary(p) => Some(p.content.as_str()),
-                SystemMessagePayload::MicrocompactBoundary(p) => Some(p.content.as_str()),
-                SystemMessagePayload::BridgeStatus(p) => p.content.as_deref(),
-                SystemMessagePayload::Informational(p) => p.content.as_deref(),
-                _ => None,
-            };
-            if let Some(c) = content {
+            // TS indexes the top-level `content` string of ANY system message
+            // regardless of subtype (missing/unknown subtype included). We read
+            // it straight off the message, matching extractTextContent exactly.
+            if let Some(c) = sys.content_str() {
                 parts.push(c);
             }
         }
@@ -196,6 +179,33 @@ mod tests {
         assert_eq!(extract_message_text(&msg), "recap prose");
     }
 
+    #[test]
+    fn system_message_missing_subtype_still_indexes_content() {
+        // No `subtype` field at all: the old internally-tagged payload failed
+        // this parse, nulling FTS. It must now parse AND index `content`.
+        let line =
+            r#"{"type":"system","content":"heads up","sessionId":"s","uuid":"u","timestamp":"t"}"#;
+        let msg: SessionMessage = serde_json::from_str(line).expect("missing subtype must parse");
+        assert!(matches!(msg, SessionMessage::System(_)));
+        assert_eq!(extract_message_text(&msg), "heads up");
+    }
+
+    #[test]
+    fn system_message_unknown_subtype_indexes_content() {
+        let line = r#"{"type":"system","subtype":"brand_new_kind","content":"future prose","sessionId":"s","uuid":"u","timestamp":"t"}"#;
+        let msg: SessionMessage = serde_json::from_str(line).unwrap();
+        assert_eq!(extract_message_text(&msg), "future prose");
+    }
+
+    #[test]
+    fn system_message_non_string_content_is_skipped_not_errored() {
+        // A non-string `content` must not fail the parse; it just yields no
+        // FTS text (matching the tolerant extractor contract).
+        let line = r#"{"type":"system","subtype":"x","content":{"nested":true},"sessionId":"s","uuid":"u","timestamp":"t"}"#;
+        let msg: SessionMessage = serde_json::from_str(line).expect("must parse");
+        assert_eq!(extract_message_text(&msg), "");
+    }
+
     // ─── truncate ──────────────────────────────────────────────────────────
 
     #[test]
@@ -220,21 +230,26 @@ mod tests {
     }
 
     #[test]
-    fn truncate_respects_utf8_boundaries() {
-        // Construct a string where a naive byte cut at MAX_TEXT_LENGTH would
-        // land in the middle of a multi-byte codepoint.
-        //
-        // '€' is 3 bytes in UTF-8 (E2 82 AC). Prefix with (MAX-1) ASCII bytes
-        // so the '€' starts at byte index MAX-1, meaning naive slicing at
-        // MAX would split it.
+    fn truncate_counts_utf16_units_not_bytes() {
+        // '€' is 3 UTF-8 bytes but a single UTF-16 code unit. With (MAX-1)
+        // ASCII chars before it, the '€' lands at unit MAX and therefore FITS
+        // — a byte-based cut would have dropped it. `tail` exceeds the cap.
         let prefix = "a".repeat(MAX_TEXT_LENGTH - 1);
         let s = format!("{prefix}€tail");
         let out = truncate(&s);
-        // The cut must back off to the preceding char boundary at MAX-1.
-        assert_eq!(out.len(), MAX_TEXT_LENGTH - 1);
+        assert_eq!(out, format!("{prefix}€"));
+        assert!(!out.contains("tail"));
+    }
+
+    #[test]
+    fn truncate_never_splits_astral_char() {
+        // '😀' is 2 UTF-16 code units. With (MAX-1) ASCII chars before it,
+        // including it would reach MAX+1 units, so it is dropped whole rather
+        // than emitting a lone surrogate.
+        let prefix = "a".repeat(MAX_TEXT_LENGTH - 1);
+        let s = format!("{prefix}😀tail");
+        let out = truncate(&s);
         assert_eq!(out, prefix.as_str());
-        // And the output must still be valid UTF-8 / slicing must not have
-        // panicked — implicit from returning a &str.
     }
 
     #[test]

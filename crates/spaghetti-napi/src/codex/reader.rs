@@ -241,7 +241,9 @@ fn peek(path: &Path) -> Option<PeekMeta> {
                 if let Ok(Some(proj)) = message_extractor::project_jsonl_line(line) {
                     if proj.msg_type == "user" {
                         if let Some(t) = proj.fts_text {
-                            first_prompt = t.chars().take(FIRST_PROMPT_MAX).collect();
+                            // 200 UTF-16 code units, matching TS `.slice(0, 200)`.
+                            first_prompt =
+                                crate::core::text::truncate_utf16(&t, FIRST_PROMPT_MAX).to_owned();
                         }
                     }
                 }
@@ -300,8 +302,8 @@ fn stream_session(
     let mut last_byte: u64 = 0;
     // Absolute line index in file (including skipped lines) — matches TS CodexReader
     let mut line_index: u32 = 0;
-    // Last assistant message for token attribution
-    let mut last_assistant: Option<(u32, String, MessageProjection)> = None;
+    // Last assistant message for token attribution: (index, byte_offset, raw, proj).
+    let mut last_assistant: Option<(u32, u64, String, MessageProjection)> = None;
     let mut send_err: Option<SendError<IngestEvent>> = None;
 
     let stream = read_jsonl_streaming(&sess.path, 0, |line, _idx, byte_offset| {
@@ -330,7 +332,7 @@ fn stream_session(
                     fts_text: proj.fts_text.clone(),
                 };
                 if proj.msg_type == "assistant" {
-                    last_assistant = Some((idx, line.to_owned(), proj));
+                    last_assistant = Some((idx, byte_offset, line.to_owned(), proj));
                 }
                 if let Err(e) = events.send(ev) {
                     send_err = Some(e);
@@ -339,27 +341,42 @@ fn stream_session(
                 message_count = message_count.saturating_add(1);
             }
             Ok(None) => {
-                // token_count attribution
-                if let Some((in_t, out_t, cc, cr)) = message_extractor::parse_token_count(line) {
-                    if let Some((a_idx, raw, proj)) = last_assistant.as_ref() {
+                // token_count attribution onto the preceding assistant.
+                if let Some(tc) = message_extractor::parse_token_count(line) {
+                    // Re-emit the assistant carrying its ORIGINAL byte offset
+                    // (not 0 — a hardcoded 0 clobbered the stored offset on the
+                    // UPSERT, breaking incremental resume for that row).
+                    let mut clear_pointer = false;
+                    if let Some((a_idx, a_byte, raw, proj)) = last_assistant.as_ref() {
                         let ev = IngestEvent::Message {
                             slug: slug.to_owned(),
                             session_id: session_id.clone(),
                             index: *a_idx,
-                            byte_offset: 0,
+                            byte_offset: *a_byte,
                             raw_json: raw.clone(),
                             msg_type: proj.msg_type.clone(),
                             uuid: proj.uuid.clone(),
                             timestamp: proj.timestamp.clone(),
-                            input_tokens: in_t,
-                            output_tokens: out_t,
-                            cache_creation_tokens: cc,
-                            cache_read_tokens: cr,
+                            input_tokens: tc.input,
+                            output_tokens: tc.output,
+                            cache_creation_tokens: tc.cache_creation,
+                            cache_read_tokens: tc.cache_read,
                             fts_text: proj.fts_text.clone(),
                         };
                         if let Err(e) = events.send(ev) {
                             send_err = Some(e);
+                            return;
                         }
+                        // Total-only count (no per-turn last_token_usage): clear
+                        // the pointer so a subsequent total-only count isn't
+                        // re-applied to this same assistant (mirrors the TS
+                        // onSkippedRecord guard in codex ingest-hooks).
+                        if !tc.from_last {
+                            clear_pointer = true;
+                        }
+                    }
+                    if clear_pointer {
+                        last_assistant = None;
                     }
                 }
             }
@@ -393,33 +410,12 @@ fn file_stats(path: &Path) -> (f64, u64) {
     }
 }
 
+/// Epoch-ms → ISO 8601, matching JS `new Date(ms).toISOString()` (3-digit ms
+/// fraction + trailing `Z`). Shared with the Claude/Grok readers so all three
+/// engines format session timestamps identically — `time`'s `Rfc3339` trims
+/// trailing fractional zeros, which JS never does.
 fn ms_to_iso(mtime_ms: f64) -> String {
-    let secs = (mtime_ms / 1000.0).floor() as u64;
-    let nanos = ((mtime_ms % 1000.0) * 1_000_000.0) as u32;
-    let t = UNIX_EPOCH + std::time::Duration::new(secs, nanos);
-    // Prefer time crate if available — use simple RFC3339 via SystemTime debug fallback
-    match t.duration_since(UNIX_EPOCH) {
-        Ok(d) => {
-            let s = d.as_secs();
-            let ms = d.subsec_millis();
-            // Manual UTC format without chrono
-            format_utc(s, ms)
-        }
-        Err(_) => String::new(),
-    }
-}
-
-fn format_utc(unix_secs: u64, ms: u32) -> String {
-    // Use time crate (already a dependency)
-    use time::OffsetDateTime;
-    match OffsetDateTime::from_unix_timestamp(unix_secs as i64) {
-        Ok(dt) => {
-            let dt = dt + time::Duration::milliseconds(ms as i64);
-            dt.format(&time::format_description::well_known::Rfc3339)
-                .unwrap_or_default()
-        }
-        Err(_) => String::new(),
-    }
+    crate::core::timefmt::epoch_ms_to_iso8601(mtime_ms)
 }
 
 #[cfg(test)]
@@ -502,5 +498,83 @@ mod tests {
         assert!(msgs
             .iter()
             .any(|(_, _, _, f)| f.as_deref() == Some("hello")));
+    }
+
+    #[test]
+    fn token_reemit_carries_byte_offset_and_guards_repeat_total() {
+        let tmp = TempDir::new().unwrap();
+        let day = tmp.path().join("sessions/2026/01/01");
+        std::fs::create_dir_all(&day).unwrap();
+        let file = day.join("rollout-2026-01-01T00-00-00-019cccccccccccccccccccccccc.jsonl");
+        let mut f = std::fs::File::create(&file).unwrap();
+        writeln!(
+            f,
+            r#"{{"timestamp":"2026-01-01T00:00:00.000Z","type":"session_meta","payload":{{"id":"sess-2","cwd":"/tmp/demo2"}}}}"#
+        )
+        .unwrap();
+        writeln!(
+            f,
+            r#"{{"timestamp":"2026-01-01T00:00:01.000Z","type":"response_item","payload":{{"type":"message","role":"assistant","id":"a1","content":[{{"type":"output_text","text":"hi"}}]}}}}"#
+        )
+        .unwrap();
+        // total-only token_count → attribute to a1 AND clear the pointer.
+        writeln!(
+            f,
+            r#"{{"type":"event_msg","payload":{{"type":"token_count","info":{{"total_token_usage":{{"input_tokens":100,"output_tokens":50,"cached_input_tokens":0,"reasoning_output_tokens":0}}}}}}}}"#
+        )
+        .unwrap();
+        // second total-only token_count → pointer cleared → must NOT re-apply.
+        writeln!(
+            f,
+            r#"{{"type":"event_msg","payload":{{"type":"token_count","info":{{"total_token_usage":{{"input_tokens":999,"output_tokens":999,"cached_input_tokens":0,"reasoning_output_tokens":0}}}}}}}}"#
+        )
+        .unwrap();
+
+        let (tx, rx) = unbounded();
+        CodexReader::read_all(tmp.path().join("sessions").as_path(), &tx).unwrap();
+        drop(tx);
+        let events: Vec<_> = rx.iter().collect();
+
+        let assistant_msgs: Vec<(u64, u64, u64)> = events
+            .iter()
+            .filter_map(|e| match e {
+                IngestEvent::Message {
+                    msg_type,
+                    byte_offset,
+                    input_tokens,
+                    output_tokens,
+                    ..
+                } if msg_type == "assistant" => Some((*byte_offset, *input_tokens, *output_tokens)),
+                _ => None,
+            })
+            .collect();
+
+        // Original emit (0 tokens) + exactly one token re-emit (first total).
+        // The second total-only count must NOT produce a third.
+        assert_eq!(
+            assistant_msgs.len(),
+            2,
+            "second total-only count must not re-apply to the same assistant"
+        );
+        let original = assistant_msgs
+            .iter()
+            .find(|(_, i, _)| *i == 0)
+            .expect("original assistant emit");
+        let reemit = assistant_msgs
+            .iter()
+            .find(|(_, i, _)| *i == 100)
+            .expect("token re-emit with first total");
+        // 5a: the re-emit carries the ORIGINAL byte offset (not a hardcoded 0).
+        assert_ne!(
+            original.0, 0,
+            "assistant is not the first line -> offset > 0"
+        );
+        assert_eq!(
+            reemit.0, original.0,
+            "re-emit must carry the original byte offset"
+        );
+        assert_eq!(reemit.2, 50);
+        // 5b: no emit ever carries the second total (999).
+        assert!(!assistant_msgs.iter().any(|(_, i, _)| *i == 999));
     }
 }
