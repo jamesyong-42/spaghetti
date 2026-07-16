@@ -20,6 +20,7 @@ import { MenuView } from './menu-view.js';
 import { SearchView } from './search-view.js';
 import { BootView } from './boot-view.js';
 import { SearchInput } from './search-input.js';
+import { ErrorBoundary } from './error-boundary.js';
 import { useAlternateScreen } from './hooks.js';
 
 // ─── Version ──────────────────────────────────────────────────────────
@@ -213,11 +214,20 @@ export function Shell({ api }: ShellProps): React.ReactElement {
   const handleSearch = useCallback(
     (query: string) => {
       setSearchMode(false);
-      const searchResults = api.search({ text: query });
+      // This query runs in an event handler (outside render), so a throw here
+      // would escape the ErrorBoundary and crash the shell. Guard it; SearchView
+      // re-runs the search and is itself wrapped by the boundary, so a genuine
+      // query failure surfaces there as a panel rather than a raw stack.
+      let total = 0;
+      try {
+        total = api.search({ text: query }).total;
+      } catch {
+        // fall through with total = 0; SearchView reports the real error
+      }
       const entry: ViewEntry = {
         type: 'search',
         component: () => <SearchView query={query} />,
-        breadcrumb: `Search: "${query}" (${searchResults.total} results)`,
+        breadcrumb: `Search: "${query}" (${total} results)`,
         hints: '\u2191\u2193 navigate  \u23CE jump to message  Esc back  / new search',
       };
       push(entry);
@@ -299,7 +309,11 @@ export function Shell({ api }: ShellProps): React.ReactElement {
         <Box flexDirection="column">
           {!isRoot && top.type !== 'project-tabs' && top.type !== 'session-tabs' && <Header breadcrumb={breadcrumb} />}
           <Box flexGrow={1} flexDirection="column">
-            <TopView />
+            {/* Isolate the active view: a query-time throw shows a panel instead
+                of crashing the whole TUI. resetKey clears it on navigation. */}
+            <ErrorBoundary resetKey={stack.length} canGoBack={!isRoot} onBack={pop} onQuit={quit}>
+              <TopView />
+            </ErrorBoundary>
           </Box>
           {footerContent}
         </Box>

@@ -2,7 +2,7 @@
  * ProjectsView — Scrollable list of projects
  */
 
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import { Box, Text, useInput } from 'ink';
 import type { ProjectListItem } from '@vibecook/spaghetti-sdk';
 import { useViewNav } from './context.js';
@@ -145,26 +145,38 @@ export function ProjectsView(): React.ReactElement {
     [allProjects, agents, activeTab, hasTabs],
   );
 
-  const firstPrompts = useMemo(() => {
-    const map = new Map<string, string>();
-    for (const p of projects) {
-      const sess = api.getSessionList(p.slug, { sourceId: p.sourceId });
-      if (sess.length > 0) {
-        map.set(projectKey(p), sess[0].firstPrompt || '');
-      }
-    }
-    return map;
-  }, [api, projects]);
+  // Cache first prompts across renders and tab switches so a project is queried
+  // at most once. Populated lazily for only the visible slice below — the old
+  // code ran one blocking getSessionList() per project on every mount (N+1).
+  const firstPromptCache = useRef<Map<string, string>>(new Map());
 
   // Viewport = terminal rows - header/footer chrome - the agent tab bar (1 line).
   const chromeLines = hasTabs ? 5 : 4;
   const viewportHeight = Math.max(5, rows - chromeLines);
+  const visibleItems = Math.max(1, Math.floor(viewportHeight / 4));
 
   const { selectedIndex, scrollOffset, moveUp, moveDown, jumpTo } = useListNavigation({
     itemCount: projects.length,
     itemHeight: 4,
     viewportHeight,
   });
+
+  // First prompts for just the on-screen projects. Recomputed as the user
+  // scrolls or switches tabs, but each project's session list is fetched only
+  // once (cached), so scrolling stays cheap.
+  const firstPrompts = useMemo(() => {
+    const cache = firstPromptCache.current;
+    const slice = projects.slice(scrollOffset, scrollOffset + visibleItems);
+    for (const p of slice) {
+      const key = projectKey(p);
+      if (!cache.has(key)) {
+        const sess = api.getSessionList(p.slug, { sourceId: p.sourceId });
+        cache.set(key, sess.length > 0 ? sess[0].firstPrompt || '' : '');
+      }
+    }
+    // Return a fresh snapshot so newly-cached prompts trigger a re-render.
+    return new Map(cache);
+  }, [api, projects, scrollOffset, visibleItems]);
 
   const switchTab = (idx: number): void => {
     setActiveTab(idx);
@@ -208,8 +220,7 @@ export function ProjectsView(): React.ReactElement {
     );
   }
 
-  // Visible slice — use the same viewportHeight as useListNavigation
-  const visibleItems = Math.max(1, Math.floor(viewportHeight / 4));
+  // Visible slice — visibleItems is computed above (shared with firstPrompts).
   const visibleProjects = projects.slice(scrollOffset, scrollOffset + visibleItems);
 
   return (

@@ -59,6 +59,18 @@ export function useListNavigation(opts: ListNavigationOptions): ListNavigationRe
     [itemCount, visibleItems],
   );
 
+  // Re-clamp when the list length changes out from under us (live streams,
+  // filter toggles). Without this the selection/scroll can point past the end
+  // after the list shrinks. Growing the list leaves both untouched.
+  useEffect(() => {
+    const maxIndex = Math.max(0, itemCount - 1);
+    setSelectedIndex((idx) => (idx > maxIndex ? maxIndex : idx));
+    setScrollOffset((off) => {
+      const maxOffset = Math.max(0, itemCount - visibleItems);
+      return off > maxOffset ? maxOffset : off;
+    });
+  }, [itemCount, visibleItems]);
+
   const moveUp = useCallback(() => {
     clampAndScroll(selectedIndex > 0 ? selectedIndex - 1 : selectedIndex);
   }, [selectedIndex, clampAndScroll]);

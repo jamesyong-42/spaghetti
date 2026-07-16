@@ -7,6 +7,7 @@ import { theme } from '../lib/color.js';
 import { formatTokenUsage, formatRelativeTime, formatDuration, formatNumber } from '../lib/format.js';
 import { resolveProject, resolveSession, suggestProjects } from '../lib/resolve.js';
 import { UserError, noProjectMatch, noSessionMatch } from '../lib/error.js';
+import { resolveLimit, resolveOffset, resolveOptionalCount } from '../lib/limit.js';
 import { renderMessages, filterDisplayableMessages } from '../lib/message-render.js';
 import { adaptMessagesForDisplay } from '../lib/source-messages.js';
 import { outputWithPager } from '../lib/pager.js';
@@ -21,6 +22,26 @@ export interface MessagesOptions {
   noThinking?: boolean;
   raw?: boolean;
   json?: boolean;
+}
+
+/**
+ * Whether messages exist beyond the ones displayed — drives the footer's
+ * "more available" hint. Exported for testing.
+ *
+ * For the head view (default / --offset), more exist when the raw pages had
+ * more (`rawHasMore`) or over-fetched filtered messages were trimmed
+ * (`trimmedMore`). For the `--last` tail view, "more" means OLDER messages —
+ * either ones we never fetched (`offset > 0`) or ones trimmed off the front
+ * (`trimmedMore`). The old `displayed >= limit` check wrongly fired whenever
+ * the last page was fully shown, even with nothing older to see.
+ */
+export function hasMoreToShow(opts: {
+  isLast: boolean;
+  offset: number;
+  trimmedMore: boolean;
+  rawHasMore: boolean;
+}): boolean {
+  return opts.isLast ? opts.offset > 0 || opts.trimmedMore : opts.rawHasMore || opts.trimmedMore;
 }
 
 export async function messagesCommand(
@@ -57,19 +78,20 @@ export async function messagesCommand(
     throw noSessionMatch(sesStr, project.folderName);
   }
 
-  // Calculate offset and limit
-  const requestedLimit = opts.limit ?? 50;
-  let offset = opts.offset ?? 0;
+  // Calculate offset and limit (guard NaN from commander's parseInt coercer)
+  const requestedLimit = resolveLimit(opts.limit, 50);
+  const lastN = resolveOptionalCount(opts.last);
+  let offset = resolveOffset(opts.offset);
 
-  if (opts.last) {
+  if (lastN) {
     // Show last N messages: over-fetch from the end to account for internal types
     const total = session.messageCount;
-    const overfetch = opts.last * 3;
+    const overfetch = lastN * 3;
     offset = Math.max(total - overfetch, 0);
   }
 
   // The effective display limit: --last N overrides --limit
-  const displayLimit = opts.last ?? requestedLimit;
+  const displayLimit = lastN ?? requestedLimit;
 
   // JSON/raw: fetch with exact limit, no filtering (raw stays source-native)
   if (opts.json) {
@@ -120,12 +142,16 @@ export async function messagesCommand(
     fetchOffset += morePage.messages.length;
   }
 
-  // Trim to the requested limit: for --last, take the tail; otherwise take the head
-  if (opts.last) {
+  // Trim to the requested limit: for --last, take the tail; otherwise take the head.
+  // Keep the pre-trim count so the footer can tell whether messages exist beyond
+  // what's shown (older ones dropped for --last, extra fetched ones for the head).
+  const preTrimCount = displayMessages.length;
+  if (lastN) {
     displayMessages = displayMessages.slice(-displayLimit);
   } else {
     displayMessages = displayMessages.slice(0, displayLimit);
   }
+  const trimmedMore = preTrimCount > displayMessages.length;
 
   const width = getTerminalWidth();
   const divider = theme.muted('\u2500'.repeat(Math.min(width, 60)));
@@ -175,7 +201,7 @@ export async function messagesCommand(
     footerParts.push(`offset ${offset}`);
   }
   footerParts.push(`${displayMessages.length}/${totalRaw} messages`);
-  if (lastHasMore || displayMessages.length >= displayLimit) {
+  if (hasMoreToShow({ isLast: lastN !== undefined, offset, trimmedMore, rawHasMore: lastHasMore })) {
     footerParts.push('more available (use --offset or --last)');
   }
   const footer = theme.muted(`  ${footerParts.join(' \u00b7 ')}`);

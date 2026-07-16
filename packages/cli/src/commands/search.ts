@@ -6,6 +6,7 @@ import type { SpaghettiAPI } from '@vibecook/spaghetti-sdk';
 import { theme } from '../lib/color.js';
 import { resolveProject, suggestProjects } from '../lib/resolve.js';
 import { noProjectMatch } from '../lib/error.js';
+import { resolveLimit, resolveOffset } from '../lib/limit.js';
 import { outputWithPager } from '../lib/pager.js';
 import { getTerminalWidth } from '../lib/terminal.js';
 import cliTruncate from 'cli-truncate';
@@ -32,8 +33,8 @@ export async function searchCommand(api: SpaghettiAPI, query: string, opts: Sear
     projectSlug = project.slug;
   }
 
-  const limit = opts.limit ?? 20;
-  const offset = opts.offset ?? 0;
+  const limit = resolveLimit(opts.limit, 20);
+  const offset = resolveOffset(opts.offset);
 
   // Execute search
   const results = api.search({
