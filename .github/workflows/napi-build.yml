@@ -123,15 +123,18 @@ jobs:
     strategy:
       fail-fast: false
       # Every published binary must be require()-loaded before publish. All 5
-      # build targets have a matching test host: macos-latest is Apple Silicon,
-      # macos-13 is the last Intel macOS runner, and ubuntu-24.04-arm is the
-      # GitHub-hosted ARM Linux runner.
+      # build targets have a matching test host. darwin-x64 runs on the Apple
+      # Silicon runner under Rosetta 2 (setup-node architecture: x64 makes the
+      # whole job x64) — GitHub's Intel macos-13 runners are retired/starved
+      # and jobs targeting them queue indefinitely (stalled the 0.5.19
+      # release). ubuntu-24.04-arm is the GitHub-hosted ARM Linux runner.
       matrix:
         settings:
           - host: macos-latest
             target: aarch64-apple-darwin
-          - host: macos-13
+          - host: macos-latest
             target: x86_64-apple-darwin
+            nodeArch: x64
           - host: ubuntu-latest
             target: x86_64-unknown-linux-gnu
           - host: ubuntu-24.04-arm
@@ -147,6 +150,9 @@ jobs:
       - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v5
         with:
           node-version: 24
+          # x64 for the darwin-x64-under-Rosetta entry; empty string falls
+          # back to the runner's native architecture.
+          architecture: ${{ matrix.settings.nodeArch || '' }}
           package-manager-cache: false
 
       - name: Install dependencies

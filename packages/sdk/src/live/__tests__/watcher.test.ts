@@ -114,6 +114,9 @@ describe('createParcelWatcher (RFC 005 C2.1)', () => {
       ignore: [],
       recursive: true,
     });
+    // Warm-up beat: subscribe resolving does not guarantee the backend
+    // is delivering yet on every platform.
+    await new Promise((r) => setTimeout(r, 100));
 
     const target = path.join(realTempDir, 'create-me.txt');
     writeFileSync(target, 'hello');
@@ -194,6 +197,9 @@ describe('createParcelWatcher (RFC 005 C2.1)', () => {
       ignore: [],
       recursive: true,
     });
+    // Warm-up beat: subscribe resolving does not guarantee the backend
+    // is delivering yet on every platform (see the delete test above).
+    await new Promise((r) => setTimeout(r, 100));
 
     // Prove the watcher is live by catching one event first.
     const preTarget = path.join(realTempDir, 'pre-unsubscribe.txt');
