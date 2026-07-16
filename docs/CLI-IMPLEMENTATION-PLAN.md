@@ -1,3 +1,8 @@
+> **⚠️ Historical design doc — superseded.** This plan targets the
+> `@spaghetti/core` / `@spaghetti/ui` architecture, which was never shipped and
+> has been removed from the repo. Kept for design-history reference only; do not
+> treat the package layout or APIs here as current.
+
 # Spaghetti CLI — Implementation Plan
 
 **Status**: Ready for implementation

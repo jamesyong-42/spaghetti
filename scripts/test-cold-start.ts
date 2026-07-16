@@ -1,10 +1,16 @@
 /**
  * Integration test — Verify cold start correctly parses all projects with JSONL files.
  *
+ * ⚠️  DANGER: this manual dev script ingests into your REAL Spaghetti cache DB at
+ *     ~/.spaghetti/cache/spaghetti.db (createSpaghettiService() uses the default
+ *     path). Unlike the other dev scripts there is no local DB-path constant to
+ *     redirect — the path is chosen inside the SDK — so run it only when you
+ *     intend to touch real data.
+ *
  * Usage: rm -f ~/.spaghetti/cache/spaghetti.db && npx tsx scripts/test-cold-start.ts
  */
 
-import { createSpaghettiService } from '../packages/core/src/index.js';
+import { createSpaghettiService } from '../packages/sdk/src/index.js';
 
 async function main() {
   console.log('Creating service...');
