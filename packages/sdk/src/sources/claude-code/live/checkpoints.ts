@@ -108,7 +108,7 @@ export interface CheckpointStore {
 // ═══════════════════════════════════════════════════════════════════════════
 
 export interface CreateCheckpointStoreOptions {
-  /** Absolute path to the JSON state file (e.g. ~/.claude/.spaghetti-live-state.json). */
+  /** Absolute path to the JSON state file (e.g. `<dbPath>.live-state.json` — never inside the watched rootDir). */
   filePath: string;
 }
 

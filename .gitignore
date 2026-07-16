@@ -17,3 +17,7 @@ target/
 scripts/coverage/out/
 __pycache__/
 *.pyc
+
+# Live-tail checkpoint state (runtime artifact, never committed)
+.spaghetti-live-state.json
+.spaghetti-live-state.json.tmp
