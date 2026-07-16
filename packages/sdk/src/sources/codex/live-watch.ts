@@ -152,10 +152,15 @@ export function createCodexLiveWatch(deps: CodexLiveWatchDeps): CodexLiveWatch {
       }
 
       // Incremental read from the last offset; msg_index = absolute file line.
+      // Only newline-terminated lines are consumed: an unterminated tail is
+      // typically a row mid-write — emitting it (or advancing past it) would
+      // permanently drop the completed message, so we resume from
+      // lastTerminatedPosition and pick it up on the next event.
       const rows: ParsedRow[] = [];
       const res = deps.fileService.readJsonlStreaming<unknown>(
         file,
-        (line, idx, byteOffset) => {
+        (line, idx, byteOffset, _endByteOffset, terminated) => {
+          if (!terminated) return;
           rows.push({
             category: 'message',
             slug: st!.slug,
@@ -167,8 +172,8 @@ export function createCodexLiveWatch(deps: CodexLiveWatchDeps): CodexLiveWatch {
         },
         { fromBytePosition: st.byteOffset },
       );
-      st.byteOffset = res.finalBytePosition;
-      st.nextIndex += rows.length;
+      st.byteOffset = res.lastTerminatedPosition;
+      st.nextIndex += res.terminatedLineCount;
 
       if (rows.length > 0) {
         const result = await deps.ingestService.writeBatch(rows);

@@ -5,7 +5,7 @@
  * incrementally using the streaming JSONL reader's fromBytePosition support.
  */
 
-import { watch, existsSync, writeFileSync, mkdirSync, type FSWatcher } from 'fs';
+import { watch, existsSync, statSync, writeFileSync, mkdirSync, type FSWatcher } from 'fs';
 import { dirname } from 'path';
 import { readJsonlStreaming } from './streaming-jsonl-reader.js';
 import type { HookEvent } from '../types/spaghetti/hook-events.js';
@@ -53,15 +53,29 @@ export function createHookEventWatcher(options?: HookEventWatcherOptions): HookE
   function readNewEvents(): void {
     if (!existsSync(eventsPath)) return;
 
+    // Truncation/rotation recovery: if the file shrank below our cursor,
+    // an external process rewrote it — re-read from the top instead of
+    // wedging forever past EOF.
+    try {
+      if (statSync(eventsPath).size < lastBytePosition) {
+        lastBytePosition = 0;
+      }
+    } catch {
+      return;
+    }
+
+    // Only deliver newline-terminated events and resume from
+    // lastTerminatedPosition: an unterminated tail is a row mid-write,
+    // and advancing past it would permanently drop that event.
     const newEvents: HookEvent[] = [];
     const result = readJsonlStreaming<HookEvent>(
       eventsPath,
-      (entry) => {
-        newEvents.push(entry);
+      (entry, _idx, _off, _end, terminated) => {
+        if (terminated) newEvents.push(entry);
       },
       { fromBytePosition: lastBytePosition },
     );
-    lastBytePosition = result.finalBytePosition;
+    lastBytePosition = result.lastTerminatedPosition;
 
     for (const event of newEvents) {
       for (const listener of listeners) {
@@ -86,16 +100,21 @@ export function createHookEventWatcher(options?: HookEventWatcherOptions): HookE
         mkdirSync(dir, { recursive: true });
       }
 
-      // If file exists, seek to end so we only get new events
+      // If file exists, seek past existing events so we only get new ones.
+      // Seek to the last terminated line: an unterminated tail at start is
+      // a write in flight and should be delivered once it completes.
       if (existsSync(eventsPath)) {
         const seekResult = readJsonlStreaming<HookEvent>(eventsPath, () => {}, { fromBytePosition: 0 });
-        lastBytePosition = seekResult.finalBytePosition;
+        lastBytePosition = seekResult.lastTerminatedPosition;
       }
 
       // Watch the directory (more reliable than watching a file that may not exist yet)
       try {
         watcher = watch(dir, (eventType, filename) => {
-          if (filename === 'events.jsonl') {
+          // Some platforms report a null filename — fall through to a
+          // read rather than dropping the wakeup (readNewEvents no-ops
+          // when nothing new landed).
+          if (filename === 'events.jsonl' || filename === null) {
             onFileChange();
           }
         });
