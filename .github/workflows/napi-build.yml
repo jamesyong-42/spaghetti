@@ -1,8 +1,8 @@
 name: NAPI Build
 
-# Builds @vibecook/spaghetti-sdk-native for all 5 targets, tests the
-# resulting .node binaries on 3 hosts, and publishes platform packages
-# + the main package to npm with provenance.
+# Builds @vibecook/spaghetti-sdk-native for all 5 targets, require()-loads
+# every resulting .node binary on a matching host, and publishes the single
+# fat main package (bundling all 5 binaries) to npm with provenance.
 #
 # Triggered by release.yml on release_created, or manually via
 # workflow_dispatch (useful for debugging).
@@ -81,6 +81,18 @@ jobs:
         with:
           targets: ${{ matrix.settings.target }}
 
+      # Cache the cargo registry + target dir so fat-LTO release builds don't
+      # recompile every dependency from scratch on each release. Keyed per
+      # target so cross-compiled outputs (e.g. aarch64-linux built on x86 hosts)
+      # don't collide with same-host native builds. ci.yml / bench-gate.yml use
+      # actions/cache directly; rust-cache is the napi-rs standard and handles
+      # target-dir pruning for us.
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: '. -> target'
+          key: ${{ matrix.settings.target }}
+
       - name: Install cross-compilation tools (aarch64-linux)
         if: matrix.settings.target == 'aarch64-unknown-linux-gnu'
         run: |
@@ -110,12 +122,20 @@ jobs:
     runs-on: ${{ matrix.settings.host }}
     strategy:
       fail-fast: false
+      # Every published binary must be require()-loaded before publish. All 5
+      # build targets have a matching test host: macos-latest is Apple Silicon,
+      # macos-13 is the last Intel macOS runner, and ubuntu-24.04-arm is the
+      # GitHub-hosted ARM Linux runner.
       matrix:
         settings:
           - host: macos-latest
             target: aarch64-apple-darwin
+          - host: macos-13
+            target: x86_64-apple-darwin
           - host: ubuntu-latest
             target: x86_64-unknown-linux-gnu
+          - host: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-gnu
           - host: windows-latest
             target: x86_64-pc-windows-msvc
     steps:
@@ -180,37 +200,23 @@ jobs:
           cd crates/spaghetti-napi
           npx napi artifacts
 
-      # Sync platform package.json versions to match the main package.
-      # `napi prepublish` would normally do this, but we skip it because it
-      # runs child `npm publish` calls that don't inherit OIDC context.
-      - name: Sync platform package versions
-        run: |
-          cd crates/spaghetti-napi
-          VERSION=$(node -p "require('./package.json').version")
-          echo "Syncing platform packages to $VERSION"
-          for pkg in npm/*/; do
-            (cd "$pkg" && npm version "$VERSION" --no-git-tag-version --allow-same-version)
-          done
-
-      # Publish each platform package individually with --provenance.
-      # We skip the main package's prepublishOnly hook (napi prepublish)
-      # because it runs child `npm publish` calls that don't inherit OIDC.
+      # We publish ONLY the main package, which fat-bundles all 5 .node binaries
+      # (see its `files: ["*.node"]`). The per-platform packages under
+      # crates/spaghetti-napi/npm/* are deliberately NOT published: nothing
+      # references them. The proper slim layout would have the main package
+      # declare them as optionalDependencies (one per platform), which
+      # `napi prepublish` injects — but the main package is published below with
+      # `--ignore-scripts` (that hook shells out to child `npm publish` calls
+      # that don't inherit our OIDC context), so prepublish never runs and no
+      # optionalDependencies are written. Publishing the platform packages
+      # therefore produced orphans that only wasted a release step.
       #
-      # Prereleases (versions containing `-`, e.g. 0.6.0-rc.0) must be
-      # published under a dist-tag other than `latest` or npm rejects
-      # them. Detect and pass `--tag next` when needed.
-      - name: Publish platform packages
-        run: |
-          VERSION=$(node -p "require('./crates/spaghetti-napi/package.json').version")
-          TAG_ARG=""
-          if [[ "$VERSION" == *-* ]]; then
-            TAG_ARG="--tag next"
-            echo "Prerelease detected ($VERSION) — publishing with --tag next"
-          fi
-          for pkg in crates/spaghetti-napi/npm/*/; do
-            echo "Publishing $(basename $pkg)..."
-            (cd "$pkg" && npm publish --provenance --access public --registry https://registry.npmjs.org $TAG_ARG)
-          done
+      # TO MIGRATE to slim+optionalDependencies later (out of scope here):
+      #   1. Run `napi prepublish -t npm` in an OIDC-capable context so it both
+      #      publishes the platform packages AND rewrites the main package.json
+      #      to slim (drop `*.node` from `files`, add the optionalDependencies).
+      #   2. Republish the platform packages and the slimmed main package.
+      # Until then, the fat bundle is the single source of the binaries.
 
       - name: Publish main package
         run: |

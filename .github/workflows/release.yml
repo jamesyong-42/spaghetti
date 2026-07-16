@@ -17,6 +17,9 @@ jobs:
     outputs:
       release_created: ${{ steps.release.outputs.release_created }}
       tag_name: ${{ steps.release.outputs.tag_name }}
+      # Run id of the napi-build workflow we dispatch below, so the publish job
+      # can watch its conclusion and abort the release if the native build fails.
+      napi_run_id: ${{ steps.dispatch.outputs.napi_run_id }}
     steps:
       - id: release
         uses: googleapis/release-please-action@v4
@@ -26,20 +29,52 @@ jobs:
       # GITHUB_TOKEN releases don't trigger 'release: created' events, so we
       # dispatch the napi-build workflow explicitly. It runs the 5-target
       # build matrix and publishes @vibecook/spaghetti-sdk-native to npm.
+      #
+      # `gh workflow run` is fire-and-forget and does not return the run id, so
+      # we poll `gh run list` to recover it and expose it as a job output. The
+      # publish job watches that run and refuses to publish if it fails.
       - name: Trigger NAPI build and publish
+        id: dispatch
         if: ${{ steps.release.outputs.release_created }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          set -euo pipefail
           gh workflow run napi-build.yml --repo "${{ github.repository }}" --ref "${{ steps.release.outputs.tag_name }}"
+          RUN_ID=""
+          for i in $(seq 1 12); do
+            # `|| true` so a transient gh failure just retries the loop (and, if
+            # it never succeeds, degrades to the publish job's npm-poll fallback)
+            # rather than aborting under `set -e` and leaving a release with no
+            # published artifacts.
+            RUN_ID=$(gh run list --repo "${{ github.repository }}" \
+              --workflow napi-build.yml \
+              --branch "${{ steps.release.outputs.tag_name }}" \
+              --event workflow_dispatch \
+              --limit 1 --json databaseId --jq '.[0].databaseId // empty' || true)
+            if [ -n "$RUN_ID" ]; then
+              echo "Dispatched napi-build run: $RUN_ID"
+              break
+            fi
+            echo "napi-build run not visible yet (attempt $i/12), waiting 5s..."
+            sleep 5
+          done
+          if [ -z "$RUN_ID" ]; then
+            echo "::warning::Could not capture the dispatched napi-build run id; publish job will fall back to polling npm."
+          fi
+          echo "napi_run_id=$RUN_ID" >> "$GITHUB_OUTPUT"
 
   publish:
     needs: release-please
     if: ${{ needs.release-please.outputs.release_created }}
     runs-on: ubuntu-latest
+    # Hard ceiling: worst case is a ~45 min uncached native build watch plus npm
+    # indexing lag. Cap the job so a hung run can't sit for the 6h default.
+    timeout-minutes: 95
     permissions:
       contents: read
       id-token: write
+      actions: read # needed by `gh run watch` to read the napi-build run status
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -62,23 +97,53 @@ jobs:
       - name: Build
         run: pnpm build
 
-      # The SDK depends on @vibecook/spaghetti-sdk-native — which is published
-      # by napi-build.yml, dispatched concurrently above. npm registry indexing
-      # can take several minutes after publish, so poll until the matching
-      # version is visible before publishing the SDK.
-      - name: Wait for @vibecook/spaghetti-sdk-native on npm
+      # RELEASE GATE — the SDK and CLI depend on @vibecook/spaghetti-sdk-native
+      # at install time, so we must NEVER publish them unless that native package
+      # is actually on npm. napi-build.yml (dispatched by the release-please job)
+      # builds and publishes it concurrently.
+      #
+      # Fast-fail: if we captured the dispatched napi-build run id, watch it.
+      # `gh run watch --exit-status` returns non-zero when the run concludes in
+      # failure, so a broken native build aborts the release here instead of
+      # waiting out the npm poll below. Bound it with `timeout` (45 min — uncached
+      # fat-LTO builds are slow) so a hung run can't block forever. If we could
+      # not capture the run id, we skip straight to the npm poll, which is the
+      # real precondition anyway.
+      - name: Wait for native build to succeed
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          set -euo pipefail
+          RUN_ID="${{ needs.release-please.outputs.napi_run_id }}"
+          if [ -z "$RUN_ID" ]; then
+            echo "::warning::No napi-build run id captured; skipping run watch and relying on the npm presence gate below."
+            exit 0
+          fi
+          echo "Watching napi-build run $RUN_ID (allowing up to 45 min for an uncached build)..."
+          if ! timeout 2700 gh run watch "$RUN_ID" --repo "${{ github.repository }}" --exit-status --interval 15; then
+            echo "::error::napi-build run $RUN_ID failed or did not finish within 45 min. Refusing to publish SDK/CLI."
+            exit 1
+          fi
+
+      # Final gate: presence on npm is the TRUE precondition — poll for the
+      # matching native version (covers npm indexing lag, and a long build in the
+      # fallback path where no run id was captured) and FAIL the release on
+      # timeout. This step must never publish when the native package is absent.
+      - name: Require @vibecook/spaghetti-sdk-native on npm
+        run: |
+          set -euo pipefail
           VERSION=$(node -p "require('./packages/sdk/package.json').version")
-          echo "Waiting for @vibecook/spaghetti-sdk-native@${VERSION} on npm..."
-          for i in $(seq 1 30); do
+          echo "Confirming @vibecook/spaghetti-sdk-native@${VERSION} is on npm before publishing..."
+          for i in $(seq 1 90); do
             if npm view "@vibecook/spaghetti-sdk-native@${VERSION}" version 2>/dev/null; then
               echo "Found @vibecook/spaghetti-sdk-native@${VERSION}"
               exit 0
             fi
-            echo "Attempt $i/30 — not yet available, waiting 30s..."
+            echo "Attempt $i/90 — not yet available, waiting 30s..."
             sleep 30
           done
-          echo "::warning::@vibecook/spaghetti-sdk-native@${VERSION} not found after 15 min. Publishing anyway."
+          echo "::error::@vibecook/spaghetti-sdk-native@${VERSION} not found after 45 min. Refusing to publish SDK/CLI (they would install a missing native dependency)."
+          exit 1
 
       # Use `pnpm publish`, not `npm publish`, so that `workspace:*`
       # dependency specifiers get rewritten to concrete version ranges in
