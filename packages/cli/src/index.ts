@@ -87,6 +87,9 @@ export function createProgram(): Command {
     { name: 'chat', alias: 'c', description: 'Chat with active Claude Code sessions' },
     { name: 'plugin', alias: '', description: 'Manage spaghetti Claude Code plugins' },
     { name: 'doctor', alias: '', description: 'Health check for spaghetti, plugins, and data paths' },
+    { name: 'engine', alias: '', description: 'Show or switch the active ingest engine (ts | rs)' },
+    { name: 'uninstall', alias: '', description: 'Show uninstall instructions' },
+    { name: 'update', alias: '', description: 'Check for updates and install the latest version' },
   ];
 
   // Default action: catch unknown commands.

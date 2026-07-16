@@ -668,7 +668,7 @@ export function ChatView(): React.ReactElement {
       <Box flexDirection="column">
         <Header breadcrumb={breadcrumbLabel} />
         <Box paddingLeft={1}>
-          <Text dimColor>Connecting to active sessions\u2026</Text>
+          <Text dimColor>Connecting to active sessions…</Text>
         </Box>
       </Box>
     );
@@ -725,8 +725,7 @@ export function ChatView(): React.ReactElement {
       <Box>
         <Text>
           {' '}
-          {inputPrompt}{' '}
-          {inputBuffer.length === 0 ? <Text dimColor>Type a message\u2026</Text> : <Text>{inputBuffer}</Text>}
+          {inputPrompt} {inputBuffer.length === 0 ? <Text dimColor>Type a message…</Text> : <Text>{inputBuffer}</Text>}
           <Text inverse> </Text>
         </Text>
       </Box>

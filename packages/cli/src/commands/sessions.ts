@@ -10,6 +10,7 @@ import { renderTable } from '../lib/table.js';
 import type { Column } from '../lib/table.js';
 import { resolveProject, suggestProjects } from '../lib/resolve.js';
 import { noProjectMatch } from '../lib/error.js';
+import { resolveLimit } from '../lib/limit.js';
 
 export interface SessionsOptions {
   sort?: string;
@@ -121,7 +122,7 @@ export async function sessionsCommand(
 
   // Limit
   if (!opts.all) {
-    const limit = opts.limit ?? 20;
+    const limit = resolveLimit(opts.limit, 20);
     sessions = sessions.slice(0, limit);
   }
 
