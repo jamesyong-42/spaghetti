@@ -22,6 +22,8 @@ import type { SettingsFile } from '../../types/index.js';
 import { useSpaghettiAPI } from '../context.js';
 
 type SettingsSnapshot = {
+  /** API identity the snapshot was read from — a provider swap must invalidate. */
+  api: unknown;
   seq: number;
   settings: SettingsFile | null;
 };
@@ -71,10 +73,10 @@ export function useLiveSettings(): SettingsFile | null {
 
   const getSnapshot = useCallback((): SettingsSnapshot => {
     const cached = cacheRef.current;
-    if (cached && cached.seq === localSeqRef.current) {
+    if (cached && cached.api === api && cached.seq === localSeqRef.current) {
       return cached;
     }
-    const next: SettingsSnapshot = { seq: localSeqRef.current, settings: readSettings(api) };
+    const next: SettingsSnapshot = { api, seq: localSeqRef.current, settings: readSettings(api) };
     cacheRef.current = next;
     return next;
   }, [api]);

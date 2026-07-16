@@ -4,8 +4,12 @@ export function formatTokenCount(count: number): string {
   return String(count);
 }
 
-export function formatRelativeTime(dateStr: string): string {
-  const now = Date.now();
+/**
+ * @param nowMs - Reference "now" in epoch ms. Pass a fixed value when
+ *   server-rendering so hydration re-renders produce identical text.
+ */
+export function formatRelativeTime(dateStr: string, nowMs?: number): string {
+  const now = nowMs ?? Date.now();
   const then = new Date(dateStr).getTime();
   const diffMs = now - then;
   const diffMins = Math.floor(diffMs / 60_000);

@@ -118,6 +118,7 @@ export interface AgentDataService extends EventEmitter {
     agentId: string,
     limit: number,
     offset: number,
+    workflowId?: string,
   ): PaginatedSegmentResult<SessionMessage>;
 
   search(query: SearchQuery): SearchResultSet;

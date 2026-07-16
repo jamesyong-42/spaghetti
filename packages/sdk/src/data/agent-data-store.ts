@@ -75,6 +75,7 @@ export interface AgentDataStore {
     agentId: string,
     limit: number,
     offset: number,
+    workflowId?: string,
   ): { messages: unknown[]; total: number; offset: number; hasMore: boolean };
 
   // ── Details ──────────────────────────────────────────────────────────────
@@ -275,8 +276,9 @@ export class AgentDataStoreImpl implements AgentDataStore {
     agentId: string,
     limit: number,
     offset: number,
+    workflowId?: string,
   ): { messages: unknown[]; total: number; offset: number; hasMore: boolean } {
-    return this.queryService.getSubagentMessages(slug, sessionId, agentId, limit, offset);
+    return this.queryService.getSubagentMessages(slug, sessionId, agentId, limit, offset, workflowId);
   }
 
   // ── Details ────────────────────────────────────────────────────────────

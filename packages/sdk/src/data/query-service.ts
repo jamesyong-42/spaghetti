@@ -52,6 +52,7 @@ export interface QueryService {
     agentId: string,
     limit: number,
     offset: number,
+    workflowId?: string,
   ): { messages: unknown[]; total: number; offset: number; hasMore: boolean };
 
   // Workflows (agent-orchestration runs)
@@ -460,13 +461,29 @@ class QueryServiceImpl implements QueryService {
     agentId: string,
     limit: number,
     offset: number,
+    workflowId?: string,
   ): { messages: unknown[]; total: number; offset: number; hasMore: boolean } {
-    const row = this.db.get<SubagentMessagesRow>(
-      'SELECT messages FROM subagents WHERE project_slug = ? AND session_id = ? AND agent_id = ?',
-      slug,
-      sessionId,
-      agentId,
-    );
+    // The subagents key is (project_slug, session_id, workflow_id, agent_id):
+    // the same agent_id can exist top-level (workflow_id = '') AND under a
+    // workflow. With an explicit workflowId we match exactly; without one,
+    // prefer the top-level transcript deterministically instead of letting
+    // SQLite pick an arbitrary row.
+    const row =
+      workflowId !== undefined
+        ? this.db.get<SubagentMessagesRow>(
+            'SELECT messages FROM subagents WHERE project_slug = ? AND session_id = ? AND agent_id = ? AND workflow_id = ?',
+            slug,
+            sessionId,
+            agentId,
+            workflowId,
+          )
+        : this.db.get<SubagentMessagesRow>(
+            `SELECT messages FROM subagents WHERE project_slug = ? AND session_id = ? AND agent_id = ?
+             ORDER BY CASE WHEN workflow_id = '' THEN 0 ELSE 1 END, workflow_id LIMIT 1`,
+            slug,
+            sessionId,
+            agentId,
+          );
 
     if (!row) {
       return { messages: [], total: 0, offset, hasMore: false };

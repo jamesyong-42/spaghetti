@@ -181,13 +181,18 @@ export interface SpaghettiAPI {
   /** Get the subagents that ran under a specific workflow */
   getWorkflowSubagents(projectSlug: string, sessionId: string, workflowId: string): SubagentListItem[];
 
-  /** Get paginated subagent messages */
+  /**
+   * Get paginated subagent messages. Pass `workflowId` to disambiguate when
+   * the same agentId ran both top-level and under a workflow (`''` = the
+   * top-level transcript); without it the top-level transcript wins.
+   */
   getSubagentMessages(
     projectSlug: string,
     sessionId: string,
     agentId: string,
     limit?: number,
     offset?: number,
+    workflowId?: string,
   ): SubagentMessagePage;
 
   /** Full-text search across all segments */

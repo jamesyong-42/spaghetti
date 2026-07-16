@@ -221,6 +221,11 @@ export function createChannelClient(sessionInfo: SessionInfo, options?: ChannelC
       // handleClose resets connectPromise to null so the next call can try again.
       if (connectPromise) return connectPromise;
       manuallyClosed = false;
+      // An explicit connect() is a fresh start: clear any exhausted
+      // backoff budget so a client that gave up after
+      // MAX_RECONNECT_ATTEMPTS can be revived by its manager (e.g. when
+      // the session heartbeat reappears) instead of staying dead.
+      reconnectAttempts = 0;
       connectPromise = openSocket();
       return connectPromise;
     },

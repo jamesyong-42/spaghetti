@@ -88,12 +88,11 @@ class SpaghettiAppService extends EventEmitter implements SpaghettiAPI {
   }
 
   shutdown(): void {
-    try {
-      this.runtimeBridge?.stop();
-    } catch {
-      /* ignore */
-    }
-    this.dataService.shutdown();
+    // Delegate to the properly sequenced async teardown (fire-and-forget):
+    // the live pipeline must fully stop before SQLite closes, or an
+    // in-flight writeBatch races a closed handle. Callers that need to
+    // observe completion use dispose().
+    void this.dispose().catch(() => {});
   }
 
   /**
@@ -192,8 +191,9 @@ class SpaghettiAppService extends EventEmitter implements SpaghettiAPI {
     agentId: string,
     limit = 30,
     offset = 0,
+    workflowId?: string,
   ): SubagentMessagePage {
-    const result = this.dataService.getSubagentMessages(projectSlug, sessionId, agentId, limit, offset);
+    const result = this.dataService.getSubagentMessages(projectSlug, sessionId, agentId, limit, offset, workflowId);
     return {
       messages: result.segments.map((s) => s.data),
       total: result.total,
