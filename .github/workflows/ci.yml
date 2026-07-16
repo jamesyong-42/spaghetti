@@ -29,8 +29,13 @@ jobs:
         run: pnpm build
       - name: Typecheck
         run: pnpm typecheck
+      # Run BOTH the SDK and CLI suites (test:packages). The `@vibecook/spaghetti`
+      # filter alone matched only the CLI. The SDK suite needs the built native
+      # addon + better-sqlite3, both present here: `pnpm build` above ran
+      # `pnpm -r build` (which builds the native crate) and better-sqlite3 is a
+      # root devDependency installed by the frozen-lockfile step.
       - name: Test
-        run: pnpm --filter @vibecook/spaghetti test
+        run: pnpm test:packages
       - name: Ingest diff (small fixture)
         if: matrix.os == 'ubuntu-latest'
         run: pnpm test:ingest-diff
