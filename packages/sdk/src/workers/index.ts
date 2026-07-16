@@ -12,6 +12,7 @@ export type {
   WorkerSessionResult,
   WorkerMessageBatch,
   WorkerSubagentResult,
+  WorkerWorkflowResult,
   WorkerToolResultResult,
   WorkerFileHistoryResult,
   WorkerTodoResult,
