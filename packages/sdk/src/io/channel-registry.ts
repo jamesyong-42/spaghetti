@@ -145,11 +145,12 @@ export function createChannelRegistry(options?: ChannelRegistryOptions): Channel
       // Seed current state.
       refresh();
 
-      // realpathSync first: on Windows, handing fs.watch an 8.3 short-form
-      // path trips a fatal libuv assertion that aborts the process.
+      // realpathSync.native first: on Windows, handing fs.watch an 8.3
+      // short-form path trips a fatal libuv assertion that aborts the
+      // process. Only the .native variant expands short names.
       let watchDir = sessionsDir;
       try {
-        watchDir = realpathSync(sessionsDir);
+        watchDir = realpathSync.native(sessionsDir);
       } catch {
         // Keep the raw path — watch() below has its own error handling.
       }
