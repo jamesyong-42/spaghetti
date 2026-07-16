@@ -6,7 +6,9 @@
 
 use serde_json::Value;
 
-/// FTS/preview text cap — matches Claude extractor + TS Codex.
+use crate::core::text::truncate_utf16;
+
+/// FTS/preview text cap in UTF-16 code units — matches Claude extractor + TS.
 const MAX_TEXT_LENGTH: usize = 2_000;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -17,15 +19,22 @@ pub struct MessageProjection {
     pub fts_text: Option<String>,
 }
 
+/// One parsed `token_count` event.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TokenCount {
+    pub input: u64,
+    pub output: u64,
+    pub cache_creation: u64,
+    pub cache_read: u64,
+    /// True when these came from `last_token_usage` (a per-turn delta); false
+    /// when they fell back to cumulative `total_token_usage`. The reader clears
+    /// its last-assistant pointer after a total-only count so a subsequent
+    /// total-only count isn't re-attributed to the same assistant.
+    pub from_last: bool,
+}
+
 fn truncate(text: &str) -> &str {
-    if text.len() <= MAX_TEXT_LENGTH {
-        return text;
-    }
-    let mut end = MAX_TEXT_LENGTH;
-    while end > 0 && !text.is_char_boundary(end) {
-        end -= 1;
-    }
-    &text[..end]
+    truncate_utf16(text, MAX_TEXT_LENGTH)
 }
 
 fn extract_text(content: &Value) -> String {
@@ -92,9 +101,11 @@ pub fn project_jsonl_line(line: &str) -> Result<Option<MessageProjection>, serde
     }))
 }
 
-/// Parse `event_msg` / `token_count` → (input, output, cache_creation, cache_read).
-/// Prefers `last_token_usage`; falls back to `total_token_usage`.
-pub fn parse_token_count(line: &str) -> Option<(u64, u64, u64, u64)> {
+/// Parse an `event_msg` / `token_count` record. Prefers the per-turn
+/// `last_token_usage`; falls back to cumulative `total_token_usage`. The
+/// returned [`TokenCount::from_last`] records which source was used so the
+/// reader can avoid re-applying a cumulative total to the same assistant.
+pub fn parse_token_count(line: &str) -> Option<TokenCount> {
     let value: Value = serde_json::from_str(line).ok()?;
     if value.get("type").and_then(Value::as_str) != Some("event_msg") {
         return None;
@@ -104,22 +115,28 @@ pub fn parse_token_count(line: &str) -> Option<(u64, u64, u64, u64)> {
         return None;
     }
     let info = payload.get("info")?.as_object()?;
-    let map_usage = |raw: &Value| -> Option<(u64, u64, u64, u64)> {
+    let map_usage = |raw: &Value, from_last: bool| -> Option<TokenCount> {
         let o = raw.as_object()?;
         let pick = |k: &str| o.get(k).and_then(Value::as_u64).unwrap_or(0);
         let input = pick("input_tokens");
         let cached = pick("cached_input_tokens");
         let output = pick("output_tokens");
         let reasoning = pick("reasoning_output_tokens");
-        Some((input, output + reasoning, 0, cached))
+        Some(TokenCount {
+            input,
+            output: output + reasoning,
+            cache_creation: 0,
+            cache_read: cached,
+            from_last,
+        })
     };
     if let Some(last) = info.get("last_token_usage") {
-        if let Some(u) = map_usage(last) {
+        if let Some(u) = map_usage(last, true) {
             return Some(u);
         }
     }
     if let Some(total) = info.get("total_token_usage") {
-        return map_usage(total);
+        return map_usage(total, false);
     }
     None
 }
@@ -169,10 +186,36 @@ mod tests {
             }
           }
         }"#;
-        let (i, o, c, r) = parse_token_count(line).unwrap();
-        assert_eq!(i, 10);
-        assert_eq!(o, 8); // 5+3
-        assert_eq!(c, 0);
-        assert_eq!(r, 2);
+        let tc = parse_token_count(line).unwrap();
+        assert_eq!(tc.input, 10);
+        assert_eq!(tc.output, 8); // 5+3
+        assert_eq!(tc.cache_creation, 0);
+        assert_eq!(tc.cache_read, 2);
+        assert!(tc.from_last, "last_token_usage present -> from_last");
+    }
+
+    #[test]
+    fn parses_total_only_token_count_marks_not_from_last() {
+        // No last_token_usage — falls back to cumulative total; from_last=false
+        // signals the reader to clear its last-assistant pointer.
+        let line = r#"{
+          "type":"event_msg",
+          "payload":{
+            "type":"token_count",
+            "info":{
+              "total_token_usage":{
+                "input_tokens":100,
+                "cached_input_tokens":9,
+                "output_tokens":40,
+                "reasoning_output_tokens":10
+              }
+            }
+          }
+        }"#;
+        let tc = parse_token_count(line).unwrap();
+        assert_eq!(tc.input, 100);
+        assert_eq!(tc.output, 50); // 40+10
+        assert_eq!(tc.cache_read, 9);
+        assert!(!tc.from_last, "total-only fallback -> not from_last");
     }
 }

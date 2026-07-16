@@ -15,6 +15,8 @@
 pub mod event;
 pub mod jsonl;
 pub mod schema;
+pub mod text;
+pub mod timefmt;
 pub mod writer;
 
 pub use event::IngestEvent;

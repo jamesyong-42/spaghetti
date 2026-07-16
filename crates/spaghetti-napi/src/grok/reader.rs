@@ -303,9 +303,8 @@ fn read_session_meta(chat_history_file: &Path) -> Option<SessionMeta> {
     }
     let session_id = session_id?;
 
-    if title.len() > FIRST_PROMPT_MAX {
-        title = title.chars().take(FIRST_PROMPT_MAX).collect();
-    }
+    // 200 UTF-16 code units, matching TS `title.slice(0, FIRST_PROMPT_MAX)`.
+    title = crate::core::text::truncate_utf16(&title, FIRST_PROMPT_MAX).to_owned();
 
     Some(SessionMeta {
         cwd,
@@ -470,18 +469,12 @@ fn file_stats(path: &Path) -> (f64, u64) {
     }
 }
 
+/// Epoch-ms → ISO 8601, matching JS `new Date(ms).toISOString()` (3-digit ms
+/// fraction + trailing `Z`). Shared with the Claude/Codex readers so all three
+/// engines format session timestamps identically — `time`'s `Rfc3339` trims
+/// trailing fractional zeros, which JS never does.
 fn ms_to_iso(mtime_ms: f64) -> String {
-    let secs = (mtime_ms / 1000.0).floor() as u64;
-    let ms = (mtime_ms % 1000.0).floor() as u32;
-    use time::OffsetDateTime;
-    match OffsetDateTime::from_unix_timestamp(secs as i64) {
-        Ok(dt) => {
-            let dt = dt + time::Duration::milliseconds(ms as i64);
-            dt.format(&time::format_description::well_known::Rfc3339)
-                .unwrap_or_default()
-        }
-        Err(_) => String::new(),
-    }
+    crate::core::timefmt::epoch_ms_to_iso8601(mtime_ms)
 }
 
 #[cfg(test)]

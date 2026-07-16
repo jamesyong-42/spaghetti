@@ -307,6 +307,12 @@ ON CONFLICT(path) DO UPDATE SET
 /// fingerprints when one source re-ingests (Phase B).
 const SQL_CLEAR_SOURCE_FILES: &str = "DELETE FROM source_files WHERE source_id = ?";
 
+/// Synthetic slug for the transaction that batches the tail-of-stream
+/// `Fingerprint` writes. `run` commits (rather than rolls back) the open
+/// transaction on channel close when it carries this slug — every other open
+/// transaction on close is a partial project that must be rolled back.
+const FINGERPRINT_TX_SLUG: &str = "<fingerprints>";
+
 /// Scoped entity wipe for Codex/Grok full re-read (orphans + extract bumps).
 const SQL_CLEAR_SOURCE_MESSAGES: &str = "DELETE FROM messages WHERE source_id = ?";
 const SQL_CLEAR_SOURCE_SESSIONS: &str = "DELETE FROM sessions WHERE source_id = ?";
@@ -457,10 +463,16 @@ impl Writer {
             self.handle_event(ev)?;
         }
 
-        // Channel closed with an open transaction — roll it back; we
-        // cannot know whether the project finished cleanly.
+        // Channel closed. The fingerprint tail batch has no explicit
+        // ProjectComplete, so commit it here; any *other* open transaction is
+        // a partial project (the parser died before ProjectComplete) whose
+        // rows must not persist, so roll it back.
         if self.in_transaction {
-            self.rollback_transaction();
+            if self.current_slug.as_deref() == Some(FINGERPRINT_TX_SLUG) {
+                self.commit_transaction()?;
+            } else {
+                self.rollback_transaction();
+            }
         }
 
         Ok(self.stats)
@@ -599,14 +611,14 @@ impl Writer {
                     self.stats.projects_processed = self.stats.projects_processed.saturating_add(1);
                     self.current_slug = None;
                 }
-                // `ClearSourceFiles` runs outside a transaction (matching
-                // the pre-refactor behaviour): the writer has just
-                // committed any open project tx above, and the upcoming
-                // fingerprint stream opens its own implicit tx via the
-                // `<orphan>` slug on the first Fingerprint event.
-                // Scoped to this writer's source so multi-source indexes
-                // keep other agents' fingerprints (Phase B).
-                // Fingerprints only — Claude emits this *after* entity writes.
+                // The DELETE runs as its own autocommit statement: the writer
+                // has just committed any open project tx above, and the
+                // fingerprint upserts that follow open their own dedicated
+                // batch transaction (see the `Fingerprint` arm, committed by
+                // `run` at channel close). Scoped to this writer's source so
+                // multi-source indexes keep other agents' fingerprints
+                // (Phase B). Fingerprints only — Claude emits this *after*
+                // entity writes.
                 self.conn
                     .execute(SQL_CLEAR_SOURCE_FILES, params![self.source_id])?;
             }
@@ -632,13 +644,21 @@ impl Writer {
 
             IngestEvent::Fingerprint { .. } => {
                 // Fingerprints are orchestrator-emitted at the tail of the
-                // stream, after all per-project events. Commit any open
-                // project transaction first so fingerprints land in their
-                // own batch.
-                if self.in_transaction {
+                // stream, after all per-project events and the
+                // ClearSourceFiles marker. Batch every fingerprint upsert into
+                // one dedicated transaction (committed by `run` at channel
+                // close) instead of one autocommit per row.
+                if self.in_transaction && self.current_slug.as_deref() != Some(FINGERPRINT_TX_SLUG)
+                {
+                    // Defensive: a still-open project tx (ClearSourceFiles
+                    // normally already closed it). Commit before opening the
+                    // fingerprint batch.
                     self.commit_transaction()?;
                     self.stats.projects_processed = self.stats.projects_processed.saturating_add(1);
                     self.current_slug = None;
+                }
+                if !self.in_transaction {
+                    self.begin_transaction(FINGERPRINT_TX_SLUG)?;
                 }
                 let _counts = dispatch_event(&self.conn, &ev, &self.source_id)?;
             }
@@ -1443,6 +1463,50 @@ mod tests {
             )
             .unwrap();
         assert_eq!(agent_type, "task");
+    }
+
+    /// Fingerprints arrive as a tail batch (after ClearSourceFiles, with no
+    /// ProjectComplete). They must be wrapped in one transaction that commits
+    /// on channel close — not one autocommit per row, and not rolled back.
+    #[test]
+    fn fingerprints_are_batched_and_committed_on_close() {
+        fn fingerprint_event(path: &str) -> IngestEvent {
+            IngestEvent::Fingerprint {
+                path: path.into(),
+                mtime_ms: 123.0,
+                size: 10,
+                byte_position: Some(10),
+                category: "session".into(),
+                project_slug: Some("p".into()),
+                session_id: Some("s".into()),
+            }
+        }
+
+        let mut w = fresh_writer();
+        let (tx, rx) = unbounded::<IngestEvent>();
+        // A committed project first, then the fingerprint tail.
+        tx.send(IngestEvent::Project {
+            slug: "p1".into(),
+            original_path: "/tmp/p1".into(),
+            sessions_index_json: "{}".into(),
+        })
+        .unwrap();
+        tx.send(IngestEvent::ProjectComplete {
+            slug: "p1".into(),
+            duration_ms: 0,
+        })
+        .unwrap();
+        tx.send(IngestEvent::ClearSourceFiles).unwrap();
+        tx.send(fingerprint_event("/abs/a.jsonl")).unwrap();
+        tx.send(fingerprint_event("/abs/b.jsonl")).unwrap();
+        drop(tx);
+
+        w.run(rx).expect("run");
+        assert_eq!(
+            count(&w.conn, "source_files"),
+            2,
+            "fingerprint batch must commit on channel close"
+        );
     }
 
     /// Full bulk-ingest roundtrip on a file-backed DB: `open_for_bulk_ingest`

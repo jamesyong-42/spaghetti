@@ -155,6 +155,10 @@ pub struct AssistantMessagePayload {
     pub stop_reason: Option<String>,
     #[serde(default)]
     pub stop_sequence: Option<String>,
+    /// Absent on API-error assistant lines (no model turn completed), so a
+    /// missing `message.usage` must not fail the typed parse — that would
+    /// null the line's FTS text and drop it from subagent transcripts.
+    #[serde(default)]
     pub usage: TokenUsage,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub context_management: Option<ContextManagement>,

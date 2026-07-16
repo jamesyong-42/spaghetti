@@ -335,6 +335,10 @@ pub enum ToolUseResult {
 pub struct AssistantMessage {
     #[serde(flatten)]
     pub base: BaseMessageFields,
+    /// Absent on some API-error assistant lines; a missing `requestId` must
+    /// not fail the typed parse (which would null FTS + drop the line from
+    /// subagent transcripts). Defaults to an empty string.
+    #[serde(default)]
     pub request_id: String,
     pub message: AssistantMessagePayload,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -356,8 +360,18 @@ pub struct AssistantMessage {
 // Variant: system
 // ─────────────────────────────────────────────────────────────────────────
 
-/// System messages carry a `subtype` field that further discriminates them.
-/// We flatten `BaseMessageFields` in, then tag on `subtype`.
+/// System messages carry a `subtype` that further discriminates them, but the
+/// only field the ingest pipeline reads is the top-level `content` prose (for
+/// FTS, regardless of subtype — matching the TS extractor). We therefore keep
+/// `base` / `level` / `is_meta` typed and stash everything else (`subtype`,
+/// `content`, and any subtype-specific payload) verbatim in `extra`.
+///
+/// This deliberately does NOT model `subtype` as an internally-tagged enum:
+/// such an enum requires the `subtype` field to be present, so a system line
+/// with a *missing* `subtype` failed the whole parse (and `#[serde(other)]`
+/// only catches unknown *values*, never absence) — nulling the line's FTS
+/// text. The flat shape parses a missing or unknown subtype without error and
+/// round-trips the extra keys.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SystemMessage {
     #[serde(flatten)]
@@ -366,146 +380,21 @@ pub struct SystemMessage {
     pub level: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub is_meta: Option<bool>,
+    /// `subtype`, `content`, and any subtype-specific fields, kept verbatim so
+    /// re-serialization (subagent transcripts) preserves them.
     #[serde(flatten)]
-    pub payload: SystemMessagePayload,
+    pub extra: serde_json::Map<String, Value>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "subtype", rename_all = "snake_case")]
-pub enum SystemMessagePayload {
-    StopHookSummary(StopHookSummary),
-    TurnDuration(TurnDuration),
-    ApiError(ApiErrorPayload),
-    CompactBoundary(CompactBoundary),
-    MicrocompactBoundary(MicrocompactBoundary),
-    LocalCommand(LocalCommand),
-    BridgeStatus(BridgeStatus),
-    AwaySummary(AwaySummary),
-    Informational(Informational),
-    /// Any `subtype` this build doesn't model. Without this backstop an
-    /// unknown system subtype fails the whole SystemMessage parse — and
-    /// since `type: "system"` is a known top-level variant, the enum's
-    /// own `#[serde(other)]` never catches it, so the line's FTS text is
-    /// nulled. Keep this last.
-    #[serde(other)]
-    Unknown,
-}
-
-/// `away_summary` — recap prose shown on return to an idle session.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct AwaySummary {
-    #[serde(default)]
-    pub content: String,
-}
-
-/// `informational` — free-form informational system line.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Informational {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub content: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct StopHookSummary {
-    #[serde(default)]
-    pub hook_count: u64,
-    #[serde(default)]
-    pub hook_infos: Vec<HookInfo>,
-    #[serde(default)]
-    pub hook_errors: Vec<Value>,
-    #[serde(default)]
-    pub prevented_continuation: bool,
-    #[serde(default)]
-    pub stop_reason: String,
-    #[serde(default)]
-    pub has_output: bool,
-    #[serde(default, rename = "toolUseID")]
-    pub tool_use_id: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct HookInfo {
-    pub command: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct TurnDuration {
-    #[serde(default)]
-    pub duration_ms: f64,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub message_count: Option<u64>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ApiErrorPayload {
-    #[serde(default)]
-    pub cause: Value,
-    #[serde(default)]
-    pub error: Value,
-    #[serde(default)]
-    pub retry_in_ms: f64,
-    #[serde(default)]
-    pub retry_attempt: u64,
-    #[serde(default)]
-    pub max_retries: u64,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct CompactBoundary {
-    #[serde(default)]
-    pub content: String,
-    #[serde(default)]
-    pub logical_parent_uuid: String,
-    pub compact_metadata: CompactMetadata,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CompactMetadata {
-    #[serde(default)]
-    pub trigger: String,
-    #[serde(default, rename = "preTokens")]
-    pub pre_tokens: u64,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct MicrocompactBoundary {
-    #[serde(default)]
-    pub content: String,
-    pub microcompact_metadata: MicrocompactMetadata,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct MicrocompactMetadata {
-    #[serde(default)]
-    pub trigger: String,
-    #[serde(default)]
-    pub pre_tokens: u64,
-    #[serde(default)]
-    pub tokens_saved: u64,
-    #[serde(default)]
-    pub compacted_tool_ids: Vec<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct LocalCommand {
-    #[serde(default)]
-    pub content: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct BridgeStatus {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub url: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub content: Option<String>,
+impl SystemMessage {
+    /// The top-level `content` prose string, when present and a string.
+    ///
+    /// TS indexes this for FTS on any system message regardless of subtype
+    /// (`away_summary` recap, `local_command`, compact boundaries, …). A
+    /// non-string `content` yields `None` rather than failing.
+    pub fn content_str(&self) -> Option<&str> {
+        self.extra.get("content").and_then(|v| v.as_str())
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -642,7 +531,11 @@ pub struct SavedHookContextMessage {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SummaryMessage {
+    #[serde(default)]
     pub summary: String,
+    /// Some summary lines omit `leafUuid`; a missing value must not fail the
+    /// parse (which would null the summary's FTS text). Defaults to empty.
+    #[serde(default)]
     pub leaf_uuid: String,
 }
 

@@ -276,12 +276,15 @@ pub fn compute_diff(
                 diff.added.push(file.clone());
             }
             Some(prior) => {
-                // Size-or-mtime change flags the file as modified — match
-                // the TS `stats.mtimeMs !== fp.mtimeMs || stats.size !== fp.size`
-                // check from `performWarmStart`.
-                let mtime_newer = file.mtime_ms > prior.mtime_ms;
+                // Any mtime delta (not just a newer mtime) or a size change
+                // flags the file as modified — matches the TS check
+                // `stats.mtimeMs !== fp.mtimeMs || stats.size !== fp.size` in
+                // `performWarmStart` (lifecycle-owner.ts). A file whose mtime
+                // moved *backwards* (clock reset, restored-from-backup, git
+                // checkout) still needs re-ingest, which `>` would have missed.
+                let mtime_changed = file.mtime_ms != prior.mtime_ms;
                 let size_diff = file.size != prior.size;
-                if mtime_newer || size_diff {
+                if mtime_changed || size_diff {
                     diff.modified.push(ModifiedFile {
                         path: file.path.clone(),
                         new_mtime_ms: file.mtime_ms,
@@ -628,10 +631,21 @@ fn push_file(
     project_slug: Option<String>,
     session_id: Option<String>,
 ) -> Result<(), FingerprintError> {
-    let meta = fs::metadata(path).map_err(|e| FingerprintError::Io {
-        path: path.to_path_buf(),
-        source: e,
-    })?;
+    // A file enumerated by read_dir can vanish before we stat it (Claude Code
+    // rotates/deletes transcripts concurrently). Treat NotFound as "the file
+    // is absent" — skip it so the diff naturally sees it as deleted — but
+    // surface any other IO error (permissions, etc.) unchanged rather than
+    // aborting the whole ingest.
+    let meta = match fs::metadata(path) {
+        Ok(m) => m,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(e) => {
+            return Err(FingerprintError::Io {
+                path: path.to_path_buf(),
+                source: e,
+            })
+        }
+    };
     let mtime_ms = mtime_to_ms(&meta);
     let size = meta.len();
 
@@ -869,6 +883,50 @@ mod tests {
         let m = &diff.modified[0];
         assert_eq!(m.prior_byte_position, Some(42));
         assert_eq!(m.category, CATEGORY_SESSION);
+    }
+
+    #[test]
+    fn older_on_disk_mtime_flags_file_modified() {
+        // TS uses `!==`, so an mtime that moved *backwards* (stored newer than
+        // disk) must still be flagged modified. The old `>` check reported it
+        // as unchanged, silently skipping re-ingest.
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let projects = tmp.path().join("projects").join("p");
+        let p = projects.join(uuid_jsonl(0));
+        write_file(&p, b"x\n");
+
+        let (mtime, size) = stat_ms_size(&p);
+        let mut stored = HashMap::new();
+        stored.insert(
+            p.to_string_lossy().into_owned(),
+            SourceFingerprint {
+                path: p.to_string_lossy().into_owned(),
+                // Stored mtime is 10s NEWER than the on-disk mtime.
+                mtime_ms: mtime + 10_000.0,
+                size,
+                byte_position: Some(7),
+                category: CATEGORY_SESSION.to_owned(),
+                project_slug: Some("p".to_owned()),
+                session_id: Some(uuid_bare(0)),
+            },
+        );
+
+        let diff = compute_diff(tmp.path(), &stored).expect("diff");
+        assert_eq!(diff.modified.len(), 1, "backwards mtime -> modified");
+        assert_eq!(diff.unchanged_count, 0);
+        assert_eq!(diff.modified[0].prior_byte_position, Some(7));
+    }
+
+    #[test]
+    fn push_file_skips_vanished_file() {
+        // A file that no longer exists when stat'd must be skipped (so the diff
+        // treats it as deleted) rather than aborting the whole scan with an
+        // IO error.
+        let mut out = Vec::new();
+        let missing = PathBuf::from("/no/such/dir/vanished-abcdef.jsonl");
+        push_file(&mut out, &missing, CATEGORY_SESSION, None, None)
+            .expect("NotFound must be skipped, not surfaced as an error");
+        assert!(out.is_empty(), "vanished file must not be recorded");
     }
 
     #[test]

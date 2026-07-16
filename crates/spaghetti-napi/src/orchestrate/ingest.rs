@@ -399,6 +399,19 @@ pub(crate) fn run_ingest(
             )))
         })?;
 
+    // Capture the fingerprint set BEFORE the parse phase reads any file.
+    //
+    // These stats (mtime + size + byte_position=None) become the stored
+    // `source_files` rows. Stat'ing *after* parsing (the previous behaviour)
+    // is a TOCTOU bug: if Claude Code appends to a JSONL between our read and
+    // the post-parse stat, we'd record the larger post-append size as
+    // "ingested" even though we only parsed up to the pre-append point — so
+    // the next warm start sees no change and the appended bytes are lost.
+    // Pre-parse stats mean any concurrent append shows up as a size/mtime
+    // change on the next warm start and gets re-ingested.
+    let empty_store: HashMap<String, SourceFingerprint> = HashMap::new();
+    let pre_parse_diff = fingerprint::compute_diff(&resolved.root_dir, &empty_store)?;
+
     // Serialize per-project event streams onto the shared channel so the
     // writer sees each project's events contiguously. Without this, events
     // from N parallel parsers interleave, forcing the writer to commit+
@@ -449,15 +462,14 @@ pub(crate) fn run_ingest(
             .collect()
     });
 
-    // Emit fingerprints for every tracked file we saw. The writer clears
-    // source_files first so stale fingerprints from prior runs (for files
-    // that no longer exist) don't linger. `compute_diff` with an empty
-    // store returns every discovered file in `added`, which is exactly
-    // the set we need to fingerprint.
-    let empty_store: HashMap<String, SourceFingerprint> = HashMap::new();
-    let diff = fingerprint::compute_diff(&resolved.root_dir, &empty_store)?;
+    // Emit fingerprints for every tracked file we saw, using the stats
+    // captured BEFORE the parse phase (see `pre_parse_diff` above). The writer
+    // clears source_files first so stale fingerprints from prior runs (for
+    // files that no longer exist) don't linger. `compute_diff` with an empty
+    // store returns every discovered file in `added`, which is exactly the
+    // set we need to fingerprint.
     let _ = sender.send(IngestEvent::ClearSourceFiles);
-    for discovered in diff.added {
+    for discovered in pre_parse_diff.added {
         let ev = IngestEvent::Fingerprint {
             path: discovered.path,
             mtime_ms: discovered.mtime_ms,
