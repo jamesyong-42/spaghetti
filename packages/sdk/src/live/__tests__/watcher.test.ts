@@ -230,6 +230,9 @@ describe('createParcelWatcher (RFC 005 C2.1)', () => {
       ignore: ['**/*.ignore-me'],
       recursive: true,
     });
+    // Warm-up beat: subscribe resolving does not guarantee the backend
+    // is delivering yet on every platform (see the delete test above).
+    await new Promise((r) => setTimeout(r, 100));
 
     const ignored = path.join(realTempDir, 'secret.ignore-me');
     const visible = path.join(realTempDir, 'visible.txt');

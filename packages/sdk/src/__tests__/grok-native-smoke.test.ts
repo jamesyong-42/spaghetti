@@ -60,7 +60,16 @@ describe('Grok native cold ingest smoke', { skip: !native }, () => {
     // directory while the SQLite handle is still open (EPERM), and the
     // retry knobs absorb transient locks from AV scanners.
     await spaghetti.dispose();
-    rmSync(tempDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+    try {
+      rmSync(tempDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+    } catch (err) {
+      // On Windows the rs-engine path can keep the DB handle alive
+      // marginally longer than dispose() (native connection teardown is
+      // not synchronously observable from JS). A leaked tmpdir is
+      // preferable to a red suite whose assertions all passed — but keep
+      // it loud so a real regression stays visible.
+      console.warn(`[grok-native-smoke] temp dir not removed: ${String(err)}`);
+    }
   });
 
   test('progress mentions native Grok ingest', () => {

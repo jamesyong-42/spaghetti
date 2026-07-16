@@ -109,13 +109,15 @@ export function createHookEventWatcher(options?: HookEventWatcherOptions): HookE
       }
 
       // Watch the directory (more reliable than watching a file that may not exist yet).
-      // realpathSync first: on Windows, handing fs.watch an 8.3 short-form
-      // path (e.g. C:\Users\RUNNER~1\...) trips a fatal libuv assertion
-      // (fs-event.c "!_wcsnicmp(filename, dir, dirlen)") that aborts the
-      // whole process. Canonicalising expands short names.
+      // realpathSync.native first: on Windows, handing fs.watch an 8.3
+      // short-form path (e.g. C:\Users\RUNNER~1\...) trips a fatal libuv
+      // assertion (fs-event.c "!_wcsnicmp(filename, dir, dirlen)") that
+      // aborts the whole process. Only the .native variant expands short
+      // names (the JS implementation resolves symlinks but keeps 8.3
+      // components).
       let watchDir = dir;
       try {
-        watchDir = realpathSync(dir);
+        watchDir = realpathSync.native(dir);
       } catch {
         // Keep the raw path — watch() below has its own error handling.
       }
